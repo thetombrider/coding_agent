@@ -66,8 +66,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     backgroundColor: theme.bg,
   });
 
-  if (process.stdout.isTTY) process.stdout.write(SET_TERMINAL_COLORS);
-
   await render(
     () =>
       App({
@@ -77,6 +75,17 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       }),
     renderer,
   );
+
+  // Set the terminal's default fg/bg AFTER OpenTUI has switched to the alternate
+  // screen (done in native setup during render), so the emulator paints its
+  // window padding with the theme color instead of its own default. Re-assert on
+  // the next tick in case the initial frame races the screen switch.
+  if (process.stdout.isTTY) {
+    process.stdout.write(SET_TERMINAL_COLORS);
+    setTimeout(() => {
+      if (process.stdout.isTTY) process.stdout.write(SET_TERMINAL_COLORS);
+    }, 50);
+  }
 
   if (config.initialMessage) {
     queueMicrotask(() => {
