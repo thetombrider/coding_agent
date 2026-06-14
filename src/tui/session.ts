@@ -7,22 +7,7 @@ import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
-
-import { terminalBg, terminalFg } from "./theme.js";
-
-const RESET = "\x1b[0m";
-
-function applyTerminalTheme(): void {
-  const { r: br, g: bg, b: bb } = terminalBg;
-  const { r: fr, g: fg, b: fb } = terminalFg;
-  process.stdout.write(
-    `\x1b[48;2;${br};${bg};${bb}m\x1b[38;2;${fr};${fg};${fb}m\x1b[2J\x1b[H`,
-  );
-}
-
-function resetTerminalTheme(): void {
-  process.stdout.write(RESET);
-}
+import { enterTuiTerminal, exitTuiTerminal } from "./terminal-modes.js";
 
 export interface TuiSessionConfig {
   ctx: AgentContext;
@@ -37,7 +22,7 @@ export interface TuiSessionConfig {
 }
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
-  applyTerminalTheme();
+  enterTuiTerminal();
   const controller = createSessionController(config.meta);
 
   let resolveExit!: () => void;
@@ -80,10 +65,14 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       onExit: () => {
         resolveExit();
         unmount();
-        resetTerminalTheme();
       },
     }),
-    { patchConsole: false },
+    {
+      patchConsole: false,
+      // Full-frame redraw; incremental + manual alt screen can leave scrollback on some terminals.
+      incrementalRendering: false,
+      alternateScreen: false,
+    },
   );
 
   if (config.initialMessage) {
@@ -92,9 +81,13 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     });
   }
 
-  await exitPromise;
-  await waitUntilExit();
-  resetTerminalTheme();
+  try {
+    await exitPromise;
+    await waitUntilExit();
+  } finally {
+    exitTuiTerminal();
+  }
+
   return config.ctx;
 }
 

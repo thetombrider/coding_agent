@@ -8,6 +8,7 @@ type Block =
   | { type: "code"; lang: string; body: string }
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "blockquote"; lines: string[] }
+  | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "rule" };
 
 type InlinePart =
@@ -85,6 +86,18 @@ export function parseBlocks(source: string): Block[] {
       continue;
     }
 
+    if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1]!)) {
+      const headers = parseTableRow(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && isTableRow(lines[i]!)) {
+        rows.push(parseTableRow(lines[i]!));
+        i += 1;
+      }
+      blocks.push({ type: "table", headers, rows });
+      continue;
+    }
+
     const para: string[] = [line];
     i += 1;
     while (i < lines.length && lines[i]!.trim() !== "" && !isBlockStart(lines[i]!)) {
@@ -104,8 +117,46 @@ function isBlockStart(line: string): boolean {
     || /^>\s?/.test(line)
     || /^(\s*)[-*+]\s+/.test(line)
     || /^\d+\.\s+/.test(line)
+    || isTableRow(line)
     || /^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())
   );
+}
+
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2;
+}
+
+function isTableSeparator(line: string): boolean {
+  const trimmed = line.trim();
+  if (!isTableRow(trimmed)) return false;
+  return trimmed
+    .slice(1, -1)
+    .split("|")
+    .every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function parseTableRow(line: string): string[] {
+  return line
+    .trim()
+    .slice(1, -1)
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function plainTextLength(text: string): number {
+  return parseInline(text).reduce((sum, part) => sum + part.value.length, 0);
+}
+
+function tableColumnWidths(headers: string[], rows: string[][]): number[] {
+  const count = headers.length;
+  return Array.from({ length: count }, (_, col) => {
+    const lengths = [
+      plainTextLength(headers[col] ?? ""),
+      ...rows.map((row) => plainTextLength(row[col] ?? "")),
+    ];
+    return Math.max(3, ...lengths);
+  });
 }
 
 export function parseInline(source: string): InlinePart[] {
@@ -188,6 +239,57 @@ function Inline({ text }: { text: string }) {
   );
 }
 
+function TableRow({
+  cells,
+  widths,
+  header = false,
+}: {
+  cells: string[];
+  widths: number[];
+  header?: boolean;
+}) {
+  return (
+    <Text>
+      <Text color={theme.border}>│ </Text>
+      {cells.map((cell, index) => {
+        const width = widths[index] ?? 3;
+        const pad = Math.max(0, width - plainTextLength(cell));
+        return (
+          <Text key={index}>
+            <Text bold={header} color={header ? theme.heading : theme.fg}>
+              <Inline text={cell} />
+            </Text>
+            {" ".repeat(pad)}
+            {index < cells.length - 1 ? (
+              <Text color={theme.border}> │ </Text>
+            ) : null}
+          </Text>
+        );
+      })}
+      <Text color={theme.border}> │</Text>
+    </Text>
+  );
+}
+
+function TableBlock({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  const widths = tableColumnWidths(headers, rows);
+  const divider = `├${widths.map((w) => "─".repeat(w + 2)).join("┼")}┤`;
+  const top = `┌${widths.map((w) => "─".repeat(w + 2)).join("┬")}┐`;
+  const bottom = `└${widths.map((w) => "─".repeat(w + 2)).join("┴")}┘`;
+
+  return (
+    <Box flexDirection="column" marginY={1}>
+      <Text color={theme.border}>{top}</Text>
+      <TableRow cells={headers} widths={widths} header />
+      <Text color={theme.border}>{divider}</Text>
+      {rows.map((row, index) => (
+        <TableRow key={index} cells={row} widths={widths} />
+      ))}
+      <Text color={theme.border}>{bottom}</Text>
+    </Box>
+  );
+}
+
 function renderBlock(block: Block, index: number): ReactNode {
   switch (block.type) {
     case "heading": {
@@ -249,6 +351,12 @@ function renderBlock(block: Block, index: number): ReactNode {
       return (
         <Box key={index} marginY={1}>
           <Text color={theme.border}>{"─".repeat(40)}</Text>
+        </Box>
+      );
+    case "table":
+      return (
+        <Box key={index}>
+          <TableBlock headers={block.headers} rows={block.rows} />
         </Box>
       );
     case "paragraph":

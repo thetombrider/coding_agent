@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { ToolEntry, Turn } from "./controller.js";
+import { sliceAssistantLines, type TurnViewSlice } from "./scroll.js";
 import { DiffView } from "./diff.js";
 import { Markdown } from "./markdown.js";
 import { theme } from "./theme.js";
@@ -56,18 +57,43 @@ function ToolLine({ entry }: { entry: ToolEntry }) {
   );
 }
 
-export function TurnView({ turn }: { turn: Turn }) {
+export function TurnView({
+  turn,
+  slice,
+  width,
+}: {
+  turn: Turn;
+  slice?: TurnViewSlice;
+  width: number;
+}) {
+  const showUser = slice ? slice.showUser : Boolean(turn.userText);
+  const toolEntries = slice
+    ? slice.toolIndices.map((i) => turn.tools[i]!).filter(Boolean)
+    : turn.tools;
+  const assistantText = turn.assistantText
+    ? slice
+      ? sliceAssistantLines(
+        turn.assistantText,
+        slice.assistantStartLine,
+        slice.assistantEndLine,
+        width,
+      )
+    : turn.assistantText
+    : "";
+
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box marginBottom={1}>
-        <Text bold color={theme.user}>{turn.userText}</Text>
-      </Box>
-      {turn.tools.map((entry) => (
+      {showUser && turn.userText ? (
+        <Box marginBottom={1}>
+          <Text bold color={theme.user}>{turn.userText}</Text>
+        </Box>
+      ) : null}
+      {toolEntries.map((entry) => (
         <ToolLine key={entry.id} entry={entry} />
       ))}
-      {turn.assistantText ? (
-        <Box marginTop={turn.tools.length ? 1 : 0} flexDirection="column">
-          <Markdown content={turn.assistantText} />
+      {assistantText ? (
+        <Box marginTop={toolEntries.length ? 1 : 0} flexDirection="column">
+          <Markdown content={assistantText} />
         </Box>
       ) : null}
     </Box>

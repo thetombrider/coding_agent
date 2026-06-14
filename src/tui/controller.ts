@@ -39,6 +39,14 @@ export interface SessionState {
   pendingApproval: PendingApproval | null;
   input: string;
   statusHint: string;
+  /** Top line of the message viewport when not following tail. */
+  scrollAnchorLine: number | null;
+  followTail: boolean;
+}
+
+export interface ScrollLayout {
+  totalLines: number;
+  viewportLines: number;
 }
 
 export type SessionListener = (state: SessionState) => void;
@@ -57,6 +65,9 @@ export interface SessionController {
   clearInput: () => void;
   setStatusHint: (hint: string) => void;
   clearHistory: () => void;
+  scrollUpLines: (layout: ScrollLayout, count?: number) => void;
+  scrollDownLines: (layout: ScrollLayout, count?: number) => void;
+  scrollToBottom: () => void;
 }
 
 export function createSessionController(meta: SessionMeta): SessionController {
@@ -69,7 +80,9 @@ export function createSessionController(meta: SessionMeta): SessionController {
     phase: "input",
     pendingApproval: null,
     input: "",
-    statusHint: "Type a message · /exit to quit",
+    statusHint: "↑↓ scroll · trackpad scrolls here · End latest · /exit to quit",
+    scrollAnchorLine: null,
+    followTail: true,
   };
 
   const listeners = new Set<SessionListener>();
@@ -123,6 +136,8 @@ export function createSessionController(meta: SessionMeta): SessionController {
         currentTools: [],
         phase: "running",
         statusHint: "Working…",
+        scrollAnchorLine: null,
+        followTail: true,
       });
     },
 
@@ -141,7 +156,9 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingText: "",
         currentTools: [],
         phase: "input",
-        statusHint: "Type a message · /exit to quit",
+        statusHint: defaultHint(state.scrollAnchorLine),
+        scrollAnchorLine: null,
+        followTail: true,
       });
     },
 
@@ -152,7 +169,9 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingText: "",
         currentTools: [],
         phase: "input",
-        statusHint: "History cleared",
+        statusHint: defaultHint(null),
+        scrollAnchorLine: null,
+        followTail: true,
       });
     },
 
@@ -177,9 +196,10 @@ export function createSessionController(meta: SessionMeta): SessionController {
     },
 
     handleEvent(event) {
+      const tailPatch = state.followTail ? { scrollAnchorLine: null } : {};
       switch (event.type) {
         case "text_delta":
-          update({ streamingText: state.streamingText + event.text });
+          update({ streamingText: state.streamingText + event.text, ...tailPatch });
           break;
         case "assistant_message":
           update({
@@ -187,6 +207,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
               .filter((c): c is { type: "text"; text: string } => c.type === "text")
               .map((c) => c.text)
               .join(""),
+            ...tailPatch,
           });
           break;
         case "approval_required":
@@ -202,7 +223,12 @@ export function createSessionController(meta: SessionMeta): SessionController {
             args: event.args,
             status: "running",
           });
-          update({ pendingApproval: null, phase: "running", statusHint: "Working…" });
+          update({
+            pendingApproval: null,
+            phase: "running",
+            statusHint: "Working…",
+            ...tailPatch,
+          });
           break;
         case "tool_end":
           upsertTool(event.id, {
@@ -211,6 +237,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
             status: event.isError ? "error" : "done",
             output: event.output,
           });
+          if (state.followTail) update({ scrollAnchorLine: null });
           break;
         case "loop_end":
           break;
@@ -237,5 +264,55 @@ export function createSessionController(meta: SessionMeta): SessionController {
         statusHint: "Working…",
       });
     },
+
+    scrollUpLines(layout, count = 3) {
+      const start = scrollStart(state, layout);
+      const next = Math.max(0, start - count);
+      update({
+        followTail: false,
+        scrollAnchorLine: next,
+        statusHint: scrollHint(next, layout.totalLines, layout.viewportLines),
+      });
+    },
+
+    scrollDownLines(layout, count = 3) {
+      const start = scrollStart(state, layout);
+      const maxStart = Math.max(0, layout.totalLines - layout.viewportLines);
+      const next = Math.min(maxStart, start + count);
+      const atBottom = next >= maxStart;
+      update({
+        scrollAnchorLine: atBottom ? null : next,
+        followTail: atBottom,
+        statusHint: atBottom ? defaultHint(null) : scrollHint(next, layout.totalLines, layout.viewportLines),
+      });
+    },
+
+    scrollToBottom() {
+      update({
+        scrollAnchorLine: null,
+        followTail: true,
+        statusHint: defaultHint(null),
+      });
+    },
   };
+}
+
+function scrollStart(
+  state: SessionState,
+  layout: ScrollLayout,
+): number {
+  const maxStart = Math.max(0, layout.totalLines - layout.viewportLines);
+  if (state.followTail) return maxStart;
+  return Math.min(Math.max(0, state.scrollAnchorLine ?? 0), maxStart);
+}
+
+function defaultHint(_anchor: number | null): string {
+  return "↑↓ scroll · trackpad scrolls here · End latest · /exit to quit";
+}
+
+function scrollHint(anchorLine: number, totalLines: number, viewportLines: number): string {
+  const maxStart = Math.max(0, totalLines - viewportLines);
+  if (anchorLine <= 0 || anchorLine >= maxStart) return defaultHint(anchorLine);
+  const pct = maxStart > 0 ? Math.round((anchorLine / maxStart) * 100) : 0;
+  return `${pct}% up · End latest · /exit to quit`;
 }

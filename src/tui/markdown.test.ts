@@ -26,4 +26,22 @@ describe("parseBlocks", () => {
       items: ["one", "two"],
     });
   });
+
+  it("parses markdown tables", () => {
+    const source = [
+      "| Folder | Purpose |",
+      "|--------|---------|",
+      "| src/ | Source code |",
+      "| dist/ | Compiled `tsc` output |",
+    ].join("\n");
+    const blocks = parseBlocks(source);
+    expect(blocks[0]).toEqual({
+      type: "table",
+      headers: ["Folder", "Purpose"],
+      rows: [
+        ["src/", "Source code"],
+        ["dist/", "Compiled `tsc` output"],
+      ],
+    });
+  });
 });
