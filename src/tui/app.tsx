@@ -4,6 +4,7 @@ import { useKeyboard } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { SessionController, SessionState, Turn } from "./controller.js";
 import { theme } from "./theme.js";
+import { useSpinnerClock } from "./spinner.js";
 import { ApprovalBar, Header, TurnView } from "./views.js";
 
 const BOLD = createTextAttributes({ bold: true });
@@ -27,6 +28,7 @@ export function App(props: {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
   onCleanup(props.controller.subscribe(setState));
+  useSpinnerClock();
 
   let scrollRef: ScrollBoxRenderable | undefined;
   let inputRef: InputRenderable | undefined;
@@ -108,8 +110,8 @@ export function App(props: {
         contentOptions={{ flexDirection: "column" }}
       >
         <Show when={hasContent()} fallback={<text fg={theme.fg}>Ask anything about this codebase.</text>}>
-          <For each={completed()}>{(turn) => <TurnView turn={turn} />}</For>
-          <Show when={live()}>{(turn) => <TurnView turn={turn()} />}</Show>
+          <For each={completed()}>{(turn, i) => <TurnView turn={turn} first={i() === 0} />}</For>
+          <Show when={live()}>{(turn) => <TurnView turn={turn()} first={completed().length === 0} />}</Show>
         </Show>
       </scrollbox>
 

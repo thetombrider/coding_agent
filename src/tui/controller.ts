@@ -61,6 +61,34 @@ export interface SessionController {
 
 const IDLE_HINT = "scroll wheel / PgUp · End jumps to latest · /exit to quit";
 
+const TOOL_VERBS: Record<string, string> = {
+  read: "Reading",
+  write: "Writing",
+  edit: "Editing",
+  bash: "Running",
+  grep: "Searching",
+  find: "Finding",
+  ls: "Listing",
+  delegate_read: "Delegating read of",
+};
+
+/** Build a descriptive status hint for a running tool, e.g. "Reading src/foo.ts…". */
+function toolStatusHint(name: string, args: unknown): string {
+  const verb = TOOL_VERBS[name] ?? `Running ${name}`;
+  let detail = "";
+  if (args && typeof args === "object") {
+    const r = args as Record<string, unknown>;
+    for (const key of ["path", "command", "pattern", "task"] as const) {
+      if (typeof r[key] === "string") {
+        detail = r[key] as string;
+        break;
+      }
+    }
+  }
+  if (detail.length > 48) detail = `${detail.slice(0, 45)}…`;
+  return detail ? `${verb} ${detail}…` : `${verb}…`;
+}
+
 export function createSessionController(meta: SessionMeta): SessionController {
   let state: SessionState = {
     meta,
@@ -207,7 +235,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
           update({
             pendingApproval: null,
             phase: "running",
-            statusHint: "Working…",
+            statusHint: toolStatusHint(event.name, event.args),
           });
           break;
         case "tool_end":
