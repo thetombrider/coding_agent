@@ -7,7 +7,14 @@ import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
-import { theme } from "./theme.js";
+import { terminalBg, terminalFg, theme } from "./theme.js";
+
+const hex2 = (n: number) => n.toString(16).padStart(2, "0");
+const osc = (code: number, c: { r: number; g: number; b: number }) =>
+  `\x1b]${code};rgb:${hex2(c.r)}/${hex2(c.g)}/${hex2(c.b)}\x07`;
+/** Set the terminal's default fg/bg so the emulator's padding matches the theme. */
+const SET_TERMINAL_COLORS = osc(11, terminalBg) + osc(10, terminalFg);
+const RESET_TERMINAL_COLORS = "\x1b]111\x07\x1b]110\x07";
 
 export interface TuiSessionConfig {
   ctx: AgentContext;
@@ -59,6 +66,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     backgroundColor: theme.bg,
   });
 
+  if (process.stdout.isTTY) process.stdout.write(SET_TERMINAL_COLORS);
+
   await render(
     () =>
       App({
@@ -79,6 +88,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     await exitPromise;
   } finally {
     renderer.destroy();
+    if (process.stdout.isTTY) process.stdout.write(RESET_TERMINAL_COLORS);
   }
 
   return config.ctx;

@@ -40,13 +40,33 @@ function styled(node: StyledText): JSX.Element {
   return node as unknown as JSX.Element;
 }
 
+/**
+ * Inline chunks for a table cell. Renders bold/italic/code styling but keeps
+ * each chunk's width equal to its plain-text length (no padding around code),
+ * so column widths and the right border stay aligned. Header cells are bold.
+ */
+function cellChunks(cell: string, header: boolean): TextChunk[] {
+  return parseInline(cell).map((part) => {
+    if (header) return fg(theme.heading)(bold(part.value));
+    switch (part.kind) {
+      case "bold":
+        return fg(theme.fg)(bold(part.value));
+      case "italic":
+        return fg(theme.fg)(italic(part.value));
+      case "code":
+        return bg(theme.codeBg)(fg(theme.codeFg)(bold(part.value)));
+      default:
+        return fg(theme.fg)(part.value);
+    }
+  });
+}
+
 function rowText(cells: string[], widths: number[], header: boolean): StyledText {
   const sep = (s: string) => fg(theme.border)(s);
   const chunks: TextChunk[] = [sep("│ ")];
   cells.forEach((cell, index) => {
-    const color = header ? theme.heading : theme.fg;
-    chunks.push(header ? fg(color)(bold(cell)) : fg(color)(cell));
-    chunks.push(fg(color)(" ".repeat(Math.max(0, (widths[index] ?? 3) - plainTextLength(cell)))));
+    chunks.push(...cellChunks(cell, header));
+    chunks.push(fg(theme.fg)(" ".repeat(Math.max(0, (widths[index] ?? 3) - plainTextLength(cell)))));
     chunks.push(sep(index < cells.length - 1 ? " │ " : " │"));
   });
   return new StyledText(chunks);
