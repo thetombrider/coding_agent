@@ -7,10 +7,25 @@ import { theme } from "./theme.js";
 import { useSpinnerClock } from "./spinner.js";
 import { ApprovalBar, Header, TurnView } from "./views.js";
 import { processCommand } from "./commands.js";
-import { coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
+import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { KNOWN_MAIN_MODELS } from "../config/models.js";
 
 const BOLD = createTextAttributes({ bold: true });
+
+const SLASH_COMMANDS = [
+  { name: "model", label: "/model", description: "switch model" },
+  { name: "mode", label: "/mode", description: "set approval mode" },
+  { name: "clear", label: "/clear", description: "clear conversation" },
+  { name: "help", label: "/help", description: "show help" },
+  { name: "exit", label: "/exit", description: "quit" },
+] as const;
+
+type CommandName = (typeof SLASH_COMMANDS)[number]["name"];
+
+type PaletteState =
+  | { phase: "commands"; index: number }
+  | { phase: "model"; index: number }
+  | { phase: "mode"; index: number };
 
 function currentTurn(state: SessionState): Turn | null {
   if (!state.currentUserText && !state.streamingText && state.currentTools.length === 0) {
@@ -32,6 +47,7 @@ export function App(props: {
 }) {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
+  const [palette, setPalette] = createSignal<PaletteState | null>(null);
   onCleanup(props.controller.subscribe(setState));
   useSpinnerClock();
 
@@ -42,7 +58,89 @@ export function App(props: {
   const completed = () => state().completedTurns;
   const hasContent = () => completed().length > 0 || live() !== null;
 
+  const filteredCommands = () => {
+    const input = state().input;
+    if (!input.startsWith("/")) return [...SLASH_COMMANDS];
+    const filter = input.slice(1).toLowerCase();
+    if (!filter) return [...SLASH_COMMANDS];
+    return SLASH_COMMANDS.filter((c) => c.name.startsWith(filter));
+  };
+
+  const closePalette = () => {
+    setPalette(null);
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+  };
+
+  const handlePaletteSelect = () => {
+    const p = palette();
+    if (!p) return;
+
+    if (p.phase === "commands") {
+      const cmds = filteredCommands();
+      const cmd = cmds[p.index];
+      if (!cmd) return;
+
+      const name = cmd.name as CommandName;
+
+      if (name === "model") {
+        const currentIdx = KNOWN_MAIN_MODELS.indexOf(state().meta.model);
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        setPalette({ phase: "model", index: Math.max(0, currentIdx) });
+        return;
+      }
+
+      if (name === "mode") {
+        const currentMode = coerceApprovalMode(state().meta.approval) ?? "normal";
+        const currentIdx = APPROVAL_MODES.indexOf(currentMode);
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        setPalette({ phase: "mode", index: Math.max(0, currentIdx) });
+        return;
+      }
+
+      closePalette();
+
+      if (name === "clear") {
+        props.controller.clearHistory();
+      } else if (name === "exit") {
+        props.onExit();
+      } else if (name === "help") {
+        props.controller.setStatusHint(
+          SLASH_COMMANDS.map((c) => `${c.label}: ${c.description}`).join("  ·  "),
+        );
+      }
+      return;
+    }
+
+    if (p.phase === "model") {
+      const model = KNOWN_MAIN_MODELS[p.index];
+      if (model) {
+        setPalette(null);
+        props.onSetModel(model);
+        props.controller.setStatusHint(`model → ${model}`);
+      }
+      return;
+    }
+
+    if (p.phase === "mode") {
+      const mode = APPROVAL_MODES[p.index];
+      if (mode) {
+        setPalette(null);
+        props.onSetMode(mode);
+        props.controller.setStatusHint(`mode → ${APPROVAL_MODE_LABELS[mode]}`);
+      }
+    }
+  };
+
   const handleSubmit = async (raw: string) => {
+    // If palette is open, Enter selects the current item instead of submitting.
+    if (palette() !== null) {
+      handlePaletteSelect();
+      return;
+    }
+
     const text = raw.trim();
     if (inputRef) inputRef.value = "";
     if (!text) return;
@@ -98,6 +196,27 @@ export function App(props: {
     }
   };
 
+  const handleInput = (value: string) => {
+    props.controller.setInput(value);
+    const p = palette();
+
+    if (value.startsWith("/")) {
+      if (p === null) {
+        setPalette({ phase: "commands", index: 0 });
+      } else if (p.phase === "commands") {
+        // Re-clamp index after filter change
+        const cmds = SLASH_COMMANDS.filter((c) => {
+          const filter = value.slice(1).toLowerCase();
+          return !filter || c.name.startsWith(filter);
+        });
+        const clamped = Math.min(p.index, Math.max(0, cmds.length - 1));
+        if (clamped !== p.index) setPalette({ phase: "commands", index: clamped });
+      }
+    } else if (p?.phase === "commands") {
+      setPalette(null);
+    }
+  };
+
   useKeyboard((key) => {
     const phase = state().phase;
 
@@ -110,6 +229,35 @@ export function App(props: {
     if (key.ctrl && key.name === "c") {
       props.onExit();
       return;
+    }
+
+    const p = palette();
+    if (p !== null) {
+      if (key.name === "up") {
+        setPalette({ ...p, index: Math.max(0, p.index - 1) });
+        return;
+      }
+      if (key.name === "down") {
+        const maxIdx =
+          p.phase === "commands"
+            ? Math.max(0, filteredCommands().length - 1)
+            : p.phase === "model"
+              ? KNOWN_MAIN_MODELS.length - 1
+              : APPROVAL_MODES.length - 1;
+        setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
+        return;
+      }
+      if (key.name === "escape") {
+        if (p.phase === "model" || p.phase === "mode") {
+          // Go back to command list
+          setPalette({ phase: "commands", index: 0 });
+        } else {
+          closePalette();
+        }
+        return;
+      }
+      // Swallow all other special keys when palette is open so they don't scroll.
+      if (key.name !== undefined) return;
     }
 
     if (!scrollRef) return;
@@ -157,6 +305,86 @@ export function App(props: {
       </Show>
 
       <box flexShrink={0} flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
+        <Show when={palette()}>
+          {(p) => (
+            <box
+              flexShrink={0}
+              flexDirection="column"
+              marginBottom={1}
+              paddingLeft={1}
+              paddingRight={1}
+              paddingTop={0}
+              paddingBottom={0}
+              borderStyle="rounded"
+              border
+              borderColor={theme.border}
+              backgroundColor={theme.codeBg}
+            >
+              <Show when={p().phase === "commands"}>
+                <For each={filteredCommands()}>
+                  {(cmd, i) => {
+                    const selected = () => (p() as { phase: "commands"; index: number }).index === i();
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{cmd.label}
+                        </text>
+                        <text fg={theme.secondary}>  {cmd.description}</text>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "model"}>
+                <For each={KNOWN_MAIN_MODELS}>
+                  {(model, i) => {
+                    const selected = () => (p() as { phase: "model"; index: number }).index === i();
+                    const isCurrent = () => model === state().meta.model;
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{model}
+                        </text>
+                        <Show when={isCurrent()}>
+                          <text fg={theme.secondary}>  (current)</text>
+                        </Show>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "mode"}>
+                <For each={APPROVAL_MODES}>
+                  {(mode, i) => {
+                    const selected = () => (p() as { phase: "mode"; index: number }).index === i();
+                    const isCurrent = () => mode === (coerceApprovalMode(state().meta.approval) ?? "normal");
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{APPROVAL_MODE_LABELS[mode]}
+                        </text>
+                        <Show when={isCurrent()}>
+                          <text fg={theme.secondary}>  (current)</text>
+                        </Show>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <box marginTop={1}>
+                <text fg={theme.secondary}>
+                  {p().phase === "commands"
+                    ? "↑↓ navigate · Enter select · Esc close"
+                    : "↑↓ navigate · Enter select · Esc back"}
+                </text>
+              </box>
+            </box>
+          )}
+        </Show>
+
         <box flexDirection="row">
           <text fg={theme.accent} attributes={BOLD}>› </text>
           <input
@@ -167,7 +395,7 @@ export function App(props: {
             focusedTextColor={theme.fg}
             backgroundColor={theme.bg}
             focusedBackgroundColor={theme.bg}
-            onInput={(value) => props.controller.setInput(value)}
+            onInput={handleInput}
             onSubmit={() => void handleSubmit(inputRef?.value ?? "")}
           />
         </box>
