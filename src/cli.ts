@@ -2,12 +2,13 @@
 
 import "dotenv/config";
 
-import { runLoop, lastAssistantText } from "./agent/loop.js";
+import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
 import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { streamAssistant } from "./provider/stream.js";
 import { getCoreTools } from "./tools/registry.js";
+import { runAgentTui } from "./tui/run.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
 
@@ -19,13 +20,14 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      "Usage: minicoder [--faux] [--agent] [--auto-accept] [--plan] <prompt>",
+      "Usage: minicoder [--faux] [--agent] [--auto-accept] [--plan] [--headless] <prompt>",
     );
     process.exit(1);
   }
 
   const useFaux = flags.has("--faux");
   const agentMode = flags.has("--agent") || useFaux;
+  const headless = flags.has("--headless");
   const autoAcceptCli = flags.has("--auto-accept") || useFaux;
   const approvalMode = flags.has("--plan")
     ? "plan"
@@ -34,13 +36,7 @@ async function main(): Promise<void> {
       : parseApprovalMode();
 
   if (agentMode) {
-    if (!useFaux) {
-      const models = loadModelConfig();
-      process.stderr.write(
-        `[minicoder] model: ${models.main} | approval: ${approvalMode}\n`,
-      );
-    }
-    await runAgent({ prompt, useFaux, approvalMode, autoAcceptCli });
+    await runAgent({ prompt, useFaux, approvalMode, autoAcceptCli, headless });
     return;
   }
 
@@ -81,6 +77,7 @@ async function runAgent(opts: {
   useFaux: boolean;
   approvalMode: ReturnType<typeof parseApprovalMode>;
   autoAcceptCli: boolean;
+  headless: boolean;
 }): Promise<void> {
   const cwd = process.cwd();
   const ctx: AgentContext = {
@@ -108,25 +105,40 @@ async function runAgent(opts: {
     model = defaultMainModel();
   }
 
-  await runLoop(ctx, (event) => {
-    if (event.type === "text_delta") process.stdout.write(event.text);
-    if (event.type === "tool_start") {
-      process.stdout.write(`\n[tool ${event.name}] ${JSON.stringify(event.args)}\n`);
-    }
-    if (event.type === "tool_end" && event.isError) {
-      process.stdout.write(`[tool error] ${event.output}\n`);
-    }
-  }, {
+  const models = loadModelConfig();
+  const system =
+    "You are a coding agent. Use tools to inspect and modify the codebase. Answer concisely.";
+  const loopOpts = {
     provider,
     tools: getCoreTools(),
     model,
-    system: "You are a coding agent. Use tools to inspect and modify the codebase. Answer concisely.",
+    system,
     approvalMode: opts.approvalMode,
     autoAcceptCli: opts.autoAcceptCli,
-  });
+  };
 
-  const answer = lastAssistantText(ctx);
-  if (answer && !answer.endsWith("\n")) process.stdout.write("\n");
+  if (opts.headless) {
+    const { runLoop } = await import("./agent/loop.js");
+    await runLoop(ctx, (event) => {
+      if (event.type === "text_delta") process.stdout.write(event.text);
+      if (event.type === "tool_start") {
+        process.stdout.write(`\n[tool ${event.name}] ${JSON.stringify(event.args)}\n`);
+      }
+      if (event.type === "tool_end" && event.isError) {
+        process.stdout.write(`[tool error] ${event.output}\n`);
+      }
+    }, loopOpts);
+
+    const answer = lastAssistantText(ctx);
+    if (answer && !answer.endsWith("\n")) process.stdout.write("\n");
+    return;
+  }
+
+  const statusLine = opts.useFaux
+    ? `minicoder (faux) | approval: ${opts.approvalMode}`
+    : `minicoder | model: ${models.main} | approval: ${opts.approvalMode}`;
+
+  await runAgentTui({ ctx, ...loopOpts, statusLine });
 }
 
 main().catch((err: unknown) => {
