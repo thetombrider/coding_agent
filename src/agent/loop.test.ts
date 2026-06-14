@@ -28,7 +28,8 @@ describe("runLoop", () => {
       provider,
       tools: getCoreTools().filter((t) => t.name === "read"),
       model: "faux:test",
-      autoAccept: true,
+      approvalMode: "auto-accept",
+      autoAcceptCli: true,
     });
 
     expect(result.messages.some((m) => m.role === "tool")).toBe(true);

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
+import { resolvePath } from "../util/paths.js";
 import { loadToolDescription } from "../util/load-txt.js";
 import type { Tool } from "./types.js";
 
@@ -9,10 +9,6 @@ const schema = z.object({
 });
 
 export type ReadArgs = z.infer<typeof schema>;
-
-function resolvePath(cwd: string, path: string): string {
-  return isAbsolute(path) ? path : resolve(cwd, path);
-}
 
 export const readTool: Tool<ReadArgs> = {
   name: "read",

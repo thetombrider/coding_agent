@@ -1,0 +1,1 @@
+Apply exact text replacements in a file. Each oldText must match exactly once in the original file.

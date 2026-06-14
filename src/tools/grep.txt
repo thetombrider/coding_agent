@@ -1,0 +1,1 @@
+Search file contents for a regex or literal pattern. Prefer this over bash grep.

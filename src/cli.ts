@@ -3,7 +3,8 @@
 import "dotenv/config";
 
 import { runLoop, lastAssistantText } from "./agent/loop.js";
-import { defaultMainModel } from "./provider/openrouter.js";
+import { parseApprovalMode } from "./approval/policy.js";
+import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { streamAssistant } from "./provider/stream.js";
 import { getCoreTools } from "./tools/registry.js";
@@ -17,16 +18,29 @@ async function main(): Promise<void> {
   const prompt = promptParts.join(" ").trim();
 
   if (!prompt) {
-    console.error("Usage: minicoder [--faux] [--agent] [--auto-accept] <prompt>");
+    console.error(
+      "Usage: minicoder [--faux] [--agent] [--auto-accept] [--plan] <prompt>",
+    );
     process.exit(1);
   }
 
   const useFaux = flags.has("--faux");
   const agentMode = flags.has("--agent") || useFaux;
-  const autoAccept = flags.has("--auto-accept") || useFaux;
+  const autoAcceptCli = flags.has("--auto-accept") || useFaux;
+  const approvalMode = flags.has("--plan")
+    ? "plan"
+    : autoAcceptCli
+      ? "auto-accept"
+      : parseApprovalMode();
 
   if (agentMode) {
-    await runAgent({ prompt, useFaux, autoAccept });
+    if (!useFaux) {
+      const models = loadModelConfig();
+      process.stderr.write(
+        `[minicoder] model: ${models.main} | approval: ${approvalMode}\n`,
+      );
+    }
+    await runAgent({ prompt, useFaux, approvalMode, autoAcceptCli });
     return;
   }
 
@@ -65,7 +79,8 @@ async function runOneShotMode(opts: { prompt: string; useFaux: boolean }): Promi
 async function runAgent(opts: {
   prompt: string;
   useFaux: boolean;
-  autoAccept: boolean;
+  approvalMode: ReturnType<typeof parseApprovalMode>;
+  autoAcceptCli: boolean;
 }): Promise<void> {
   const cwd = process.cwd();
   const ctx: AgentContext = {
@@ -105,8 +120,9 @@ async function runAgent(opts: {
     provider,
     tools: getCoreTools(),
     model,
-    system: "You are a coding agent. Use read to inspect files. Answer concisely.",
-    autoAccept: opts.autoAccept,
+    system: "You are a coding agent. Use tools to inspect and modify the codebase. Answer concisely.",
+    approvalMode: opts.approvalMode,
+    autoAcceptCli: opts.autoAcceptCli,
   });
 
   const answer = lastAssistantText(ctx);

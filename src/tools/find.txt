@@ -1,0 +1,1 @@
+Find files by glob pattern (e.g. "**/*.ts", "src/**/*.test.ts").

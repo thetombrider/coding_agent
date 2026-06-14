@@ -1,4 +1,10 @@
 import { tool } from "ai";
+import type { ApprovalMode } from "../approval/policy.js";
+import {
+  isToolBlocked,
+  needsInteractiveApproval,
+} from "../approval/policy.js";
+import { confirmTool } from "../approval/prompt.js";
 import type { AgentEventSink } from "./events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
@@ -10,7 +16,11 @@ export interface RunLoopOptions {
   model: string;
   system?: string;
   signal?: AbortSignal;
+  /** @deprecated use approvalMode + autoAcceptCli */
   autoAccept?: boolean;
+  approvalMode?: ApprovalMode;
+  autoAcceptCli?: boolean;
+  confirm?: (name: string, args: unknown) => Promise<boolean>;
 }
 
 function toolMap(tools: AnyTool[]): Map<string, AnyTool> {
@@ -78,13 +88,33 @@ export async function runLoop(
       }
 
       const args = tool.schema.parse(call.arguments);
+      const mode = options.approvalMode ?? "normal";
+      const autoAcceptCli = options.autoAcceptCli ?? options.autoAccept ?? false;
 
-      if (tool.needsApproval?.(args, ctx) && !options.autoAccept) {
+      if (isToolBlocked(mode, call.name)) {
+        const output = `Tool ${call.name} blocked in plan mode.`;
         emit({ type: "approval_required", id: call.id, name: call.name, args });
-        const output = "Tool execution denied (approval required).";
         ctx.messages.push(toolResultMessage(call.id, output, true));
         emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
         continue;
+      }
+
+      const requiresApproval = needsInteractiveApproval(
+        mode,
+        autoAcceptCli,
+        call.name,
+        tool.needsApproval?.(args, ctx),
+      );
+
+      if (requiresApproval) {
+        emit({ type: "approval_required", id: call.id, name: call.name, args });
+        const approved = await (options.confirm ?? confirmTool)(call.name, args);
+        if (!approved) {
+          const output = "Tool execution denied by user.";
+          ctx.messages.push(toolResultMessage(call.id, output, true));
+          emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+          continue;
+        }
       }
 
       emit({ type: "tool_start", id: call.id, name: call.name, args });

@@ -1,0 +1,1 @@
+Delegate read-heavy work to a cheap model. Provide paths and a question; returns a distilled answer without loading raw file bodies into your context.
