@@ -1,0 +1,31 @@
+{
+  "name": "minicoder",
+  "version": "0.1.0",
+  "description": "Terminal coding agent CLI",
+  "type": "module",
+  "bin": {
+    "minicoder": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.6"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^2.9.1",
+    "ai": "^6.0.205",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  }
+}

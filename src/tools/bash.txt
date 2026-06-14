@@ -1,0 +1,1 @@
+Run a shell command in the workspace. Use for builds, tests, and git — not for reading files (use read).
