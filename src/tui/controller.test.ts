@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createTuiController } from "./controller.js";
+import { createSessionController } from "./controller.js";
 
-describe("createTuiController", () => {
-  it("tracks streaming text and tool lifecycle", () => {
-    const controller = createTuiController("test");
-    const states: ReturnType<typeof controller.getState>[] = [];
-    controller.subscribe((s) => states.push({ ...s, tools: [...s.tools] }));
+describe("createSessionController", () => {
+  const meta = { model: "test/model", approval: "normal", cwd: "/tmp" };
 
-    controller.handleEvent({ type: "text_delta", text: "Hello" });
+  it("tracks a turn lifecycle", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("hello");
+
+    controller.handleEvent({ type: "text_delta", text: "Hi" });
     controller.handleEvent({
       type: "tool_start",
       id: "1",
@@ -20,21 +21,31 @@ describe("createTuiController", () => {
       name: "read",
       output: "ok",
     });
-    controller.handleEvent({ type: "loop_end", reason: "complete" });
+    controller.finalizeTurn();
 
-    const last = states.at(-1)!;
-    expect(last.assistantText).toBe("Hello");
-    expect(last.tools).toHaveLength(1);
-    expect(last.tools[0]?.status).toBe("done");
-    expect(last.loopDone).toBe(true);
+    const state = controller.getState();
+    expect(state.completedTurns).toHaveLength(1);
+    expect(state.completedTurns[0]?.assistantText).toBe("Hi");
+    expect(state.completedTurns[0]?.tools[0]?.status).toBe("done");
+    expect(state.phase).toBe("input");
   });
 
   it("resolves approval via respondApproval", async () => {
-    const controller = createTuiController("test");
+    const controller = createSessionController(meta);
     const pending = controller.requestApproval("bash", { command: "ls" });
-    expect(controller.getState().pendingApproval?.name).toBe("bash");
+    expect(controller.getState().phase).toBe("approval");
     controller.respondApproval(true);
     await expect(pending).resolves.toBe(true);
     expect(controller.getState().pendingApproval).toBeNull();
+  });
+
+  it("manages input buffer", () => {
+    const controller = createSessionController(meta);
+    controller.appendInput("hi");
+    expect(controller.getState().input).toBe("hi");
+    controller.backspaceInput();
+    expect(controller.getState().input).toBe("h");
+    controller.clearInput();
+    expect(controller.getState().input).toBe("");
   });
 });

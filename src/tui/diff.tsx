@@ -1,11 +1,12 @@
 import { Box, Text } from "ink";
+import { theme } from "./theme.js";
 
 function diffColor(line: string): string | undefined {
-  if (line.startsWith("+++") || line.startsWith("---")) return "gray";
-  if (line.startsWith("@@")) return "cyan";
-  if (line.startsWith("+")) return "green";
-  if (line.startsWith("-")) return "red";
-  return undefined;
+  if (line.startsWith("+++") || line.startsWith("---")) return theme.diffMeta;
+  if (line.startsWith("@@")) return theme.muted;
+  if (line.startsWith("+")) return theme.diffAdd;
+  if (line.startsWith("-")) return theme.diffDel;
+  return theme.diffContext;
 }
 
 export function DiffView({ patch }: { patch: string }) {
@@ -15,9 +16,9 @@ export function DiffView({ patch }: { patch: string }) {
   });
 
   return (
-    <Box flexDirection="column" marginLeft={2}>
+    <Box flexDirection="column" marginLeft={2} marginY={0} paddingX={1} backgroundColor={theme.codeBg}>
       {lines.map((line, i) => (
-        <Text key={i} color={diffColor(line)}>
+        <Text key={i} bold={line.startsWith("+") || line.startsWith("-")} color={diffColor(line)}>
           {line}
         </Text>
       ))}

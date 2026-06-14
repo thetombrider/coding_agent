@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../agent/events.js";
 
 export type ToolStatus = "running" | "done" | "error";
+export type SessionPhase = "input" | "running" | "approval";
 
 export interface ToolEntry {
   id: string;
@@ -15,52 +16,80 @@ export interface PendingApproval {
   args: unknown;
 }
 
-export interface TuiState {
+export interface Turn {
+  userText: string;
   assistantText: string;
   tools: ToolEntry[];
-  pendingApproval: PendingApproval | null;
-  loopDone: boolean;
-  loopReason?: "complete" | "terminate" | "error";
-  statusLine: string;
 }
 
-export type TuiListener = (state: TuiState) => void;
+export interface SessionMeta {
+  model: string;
+  approval: string;
+  cwd: string;
+  faux?: boolean;
+}
 
-export interface TuiController {
+export interface SessionState {
+  meta: SessionMeta;
+  completedTurns: Turn[];
+  currentUserText: string;
+  streamingText: string;
+  currentTools: ToolEntry[];
+  phase: SessionPhase;
+  pendingApproval: PendingApproval | null;
+  input: string;
+  statusHint: string;
+}
+
+export type SessionListener = (state: SessionState) => void;
+
+export interface SessionController {
   handleEvent: (event: AgentEvent) => void;
   requestApproval: (name: string, args: unknown) => Promise<boolean>;
   respondApproval: (approved: boolean) => void;
-  subscribe: (listener: TuiListener) => () => void;
-  getState: () => TuiState;
+  subscribe: (listener: SessionListener) => () => void;
+  getState: () => SessionState;
+  beginTurn: (userText: string) => void;
+  finalizeTurn: () => void;
+  setInput: (value: string) => void;
+  appendInput: (char: string) => void;
+  backspaceInput: () => void;
+  clearInput: () => void;
+  setStatusHint: (hint: string) => void;
+  clearHistory: () => void;
 }
 
-export function createTuiController(statusLine: string): TuiController {
-  let state: TuiState = {
-    assistantText: "",
-    tools: [],
+export function createSessionController(meta: SessionMeta): SessionController {
+  let state: SessionState = {
+    meta,
+    completedTurns: [],
+    currentUserText: "",
+    streamingText: "",
+    currentTools: [],
+    phase: "input",
     pendingApproval: null,
-    loopDone: false,
-    statusLine,
+    input: "",
+    statusHint: "Type a message · /exit to quit",
   };
 
-  const listeners = new Set<TuiListener>();
+  const listeners = new Set<SessionListener>();
   let approvalResolver: ((approved: boolean) => void) | null = null;
 
   const notify = () => {
     for (const listener of listeners) listener(state);
   };
 
-  const update = (patch: Partial<TuiState>) => {
+  const update = (patch: Partial<SessionState>) => {
     state = { ...state, ...patch };
     notify();
   };
 
   const upsertTool = (id: string, patch: Partial<ToolEntry> & Pick<ToolEntry, "name" | "args">) => {
-    const idx = state.tools.findIndex((t) => t.id === id);
+    const idx = state.currentTools.findIndex((t) => t.id === id);
     if (idx === -1) {
       update({
-        tools: [
-          ...state.tools,
+        currentTools: [
+          ...state.currentTools,
           {
             id,
             name: patch.name,
@@ -73,9 +102,9 @@ export function createTuiController(statusLine: string): TuiController {
       return;
     }
 
-    const next = [...state.tools];
+    const next = [...state.currentTools];
     next[idx] = { ...next[idx]!, ...patch };
-    update({ tools: next });
+    update({ currentTools: next });
   };
 
   return {
@@ -87,14 +116,74 @@ export function createTuiController(statusLine: string): TuiController {
       return () => listeners.delete(listener);
     },
 
+    beginTurn(userText) {
+      update({
+        currentUserText: userText,
+        streamingText: "",
+        currentTools: [],
+        phase: "running",
+        statusHint: "Working…",
+      });
+    },
+
+    finalizeTurn() {
+      if (!state.currentUserText) return;
+      update({
+        completedTurns: [
+          ...state.completedTurns,
+          {
+            userText: state.currentUserText,
+            assistantText: state.streamingText,
+            tools: state.currentTools,
+          },
+        ],
+        currentUserText: "",
+        streamingText: "",
+        currentTools: [],
+        phase: "input",
+        statusHint: "Type a message · /exit to quit",
+      });
+    },
+
+    clearHistory() {
+      update({
+        completedTurns: [],
+        currentUserText: "",
+        streamingText: "",
+        currentTools: [],
+        phase: "input",
+        statusHint: "History cleared",
+      });
+    },
+
+    setInput(value) {
+      update({ input: value });
+    },
+
+    appendInput(char) {
+      update({ input: state.input + char });
+    },
+
+    backspaceInput() {
+      update({ input: state.input.slice(0, -1) });
+    },
+
+    clearInput() {
+      update({ input: "" });
+    },
+
+    setStatusHint(hint) {
+      update({ statusHint: hint });
+    },
+
     handleEvent(event) {
       switch (event.type) {
         case "text_delta":
-          update({ assistantText: state.assistantText + event.text });
+          update({ streamingText: state.streamingText + event.text });
           break;
         case "assistant_message":
           update({
-            assistantText: event.message.content
+            streamingText: event.message.content
               .filter((c): c is { type: "text"; text: string } => c.type === "text")
               .map((c) => c.text)
               .join(""),
@@ -102,7 +191,9 @@ export function createTuiController(statusLine: string): TuiController {
           break;
         case "approval_required":
           update({
+            phase: "approval",
             pendingApproval: { name: event.name, args: event.args },
+            statusHint: `Approve ${event.name}?  y / n`,
           });
           break;
         case "tool_start":
@@ -111,18 +202,17 @@ export function createTuiController(statusLine: string): TuiController {
             args: event.args,
             status: "running",
           });
-          update({ pendingApproval: null });
+          update({ pendingApproval: null, phase: "running", statusHint: "Working…" });
           break;
         case "tool_end":
           upsertTool(event.id, {
             name: event.name,
-            args: (state.tools.find((t) => t.id === event.id)?.args) ?? {},
+            args: state.currentTools.find((t) => t.id === event.id)?.args ?? {},
             status: event.isError ? "error" : "done",
             output: event.output,
           });
           break;
         case "loop_end":
-          update({ loopDone: true, loopReason: event.reason });
           break;
       }
     },
@@ -130,14 +220,22 @@ export function createTuiController(statusLine: string): TuiController {
     requestApproval(name, args) {
       return new Promise<boolean>((resolve) => {
         approvalResolver = resolve;
-        update({ pendingApproval: { name, args } });
+        update({
+          phase: "approval",
+          pendingApproval: { name, args },
+          statusHint: `Approve ${name}?  y / n`,
+        });
       });
     },
 
     respondApproval(approved) {
       approvalResolver?.(approved);
       approvalResolver = null;
-      update({ pendingApproval: null });
+      update({
+        pendingApproval: null,
+        phase: "running",
+        statusHint: "Working…",
+      });
     },
   };
 }
