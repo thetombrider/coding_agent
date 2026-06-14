@@ -17,7 +17,7 @@ describe("applyExactEdits", () => {
   it("rejects ambiguous matches", () => {
     expect(() =>
       applyExactEdits("foo foo", [{ oldText: "foo", newText: "bar" }]),
-    ).toThrow(/unique/);
+    ).toThrow(/multiple times|edit failed/);
   });
 });
 
