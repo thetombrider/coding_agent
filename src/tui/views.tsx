@@ -1,5 +1,5 @@
-import { bold, createTextAttributes, fg, StyledText } from "@opentui/core";
-import { For, type JSX, Show } from "solid-js";
+import { createTextAttributes } from "@opentui/core";
+import { For, Show } from "solid-js";
 import type { ToolEntry, Turn } from "./controller.js";
 import { DiffView } from "./diff.js";
 import { Markdown } from "./markdown.js";
@@ -7,11 +7,6 @@ import { spinnerFrame } from "./spinner.js";
 import { theme } from "./theme.js";
 
 const BOLD = createTextAttributes({ bold: true });
-
-/** Bridge a StyledText into a <text> child (OpenTUI renders styled runs). */
-function styled(node: StyledText): JSX.Element {
-  return node as unknown as JSX.Element;
-}
 
 export function shortModel(model: string): string {
   const slash = model.lastIndexOf("/");
@@ -53,21 +48,20 @@ function ToolLine(props: { entry: ToolEntry }) {
       : entry().status === "error"
         ? theme.toolError
         : theme.toolDone;
-  // Two-tone line: glyph + tool name in the status accent, the summary dimmer.
-  // A single <text> with StyledText chunks (sibling <text> nodes in a row box
-  // collapse the second to zero width without a flex hint).
-  const line = () => {
-    const label = `${glyph()} ${entry().name}`;
-    const summary = toolSummary(entry().name, entry().args);
-    const head = running() ? fg(accent())(bold(label)) : fg(accent())(label);
-    return new StyledText(
-      summary ? [head, fg(theme.secondary)(`  ${summary}`)] : [head],
-    );
-  };
+  const summary = () => toolSummary(entry().name, entry().args);
 
+  // Two-tone line via sibling <text> nodes in a row. Each <text fg> reliably
+  // colors its run, and plain-string children update on the in-place replaceText
+  // path (a reactive StyledText child instead appends a duplicate on every
+  // re-render of the live turn; <span fg> doesn't apply color at all).
   return (
     <box flexDirection="column" marginLeft={1}>
-      <text wrapMode="word">{styled(line())}</text>
+      <box flexDirection="row">
+        <text fg={accent()} attributes={running() ? BOLD : 0}>{glyph()} {entry().name}</text>
+        <Show when={summary()}>
+          <text fg={theme.secondary}>  {summary()}</text>
+        </Show>
+      </box>
       <Show when={entry().status === "error" && entry().output}>
         <text fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
       </Show>
@@ -90,13 +84,9 @@ export function TurnView(props: { turn: Turn; first?: boolean }) {
         </box>
       </Show>
       <Show when={turn().userText}>
-        <box marginBottom={1}>
-          <text wrapMode="word">
-            {styled(new StyledText([
-              fg(theme.muted)(bold("you  ")),
-              fg(theme.user)(bold(turn().userText)),
-            ]))}
-          </text>
+        <box flexDirection="row" marginBottom={1}>
+          <text fg={theme.muted} attributes={BOLD}>you  </text>
+          <text fg={theme.user} attributes={BOLD} flexGrow={1} wrapMode="word">{turn().userText}</text>
         </box>
       </Show>
       <For each={turn().tools}>{(entry) => <ToolLine entry={entry} />}</For>
