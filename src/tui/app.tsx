@@ -6,6 +6,9 @@ import type { SessionController, SessionState, Turn } from "./controller.js";
 import { theme } from "./theme.js";
 import { useSpinnerClock } from "./spinner.js";
 import { ApprovalBar, Header, TurnView } from "./views.js";
+import { processCommand } from "./commands.js";
+import { coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
+import { KNOWN_MAIN_MODELS } from "../config/models.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -24,6 +27,8 @@ export function App(props: {
   controller: SessionController;
   onSubmit: (text: string) => void | Promise<void>;
   onExit: () => void;
+  onSetModel: (model: string) => void;
+  onSetMode: (mode: ApprovalMode) => void;
 }) {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
@@ -40,16 +45,48 @@ export function App(props: {
   const handleSubmit = async (raw: string) => {
     const text = raw.trim();
     if (inputRef) inputRef.value = "";
-    if (!text || submitting() || state().phase !== "input") return;
+    if (!text) return;
 
+    // Exit must work even while a turn is running.
     if (text === "/exit" || text === "/quit") {
       props.onExit();
       return;
     }
-    if (text === "/clear") {
-      props.controller.clearHistory();
+
+    // Anything else is rejected while the agent is busy.
+    if (submitting() || state().phase !== "input") return;
+
+    if (text.startsWith("/")) {
+      const meta = state().meta;
+      const result = processCommand(text, {
+        currentModel: meta.model,
+        currentMode: coerceApprovalMode(meta.approval) ?? "normal",
+        knownModels: KNOWN_MAIN_MODELS,
+      });
+
       props.controller.clearInput();
-      return;
+      switch (result.type) {
+        case "exit":
+          props.onExit();
+          return;
+        case "clear":
+          props.controller.clearHistory();
+          return;
+        case "set-model":
+          props.onSetModel(result.model);
+          props.controller.setStatusHint(result.message);
+          return;
+        case "set-mode":
+          props.onSetMode(result.mode);
+          props.controller.setStatusHint(result.message);
+          return;
+        case "info":
+        case "error":
+          props.controller.setStatusHint(result.message);
+          return;
+        case "not-command":
+          break; // fall through to run as a normal turn
+      }
     }
 
     props.controller.clearInput();
@@ -125,7 +162,7 @@ export function App(props: {
           <input
             ref={inputRef}
             flexGrow={1}
-            focused={state().phase === "input" && !submitting()}
+            focused={state().phase !== "approval"}
             textColor={theme.fg}
             focusedTextColor={theme.fg}
             backgroundColor={theme.bg}
