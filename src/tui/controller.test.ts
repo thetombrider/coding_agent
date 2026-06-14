@@ -49,18 +49,14 @@ describe("createSessionController", () => {
     expect(controller.getState().input).toBe("");
   });
 
-  it("scrolls history without losing turns", () => {
+  it("retains turns until history is cleared", () => {
     const controller = createSessionController(meta);
     controller.beginTurn("one");
     controller.finalizeTurn();
     controller.beginTurn("two");
     controller.finalizeTurn();
-    const layout = { totalLines: 20, viewportLines: 10 };
-    controller.scrollUpLines(layout, 3);
-    expect(controller.getState().scrollAnchorLine).toBe(7);
-    expect(controller.getState().followTail).toBe(false);
-    controller.scrollToBottom();
-    expect(controller.getState().scrollAnchorLine).toBeNull();
-    expect(controller.getState().followTail).toBe(true);
+    expect(controller.getState().completedTurns).toHaveLength(2);
+    controller.clearHistory();
+    expect(controller.getState().completedTurns).toHaveLength(0);
   });
 });

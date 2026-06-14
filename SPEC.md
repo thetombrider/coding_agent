@@ -272,9 +272,9 @@ Wire-in notes: this is the integration point for **the user's existing delegate-
 - Ref: nanocoder `approval-policy.ts`; opencode `permission/`.
 - **Done when:** in normal mode, `bash`/`write` pause for y/n; auto-accept runs through; plan blocks writes.
 
-### Phase 5 — Ink TUI
-- Replace console renderer with Ink: streaming text, spinner, rendered diffs, approval UI. TUI only subscribes to loop events.
-- Ref: nanocoder `source/components/` and `source/app.tsx`; pi `packages/tui`.
+### Phase 5 — TUI (OpenTUI + SolidJS)
+- Replace console renderer with a TUI: streaming text, rendered diffs, approval UI. TUI only subscribes to loop events.
+- Implemented with **OpenTUI** (`@opentui/core`, Zig-backed renderer) and its **SolidJS** binding (`@opentui/solid`); native scrolling via `<scrollbox>`. Runs on **Bun** (OpenTUI's native FFI requirement); `bun src/cli.ts`.
 - **Done when:** edits render as colored diffs and tool calls show inline status.
 
 ### Phase 6 — Robust edits (fuzzy replacer chain)
@@ -554,7 +554,7 @@ src/
   telemetry/sinks.ts       # MetricEvent + JSONL/stdout/OTel sinks (Phase 12)
   telemetry/install.ts     # observe() subscriptions on the hook registry
   hooks/rtk-rewrite.ts     # before_tool hook: bash cmd -> `rtk cmd` (§2.1)
-  tui/                      # Phase 5 (Ink; OpenTUI alternative — see §2)
+  tui/                      # Phase 5 (OpenTUI + SolidJS, runs on Bun — see §2)
   cli.ts                    # arg parse, mode flags, entrypoint
 ```
 

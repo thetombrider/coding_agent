@@ -1,9 +1,11 @@
-import { Box, Text } from "ink";
+import { createTextAttributes } from "@opentui/core";
+import { For, Show } from "solid-js";
 import type { ToolEntry, Turn } from "./controller.js";
-import { sliceAssistantLines, type TurnViewSlice } from "./scroll.js";
 import { DiffView } from "./diff.js";
 import { Markdown } from "./markdown.js";
 import { theme } from "./theme.js";
+
+const BOLD = createTextAttributes({ bold: true });
 
 export function shortModel(model: string): string {
   const slash = model.lastIndexOf("/");
@@ -28,118 +30,89 @@ export function toolSummary(_name: string, args: unknown): string {
   return json.length > 56 ? `${json.slice(0, 53)}…` : json;
 }
 
-function ToolLine({ entry }: { entry: ToolEntry }) {
-  const showDiff =
-    entry.name === "edit"
-    && entry.status === "done"
-    && entry.output
-    && entry.output.includes("@@");
+function ToolLine(props: { entry: ToolEntry }) {
+  const entry = () => props.entry;
+  const showDiff = () =>
+    entry().name === "edit"
+    && entry().status === "done"
+    && !!entry().output
+    && entry().output!.includes("@@");
 
-  const glyph =
-    entry.status === "running" ? "·"
-    : entry.status === "error" ? "×"
-    : "–";
-  const color =
-    entry.status === "running" ? theme.toolRunning
-    : entry.status === "error" ? theme.toolError
-    : theme.toolDone;
+  const glyph = () =>
+    entry().status === "running" ? "·" : entry().status === "error" ? "×" : "–";
+  const color = () =>
+    entry().status === "running"
+      ? theme.toolRunning
+      : entry().status === "error"
+        ? theme.toolError
+        : theme.toolDone;
 
   return (
-    <Box flexDirection="column" marginLeft={1} marginBottom={0}>
-      <Text bold={entry.status === "running"} color={color}>
-        {glyph} {entry.name} {toolSummary(entry.name, entry.args)}
-      </Text>
-      {entry.status === "error" && entry.output ? (
-        <Text color={theme.toolError}>  {entry.output.split("\n")[0]}</Text>
-      ) : null}
-      {showDiff && entry.output ? <DiffView patch={entry.output} /> : null}
-    </Box>
+    <box flexDirection="column" marginLeft={1}>
+      <text fg={color()} attributes={entry().status === "running" ? BOLD : 0}>
+        {glyph()} {entry().name} {toolSummary(entry().name, entry().args)}
+      </text>
+      <Show when={entry().status === "error" && entry().output}>
+        <text fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
+      </Show>
+      <Show when={showDiff()}>
+        <DiffView patch={entry().output!} />
+      </Show>
+    </box>
   );
 }
 
-export function TurnView({
-  turn,
-  slice,
-  width,
-}: {
-  turn: Turn;
-  slice?: TurnViewSlice;
-  width: number;
-}) {
-  const showUser = slice ? slice.showUser : Boolean(turn.userText);
-  const toolEntries = slice
-    ? slice.toolIndices.map((i) => turn.tools[i]!).filter(Boolean)
-    : turn.tools;
-  const assistantText = turn.assistantText
-    ? slice
-      ? sliceAssistantLines(
-        turn.assistantText,
-        slice.assistantStartLine,
-        slice.assistantEndLine,
-        width,
-      )
-    : turn.assistantText
-    : "";
+export function TurnView(props: { turn: Turn }) {
+  const turn = () => props.turn;
+  const hasTools = () => turn().tools.length > 0;
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      {showUser && turn.userText ? (
-        <Box marginBottom={1}>
-          <Text bold color={theme.user}>{turn.userText}</Text>
-        </Box>
-      ) : null}
-      {toolEntries.map((entry) => (
-        <ToolLine key={entry.id} entry={entry} />
-      ))}
-      {assistantText ? (
-        <Box marginTop={toolEntries.length ? 1 : 0} flexDirection="column">
-          <Markdown content={assistantText} />
-        </Box>
-      ) : null}
-    </Box>
+    <box flexDirection="column" marginBottom={1}>
+      <Show when={turn().userText}>
+        <box marginBottom={1}>
+          <text fg={theme.user} attributes={BOLD}>{turn().userText}</text>
+        </box>
+      </Show>
+      <For each={turn().tools}>{(entry) => <ToolLine entry={entry} />}</For>
+      <Show when={turn().assistantText}>
+        <box flexDirection="column" marginTop={hasTools() ? 1 : 0}>
+          <Markdown content={turn().assistantText} />
+        </box>
+      </Show>
+    </box>
   );
 }
 
-export function Header({ model, approval, cwd }: { model: string; approval: string; cwd: string }) {
-  const home = process.env.HOME;
-  const path = home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
+export function Header(props: { model: string; approval: string; cwd: string }) {
+  const path = () => {
+    const home = process.env.HOME;
+    return home && props.cwd.startsWith(home) ? `~${props.cwd.slice(home.length)}` : props.cwd;
+  };
 
   return (
-    <Box paddingBottom={1}>
-      <Text color={theme.muted} bold>
-        minicoder  {shortModel(model)}  {approval}  {path}
-      </Text>
-    </Box>
+    <box paddingBottom={1}>
+      <text fg={theme.muted} attributes={BOLD}>
+        minicoder  {shortModel(props.model)}  {props.approval}  {path()}
+      </text>
+    </box>
   );
 }
 
-export function PromptLine({
-  value,
-  disabled,
-  hint,
-}: {
-  value: string;
-  disabled: boolean;
-  hint: string;
-}) {
+export function ApprovalBar(props: { name: string; args: unknown }) {
   return (
-    <Box flexDirection="column" marginTop={1} paddingTop={1} borderStyle="single" borderColor={theme.border} borderTop borderBottom={false} borderLeft={false} borderRight={false}>
-      <Text>
-        <Text bold color={theme.accent}>› </Text>
-        <Text bold color={theme.fg}>{value}</Text>
-        {!disabled ? <Text bold color={theme.fg}>▍</Text> : null}
-      </Text>
-      <Text color={theme.secondary}>{hint}</Text>
-    </Box>
-  );
-}
-
-export function ApprovalBar({ name, args }: { name: string; args: unknown }) {
-  return (
-    <Box marginY={1} paddingX={1} backgroundColor={theme.codeBg} borderStyle="round" borderColor={theme.border}>
-      <Text bold color={theme.approval}>
-        allow {name}?  {toolSummary(name, args)}  —  y / n
-      </Text>
-    </Box>
+    <box
+      marginTop={1}
+      marginBottom={1}
+      paddingLeft={1}
+      paddingRight={1}
+      borderStyle="rounded"
+      border
+      borderColor={theme.border}
+      backgroundColor={theme.codeBg}
+    >
+      <text fg={theme.approval} attributes={BOLD}>
+        allow {props.name}?  {toolSummary(props.name, props.args)}  —  y / n
+      </text>
+    </box>
   );
 }

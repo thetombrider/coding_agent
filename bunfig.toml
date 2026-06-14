@@ -1,0 +1,4 @@
+# OpenTUI's native renderer requires Bun's FFI, and @opentui/solid ships a Bun
+# preload that transforms SolidJS JSX on import. Preloading it here lets
+# `bun src/cli.ts` (and `bun run dev`) work without a separate build step.
+preload = ["@opentui/solid/preload"]

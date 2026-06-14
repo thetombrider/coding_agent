@@ -1,5 +1,5 @@
-import { render } from "ink";
-import React from "react";
+import { createCliRenderer } from "@opentui/core";
+import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { ApprovalMode } from "../approval/policy.js";
 import type { StreamAssistantFn } from "../provider/types.js";
@@ -7,7 +7,7 @@ import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
-import { enterTuiTerminal, exitTuiTerminal } from "./terminal-modes.js";
+import { theme } from "./theme.js";
 
 export interface TuiSessionConfig {
   ctx: AgentContext;
@@ -22,7 +22,6 @@ export interface TuiSessionConfig {
 }
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
-  enterTuiTerminal();
   const controller = createSessionController(config.meta);
 
   let resolveExit!: () => void;
@@ -49,30 +48,25 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      controller.handleEvent({
-        type: "text_delta",
-        text: `\nError: ${message}`,
-      });
+      controller.handleEvent({ type: "text_delta", text: `\nError: ${message}` });
     } finally {
       controller.finalizeTurn();
     }
   };
 
-  const { waitUntilExit, unmount } = render(
-    React.createElement(App, {
-      controller,
-      onSubmit: runTurn,
-      onExit: () => {
-        resolveExit();
-        unmount();
-      },
-    }),
-    {
-      patchConsole: false,
-      // Full-frame redraw; incremental + manual alt screen can leave scrollback on some terminals.
-      incrementalRendering: false,
-      alternateScreen: false,
-    },
+  const renderer = await createCliRenderer({
+    exitOnCtrlC: false,
+    backgroundColor: theme.bg,
+  });
+
+  await render(
+    () =>
+      App({
+        controller,
+        onSubmit: runTurn,
+        onExit: resolveExit,
+      }),
+    renderer,
   );
 
   if (config.initialMessage) {
@@ -83,9 +77,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
   try {
     await exitPromise;
-    await waitUntilExit();
   } finally {
-    exitTuiTerminal();
+    renderer.destroy();
   }
 
   return config.ctx;
