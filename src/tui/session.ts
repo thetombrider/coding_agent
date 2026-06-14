@@ -31,10 +31,24 @@ export interface TuiSessionConfig {
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
 
+  // Mutable so /model and /mode take effect on the next turn.
+  let activeModel = config.model;
+  let activeApprovalMode = config.approvalMode;
+
   let resolveExit!: () => void;
   const exitPromise = new Promise<void>((resolve) => {
     resolveExit = resolve;
   });
+
+  const setModel = (model: string) => {
+    activeModel = model;
+    controller.updateMeta({ model });
+  };
+
+  const setApprovalMode = (mode: ApprovalMode) => {
+    activeApprovalMode = mode;
+    controller.updateMeta({ approval: mode });
+  };
 
   const runTurn = async (userText: string) => {
     config.ctx.messages.push({
@@ -47,9 +61,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       await runLoop(config.ctx, controller.handleEvent, {
         provider: config.provider,
         tools: config.tools,
-        model: config.model,
+        model: activeModel,
         system: config.system,
-        approvalMode: config.approvalMode,
+        approvalMode: activeApprovalMode,
         autoAcceptCli: config.autoAcceptCli,
         confirm: controller.requestApproval,
       });
@@ -72,6 +86,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         controller,
         onSubmit: runTurn,
         onExit: resolveExit,
+        onSetModel: setModel,
+        onSetMode: setApprovalMode,
       }),
     renderer,
   );

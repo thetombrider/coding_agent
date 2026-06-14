@@ -57,6 +57,7 @@ export interface SessionController {
   clearInput: () => void;
   setStatusHint: (hint: string) => void;
   clearHistory: () => void;
+  updateMeta: (patch: Partial<SessionMeta>) => void;
 }
 
 const IDLE_HINT = "scroll wheel / PgUp · End jumps to latest · /exit to quit";
@@ -204,6 +205,10 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
     setStatusHint(hint) {
       update({ statusHint: hint });
+    },
+
+    updateMeta(patch) {
+      update({ meta: { ...state.meta, ...patch } });
     },
 
     handleEvent(event) {
