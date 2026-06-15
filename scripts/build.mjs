@@ -1,6 +1,6 @@
 // Compiles src/ -> dist/ with babel (TypeScript + babel-preset-solid universal),
 // so @opentui/solid JSX runs on Node. Mirrors scripts/solid-node-loader.mjs.
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { transformAsync } from "@babel/core";
@@ -46,6 +46,7 @@ async function build() {
       const dest = join(outDir, rel.replace(TS_RE, ".js"));
       await mkdir(dirname(dest), { recursive: true });
       await writeFile(dest, out?.code ?? code);
+      if (rel === "cli.ts") await chmod(dest, 0o755);
     } else {
       // Copy assets (e.g. tool description .txt files) verbatim.
       const dest = join(outDir, rel);
