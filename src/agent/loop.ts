@@ -9,6 +9,8 @@ import type { AgentEventSink } from "./events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext, Message, SessionEventCallback } from "../types.js";
+import { resolvePath } from "../util/paths.js";
+import { MutationQueue, writeMutationKey } from "./mutation-queue.js";
 
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
@@ -22,6 +24,18 @@ export interface RunLoopOptions {
   autoAcceptCli?: boolean;
   confirm?: (name: string, args: unknown) => Promise<boolean>;
   onEvent?: SessionEventCallback;
+}
+
+interface ToolCallBlock {
+  type: "toolCall";
+  id: string;
+  name: string;
+  arguments: unknown;
+}
+
+interface ExecutedTool {
+  message: Message;
+  terminate?: boolean;
 }
 
 function toolMap(tools: AnyTool[]): Map<string, AnyTool> {
@@ -45,6 +59,97 @@ function toolResultMessage(toolCallId: string, output: string, isError?: boolean
     role: "tool",
     content: [{ type: "toolResult", toolCallId, output, isError }],
   };
+}
+
+async function executeSingleTool(
+  call: ToolCallBlock,
+  registry: Map<string, AnyTool>,
+  ctx: AgentContext,
+  emit: AgentEventSink,
+  options: RunLoopOptions,
+  ts: () => string,
+): Promise<ExecutedTool> {
+  const tool = registry.get(call.name);
+  if (!tool) {
+    const output = `Unknown tool: ${call.name}`;
+    const msg = toolResultMessage(call.id, output, true);
+    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+    emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+    return { message: msg };
+  }
+
+  const args = tool.schema.parse(call.arguments);
+  const mode = options.approvalMode ?? "normal";
+  const autoAcceptCli = options.autoAcceptCli ?? options.autoAccept ?? false;
+
+  if (isToolBlocked(mode, call.name)) {
+    const output = `Tool ${call.name} blocked in plan mode.`;
+    emit({ type: "approval_required", id: call.id, name: call.name, args });
+    const msg = toolResultMessage(call.id, output, true);
+    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+    emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+    return { message: msg };
+  }
+
+  const requiresApproval = needsInteractiveApproval(
+    mode,
+    autoAcceptCli,
+    call.name,
+    tool.needsApproval?.(args, ctx),
+  );
+
+  if (requiresApproval) {
+    emit({ type: "approval_required", id: call.id, name: call.name, args });
+    const approved = await (options.confirm ?? confirmTool)(call.name, args);
+    if (!approved) {
+      const output = "Tool execution denied by user.";
+      const msg = toolResultMessage(call.id, output, true);
+      options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+      emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+      return { message: msg };
+    }
+  }
+
+  emit({ type: "tool_start", id: call.id, name: call.name, args });
+
+  try {
+    const result = await tool.execute(args, ctx, options.signal ?? new AbortController().signal);
+    const msg = toolResultMessage(call.id, result.output, result.isError);
+    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+    emit({
+      type: "tool_end",
+      id: call.id,
+      name: call.name,
+      output: result.output,
+      isError: result.isError,
+    });
+    return { message: msg, terminate: result.terminate };
+  } catch (err) {
+    const output = err instanceof Error ? err.message : String(err);
+    const msg = toolResultMessage(call.id, output, true);
+    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+    emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+    return { message: msg };
+  }
+}
+
+async function executeToolsParallel(
+  calls: ToolCallBlock[],
+  registry: Map<string, AnyTool>,
+  ctx: AgentContext,
+  emit: AgentEventSink,
+  options: RunLoopOptions,
+  ts: () => string,
+): Promise<ExecutedTool[]> {
+  const mutationQueue = new MutationQueue();
+
+  return Promise.all(
+    calls.map((call) => {
+      const key = writeMutationKey(call.name, call.arguments, resolvePath, ctx.cwd);
+      const run = () => executeSingleTool(call, registry, ctx, emit, options, ts);
+      return key ? mutationQueue.runExclusive(key, run) : run();
+    }),
+  );
 }
 
 export async function runLoop(
@@ -73,84 +178,19 @@ export async function runLoop(
     options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
     emit({ type: "assistant_message", message });
 
-    const toolCalls = message.content.filter((c) => c.type === "toolCall");
+    const toolCalls = message.content.filter((c): c is ToolCallBlock => c.type === "toolCall");
     if (toolCalls.length === 0) {
       emit({ type: "loop_end", reason: "complete" });
       break;
     }
 
-    for (const call of toolCalls) {
-      if (call.type !== "toolCall") continue;
+    const results = await executeToolsParallel(toolCalls, registry, ctx, emit, options, ts);
 
-      const tool = registry.get(call.name);
-      if (!tool) {
-        const output = `Unknown tool: ${call.name}`;
-        const msg = toolResultMessage(call.id, output, true);
-        ctx.messages.push(msg);
-        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-        emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
-        continue;
-      }
-
-      const args = tool.schema.parse(call.arguments);
-      const mode = options.approvalMode ?? "normal";
-      const autoAcceptCli = options.autoAcceptCli ?? options.autoAccept ?? false;
-
-      if (isToolBlocked(mode, call.name)) {
-        const output = `Tool ${call.name} blocked in plan mode.`;
-        emit({ type: "approval_required", id: call.id, name: call.name, args });
-        const msg = toolResultMessage(call.id, output, true);
-        ctx.messages.push(msg);
-        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-        emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
-        continue;
-      }
-
-      const requiresApproval = needsInteractiveApproval(
-        mode,
-        autoAcceptCli,
-        call.name,
-        tool.needsApproval?.(args, ctx),
-      );
-
-      if (requiresApproval) {
-        emit({ type: "approval_required", id: call.id, name: call.name, args });
-        const approved = await (options.confirm ?? confirmTool)(call.name, args);
-        if (!approved) {
-          const output = "Tool execution denied by user.";
-          const msg = toolResultMessage(call.id, output, true);
-          ctx.messages.push(msg);
-          options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-          emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
-          continue;
-        }
-      }
-
-      emit({ type: "tool_start", id: call.id, name: call.name, args });
-
-      try {
-        const result = await tool.execute(args, ctx, options.signal ?? new AbortController().signal);
-        const msg = toolResultMessage(call.id, result.output, result.isError);
-        ctx.messages.push(msg);
-        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-        emit({
-          type: "tool_end",
-          id: call.id,
-          name: call.name,
-          output: result.output,
-          isError: result.isError,
-        });
-
-        if (result.terminate) {
-          emit({ type: "loop_end", reason: "terminate" });
-          return ctx;
-        }
-      } catch (err) {
-        const output = err instanceof Error ? err.message : String(err);
-        const msg = toolResultMessage(call.id, output, true);
-        ctx.messages.push(msg);
-        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-        emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+    for (const result of results) {
+      ctx.messages.push(result.message);
+      if (result.terminate) {
+        emit({ type: "loop_end", reason: "terminate" });
+        return ctx;
       }
     }
   }
