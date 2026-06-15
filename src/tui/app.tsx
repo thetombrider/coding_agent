@@ -17,6 +17,7 @@ const SLASH_COMMANDS = [
   { name: "model",    label: "/model",    description: "switch model" },
   { name: "mode",     label: "/mode",     description: "set approval mode" },
   { name: "sessions", label: "/sessions", description: "browse sessions" },
+  { name: "new",      label: "/new",      description: "archive & start new session" },
   { name: "clear",    label: "/clear",    description: "clear conversation" },
   { name: "help",     label: "/help",     description: "show help" },
   { name: "exit",     label: "/exit",     description: "quit" },
@@ -61,6 +62,7 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onClear: () => void;
+  onNew: () => void;
   onResume: (sessionId: string) => void;
   onListSessions: () => SessionSummary[];
 }) {
@@ -137,6 +139,8 @@ export function App(props: {
       if (name === "clear") {
         props.onClear();
         props.controller.clearHistory();
+      } else if (name === "new") {
+        props.onNew();
       } else if (name === "exit") {
         props.onExit();
       } else if (name === "help") {
@@ -212,6 +216,9 @@ export function App(props: {
         case "clear":
           props.onClear();
           props.controller.clearHistory();
+          return;
+        case "new":
+          props.onNew();
           return;
         case "sessions": {
           const sessions = props.onListSessions();

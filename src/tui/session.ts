@@ -3,7 +3,7 @@ import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { ApprovalMode } from "../approval/policy.js";
 import { saveConfig } from "../config/config.js";
-import { listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
+import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext, Message } from "../types.js";
@@ -34,24 +34,44 @@ export interface TuiSessionConfig {
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
 
-  let log = openLog(sessionPath(config.sessionId));
-  log.write({
-    type: "session_meta",
-    ts: new Date().toISOString(),
-    sessionId: config.sessionId,
-    cwd: config.ctx.cwd,
-    model: config.meta.model,
-  });
+  let activeSessionId = config.sessionId;
+  let log = openLog(sessionPath(activeSessionId));
+  const writeMeta = () => {
+    log.write({
+      type: "session_meta",
+      ts: new Date().toISOString(),
+      sessionId: activeSessionId,
+      cwd: config.ctx.cwd,
+      model: config.meta.model,
+    });
+  };
+  writeMeta();
 
   const onResume = (resumeSessionId: string) => {
     void log.close();
     const messages = replayLog(sessionPath(resumeSessionId));
     config.ctx.messages = messages;
-    log = openLog(sessionPath(resumeSessionId));
+    activeSessionId = resumeSessionId;
+    log = openLog(sessionPath(activeSessionId));
     const turns = messagesToTurns(messages);
     controller.loadHistory(turns);
     controller.setStatusHint(
       `Resumed session ${resumeSessionId} — ${turns.length} turn${turns.length !== 1 ? "s" : ""}`,
+    );
+  };
+
+  // Archive the current session (already persisted to its own log file) and
+  // start a fresh one with a new id, empty history, and its own log.
+  const onNew = () => {
+    const previousId = activeSessionId;
+    void log.close();
+    config.ctx.messages = [];
+    activeSessionId = generateSessionId();
+    log = openLog(sessionPath(activeSessionId));
+    writeMeta();
+    controller.clearHistory();
+    controller.setStatusHint(
+      `New session ${activeSessionId} — archived ${previousId} (browse via /sessions)`,
     );
   };
 
@@ -118,6 +138,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           config.ctx.messages = [];
           log.write({ type: "session_clear", ts: new Date().toISOString() });
         },
+        onNew,
         onResume,
         onListSessions: listSessions,
       }),
