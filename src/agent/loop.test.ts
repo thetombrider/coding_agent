@@ -1,8 +1,13 @@
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { runLoop, lastAssistantText } from "../agent/loop.js";
 import { noopSink } from "../agent/events.js";
 import { createStatefulFauxProvider } from "../provider/faux.js";
 import { getCoreTools } from "../tools/registry.js";
+import type { Tool } from "../tools/types.js";
 import type { AgentContext, SessionEvent } from "../types.js";
 
 describe("runLoop", () => {
@@ -74,5 +79,97 @@ describe("runLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
     };
     await expect(runLoop(ctx, noopSink, { provider, tools: [], model: "faux:test" })).resolves.toBeDefined();
+  });
+
+  it("runs independent tool calls in parallel", async () => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+
+    const slowTool = (name: string): Tool<{ n: number }> => ({
+      name,
+      description: "slow noop",
+      schema: z.object({ n: z.number() }),
+      async execute() {
+        concurrent += 1;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        await new Promise((r) => setTimeout(r, 40));
+        concurrent -= 1;
+        return { output: "ok" };
+      },
+    });
+
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [
+          { id: "tc1", name: "slow_a", arguments: { n: 1 } },
+          { id: "tc2", name: "slow_b", arguments: { n: 2 } },
+          { id: "tc3", name: "slow_c", arguments: { n: 3 } },
+        ],
+      },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+    };
+
+    await runLoop(ctx, noopSink, {
+      provider,
+      tools: [slowTool("slow_a"), slowTool("slow_b"), slowTool("slow_c")],
+      model: "faux:test",
+      approvalMode: "auto-accept",
+      autoAcceptCli: true,
+    });
+
+    expect(maxConcurrent).toBeGreaterThan(1);
+  });
+
+  it("serializes concurrent edits on the same file", async () => {
+    const dir = join(tmpdir(), `minicoder-parallel-${Date.now()}`);
+    const filePath = join(dir, "counter.txt");
+    await mkdir(dir, { recursive: true });
+    await writeFile(filePath, "0\n", "utf8");
+
+    const editCounter: Tool<{ path: string; delta: number }> = {
+      name: "edit",
+      description: "increment counter file",
+      schema: z.object({ path: z.string(), delta: z.number() }),
+      async execute({ path, delta }, ctx) {
+        const fullPath = join(ctx.cwd, path);
+        const current = Number((await readFile(fullPath, "utf8")).trim());
+        await new Promise((r) => setTimeout(r, 30));
+        await writeFile(fullPath, `${current + delta}\n`, "utf8");
+        return { output: String(current + delta) };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [
+          { id: "tc1", name: "edit", arguments: { path: "counter.txt", delta: 1 } },
+          { id: "tc2", name: "edit", arguments: { path: "counter.txt", delta: 1 } },
+          { id: "tc3", name: "edit", arguments: { path: "counter.txt", delta: 1 } },
+        ],
+      },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: dir,
+      messages: [{ role: "user", content: [{ type: "text", text: "increment" }] }],
+    };
+
+    await runLoop(ctx, noopSink, {
+      provider,
+      tools: [editCounter],
+      model: "faux:test",
+      approvalMode: "auto-accept",
+      autoAcceptCli: true,
+    });
+
+    const final = Number((await readFile(filePath, "utf8")).trim());
+    expect(final).toBe(3);
+    await rm(dir, { recursive: true, force: true });
   });
 });
