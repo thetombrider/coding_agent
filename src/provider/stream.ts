@@ -1,5 +1,6 @@
 import { streamText, type ModelMessage, type ToolSet } from "ai";
 import { getOpenRouter, resolveOpenRouterModelId } from "./openrouter.js";
+import { enrichAssistantMessage } from "./tool-call-parser.js";
 import type { Message } from "../types.js";
 import type {
   AssistantMessage,
@@ -150,8 +151,11 @@ export const streamAssistant: StreamAssistantFn = async (
     stopReason: finishReason ?? undefined,
   };
 
-  emit({ type: "done", message });
-  return message;
+  const knownTools = options.tools ? new Set(Object.keys(options.tools)) : undefined;
+  const { message: enriched } = enrichAssistantMessage(message, knownTools);
+
+  emit({ type: "done", message: enriched });
+  return enriched;
 };
 
 export function collectStreamEvents(

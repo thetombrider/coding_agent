@@ -19,6 +19,8 @@ export interface AssistantMessage extends Message {
   model: string;
   usage?: Usage;
   stopReason?: string;
+  /** Tool calls were recovered by parsing XML/JSON from assistant text. */
+  toolCallsFromText?: boolean;
 }
 
 export interface StreamAssistantOptions {

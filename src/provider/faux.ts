@@ -1,4 +1,5 @@
 import type { Message } from "../types.js";
+import { enrichAssistantMessage } from "./tool-call-parser.js";
 import type { AssistantMessage, StreamAssistantFn } from "./types.js";
 
 export interface FauxScript {
@@ -51,8 +52,11 @@ export function createFauxProvider(script: FauxScript): StreamAssistantFn {
       stopReason: (script.toolCalls?.length ?? 0) > 0 ? "tool_calls" : "stop",
     };
 
-    emit({ type: "done", message });
-    return message;
+    const knownTools = options.tools ? new Set(Object.keys(options.tools)) : undefined;
+    const { message: enriched } = enrichAssistantMessage(message, knownTools);
+
+    emit({ type: "done", message: enriched });
+    return enriched;
   };
 }
 
