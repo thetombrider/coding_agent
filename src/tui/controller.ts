@@ -217,12 +217,6 @@ export function createSessionController(meta: SessionMeta): SessionController {
           update({ streamingText: state.streamingText + event.text });
           break;
         case "assistant_message":
-          update({
-            streamingText: event.message.content
-              .filter((c): c is { type: "text"; text: string } => c.type === "text")
-              .map((c) => c.text)
-              .join(""),
-          });
           break;
         case "approval_required":
           update({
