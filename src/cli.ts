@@ -8,6 +8,7 @@ import { loadConfig } from "./config/config.js";
 import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { streamAssistant } from "./provider/stream.js";
+import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, sessionPath } from "./session/log.js";
 import { getCoreTools } from "./tools/registry.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
@@ -15,20 +16,37 @@ import type { AgentContext } from "./types.js";
 
 const SYSTEM = loadConfig().system.prompt;
 
+function flagValue(args: string[], ...names: string[]): string | undefined {
+  for (const name of names) {
+    const idx = args.indexOf(name);
+    if (idx !== -1 && idx + 1 < args.length && !args[idx + 1].startsWith("-")) {
+      return args[idx + 1];
+    }
+  }
+  return undefined;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const flags = new Set(args.filter((a) => a.startsWith("--")));
-  const promptParts = args.filter((a) => !a.startsWith("--"));
+  const flags = new Set(args.filter((a) => a.startsWith("-")));
+  const promptParts = args.filter((a) => !a.startsWith("-"));
   const prompt = promptParts.join(" ").trim();
 
   const useFaux = flags.has("--faux");
   const headless = flags.has("--headless");
+  const listSessionsFlag = flags.has("--list-sessions") || flags.has("-l");
+  const resumeId = flagValue(args, "--resume", "-r");
   const autoAcceptCli = flags.has("--auto-accept") || useFaux;
   const approvalMode = flags.has("--plan")
     ? "plan"
     : autoAcceptCli
       ? "auto-accept"
       : parseApprovalMode();
+
+  if (listSessionsFlag) {
+    printSessionList();
+    return;
+  }
 
   if (headless) {
     if (!prompt) {
@@ -44,7 +62,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  await runInteractive({ initialMessage: prompt || undefined, useFaux, approvalMode, autoAcceptCli });
+  await runInteractive({ initialMessage: prompt || undefined, useFaux, approvalMode, autoAcceptCli, resumeId });
 }
 
 function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model: string } {
@@ -76,11 +94,30 @@ async function runInteractive(opts: {
   useFaux: boolean;
   approvalMode: ReturnType<typeof parseApprovalMode>;
   autoAcceptCli: boolean;
+  resumeId?: string;
 }): Promise<void> {
   const cwd = process.cwd();
-  const ctx: AgentContext = { cwd, messages: [] };
   const { provider, model } = resolveProvider(opts.useFaux);
   const models = loadModelConfig();
+
+  let messages: AgentContext["messages"] = [];
+  let sessionId: string;
+
+  if (opts.resumeId) {
+    const path = sessionPath(opts.resumeId);
+    messages = replayLog(path);
+    const turns = messages.filter((m) => m.role === "user").length;
+    const lastTs = getLastEventTimestamp(path);
+    const ago = lastTs ? formatRelativeTime(lastTs) : "unknown";
+    process.stderr.write(
+      `Resuming session ${opts.resumeId} — ${turns} turn${turns !== 1 ? "s" : ""}, last active ${ago}\n`,
+    );
+    sessionId = opts.resumeId;
+  } else {
+    sessionId = generateSessionId();
+  }
+
+  const ctx: AgentContext = { cwd, messages };
 
   await runTuiSession({
     ctx,
@@ -91,6 +128,7 @@ async function runInteractive(opts: {
     approvalMode: opts.approvalMode,
     autoAcceptCli: opts.autoAcceptCli,
     initialMessage: opts.initialMessage,
+    sessionId,
     meta: {
       model: opts.useFaux ? "faux" : models.main,
       approval: opts.approvalMode,
@@ -98,6 +136,50 @@ async function runInteractive(opts: {
       faux: opts.useFaux,
     },
   });
+}
+
+function formatRelativeTime(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function printSessionList(): void {
+  const sessions = listSessions();
+  if (sessions.length === 0) {
+    console.log("No sessions found.");
+    return;
+  }
+  const idCol = 10;
+  const dateCol = 18;
+  const turnsCol = 9;
+  for (const s of sessions) {
+    const id = s.sessionId.padEnd(idCol);
+    const date = formatDateTime(s.lastTs || s.createdAt).padEnd(dateCol);
+    const turns = `${s.turns} turn${s.turns !== 1 ? "s" : ""}`.padStart(turnsCol);
+    const cwd = s.cwd.replace(process.env.HOME ?? "/root", "~");
+    console.log(`${id}  ${date}  ${turns}  ${cwd}`);
+  }
+}
+
+function formatDateTime(ts: string): string {
+  try {
+    const d = new Date(ts);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hour = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hour}:${min}`;
+  } catch {
+    return ts;
+  }
 }
 
 async function runHeadless(opts: {

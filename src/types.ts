@@ -14,3 +14,12 @@ export interface AgentContext {
   messages: Message[];
   cwd: string;
 }
+
+export type SessionEvent =
+  | { type: "user_message";    ts: string; content: ContentBlock[] }
+  | { type: "assistant_chunk"; ts: string; content: ContentBlock[] }
+  | { type: "tool_result";     ts: string; toolUseId: string; content: ContentBlock[] }
+  | { type: "session_meta";    ts: string; sessionId: string; cwd: string; model: string }
+  | { type: "session_clear";   ts: string };
+
+export type SessionEventCallback = (event: SessionEvent) => void;

@@ -57,6 +57,7 @@ export interface SessionController {
   clearInput: () => void;
   setStatusHint: (hint: string) => void;
   clearHistory: () => void;
+  loadHistory: (turns: Turn[]) => void;
   updateMeta: (patch: Partial<SessionMeta>) => void;
 }
 
@@ -179,6 +180,17 @@ export function createSessionController(meta: SessionMeta): SessionController {
     clearHistory() {
       update({
         completedTurns: [],
+        currentUserText: "",
+        streamingText: "",
+        currentTools: [],
+        phase: "input",
+        statusHint: IDLE_HINT,
+      });
+    },
+
+    loadHistory(turns) {
+      update({
+        completedTurns: turns,
         currentUserText: "",
         streamingText: "",
         currentTools: [],

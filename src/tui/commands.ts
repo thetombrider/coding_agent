@@ -16,6 +16,7 @@ export type CommandResult =
   | { type: "not-command" }
   | { type: "exit" }
   | { type: "clear" }
+  | { type: "sessions" }
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
   | { type: "info"; message: string }
@@ -25,6 +26,7 @@ export type CommandResult =
 const HELP_LINES = [
   "/mode [normal|allow-all|plan]  cycle or set approval mode",
   "/model [id|number]            switch the OpenRouter model",
+  "/sessions                     browse and resume saved sessions",
   "/clear                        clear the conversation",
   "/help                         show this help",
   "/exit                         quit",
@@ -113,6 +115,8 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
       return { type: "exit" };
     case "/clear":
       return { type: "clear" };
+    case "/sessions":
+      return { type: "sessions" };
     case "/help":
       return { type: "info", message: HELP_LINES.join("\n") };
     case "/mode":
