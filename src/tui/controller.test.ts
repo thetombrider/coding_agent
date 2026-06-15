@@ -86,4 +86,22 @@ describe("createSessionController", () => {
     controller.loadHistory([]);
     expect(controller.getState().completedTurns).toHaveLength(0);
   });
+
+  it("batches rapid updates into one deferred notification", async () => {
+    const controller = createSessionController(meta);
+    let notifyCount = 0;
+    controller.subscribe(() => {
+      notifyCount += 1;
+    });
+    notifyCount = 0;
+
+    controller.setInput("a");
+    controller.setInput("ab");
+    controller.setInput("abc");
+    expect(notifyCount).toBe(0);
+
+    await Promise.resolve();
+    expect(notifyCount).toBe(1);
+    expect(controller.getState().input).toBe("abc");
+  });
 });

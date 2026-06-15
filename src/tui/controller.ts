@@ -107,8 +107,17 @@ export function createSessionController(meta: SessionMeta): SessionController {
   const listeners = new Set<SessionListener>();
   let approvalResolver: ((approved: boolean) => void) | null = null;
 
+  // Defer listener calls so Solid (and other UI runtimes) never receive
+  // synchronous writes while they are mid-render — that triggers
+  // "depends on itself in the same turn" errors on finalizeTurn etc.
+  let notifyPending = false;
   const notify = () => {
-    for (const listener of listeners) listener(state);
+    if (notifyPending) return;
+    notifyPending = true;
+    queueMicrotask(() => {
+      notifyPending = false;
+      for (const listener of listeners) listener(state);
+    });
   };
 
   const update = (patch: Partial<SessionState>) => {
