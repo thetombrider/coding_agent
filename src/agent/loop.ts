@@ -7,6 +7,7 @@ import {
 import { confirmTool } from "../approval/prompt.js";
 import type { AgentEventSink } from "./events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
+import { enrichAssistantMessage, formatToolValidationErrors } from "../provider/tool-call-parser.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext, Message, SessionEventCallback } from "../types.js";
 import { resolvePath } from "../util/paths.js";
@@ -63,6 +64,28 @@ function toolResultMessage(toolCallId: string, output: string, isError?: boolean
   };
 }
 
+function validateToolCalls(
+  calls: ToolCallBlock[],
+  registry: Map<string, AnyTool>,
+): Array<{ name: string; message: string }> {
+  const errors: Array<{ name: string; message: string }> = [];
+
+  for (const call of calls) {
+    const tool = registry.get(call.name);
+    if (!tool) {
+      errors.push({ name: call.name, message: `Unknown tool: ${call.name}` });
+      continue;
+    }
+
+    const parsed = tool.schema.safeParse(call.arguments);
+    if (!parsed.success) {
+      errors.push({ name: call.name, message: parsed.error.message });
+    }
+  }
+
+  return errors;
+}
+
 async function executeSingleTool(
   call: ToolCallBlock,
   registry: Map<string, AnyTool>,
@@ -80,7 +103,16 @@ async function executeSingleTool(
     return { message: msg };
   }
 
-  const args = tool.schema.parse(call.arguments);
+  const argsResult = tool.schema.safeParse(call.arguments);
+  if (!argsResult.success) {
+    const output = argsResult.error.message;
+    const msg = toolResultMessage(call.id, output, true);
+    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+    emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+    return { message: msg };
+  }
+
+  const args = argsResult.data;
   const mode = options.approvalMode ?? "normal";
   const autoAcceptCli = options.autoAcceptCli ?? options.autoAccept ?? false;
 
@@ -160,9 +192,11 @@ export async function runLoop(
   options: RunLoopOptions,
 ): Promise<AgentContext> {
   const registry = toolMap(options.tools);
+  const knownTools = new Set(options.tools.map((t) => t.name));
+  let parseCorrectionRetries = 0;
 
   while (true) {
-    const message = await options.provider(
+    const rawMessage = await options.provider(
       ctx.messages,
       {
         model: options.model,
@@ -176,12 +210,40 @@ export async function runLoop(
       },
     );
 
+    const { message, usedFallback } = enrichAssistantMessage(rawMessage, knownTools);
     const ts = () => new Date().toISOString();
+    const toolCalls = message.content.filter((c): c is ToolCallBlock => c.type === "toolCall");
+    const fromText = message.toolCallsFromText ?? usedFallback;
+
+    if (
+      fromText &&
+      toolCalls.length > 0 &&
+      parseCorrectionRetries < 2
+    ) {
+      const validationErrors = validateToolCalls(toolCalls, registry);
+      if (validationErrors.length > 0) {
+        ctx.messages.push(message);
+        options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
+        emit({ type: "assistant_message", message });
+        ctx.messages.push({
+          role: "user",
+          content: [{ type: "text", text: formatToolValidationErrors(validationErrors) }],
+        });
+        options.onEvent?.({
+          type: "user_message",
+          ts: ts(),
+          content: [{ type: "text", text: formatToolValidationErrors(validationErrors) }],
+        });
+        parseCorrectionRetries += 1;
+        continue;
+      }
+    }
+
+    parseCorrectionRetries = 0;
     ctx.messages.push(message);
     options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
     emit({ type: "assistant_message", message });
 
-    const toolCalls = message.content.filter((c): c is ToolCallBlock => c.type === "toolCall");
     if (toolCalls.length === 0) {
       emit({ type: "loop_end", reason: "complete" });
       break;

@@ -172,4 +172,66 @@ describe("runLoop", () => {
     expect(final).toBe(3);
     await rm(dir, { recursive: true, force: true });
   });
+
+  it("executes read from XML embedded in faux assistant text", async () => {
+    const provider = createStatefulFauxProvider([
+      {
+        text: ['<tool_call name="read"><path>package.json</path></tool_call>'],
+      },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "read package.json" }] }],
+    };
+
+    const result = await runLoop(ctx, noopSink, {
+      provider,
+      tools: getCoreTools().filter((t) => t.name === "read"),
+      model: "faux:test",
+      approvalMode: "auto-accept",
+      autoAcceptCli: true,
+    });
+
+    expect(result.messages.some((m) => m.role === "tool")).toBe(true);
+    const toolResult = result.messages.find((m) => m.role === "tool");
+    const output = toolResult?.content.find((c) => c.type === "toolResult")?.output ?? "";
+    expect(output).toContain("minicoder");
+  });
+
+  it("re-prompts when fallback-parsed tool args are invalid", async () => {
+    let providerCalls = 0;
+    const baseProvider = createStatefulFauxProvider([
+      {
+        text: ['<tool_call name="read"><wrong>package.json</wrong></tool_call>'],
+      },
+      {
+        text: ['<tool_call name="read"><path>package.json</path></tool_call>'],
+      },
+      { text: ["done"] },
+    ]);
+
+    const provider: typeof baseProvider = (messages, options, emit) => {
+      providerCalls += 1;
+      return baseProvider(messages, options, emit);
+    };
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "read file" }] }],
+    };
+
+    await runLoop(ctx, noopSink, {
+      provider,
+      tools: getCoreTools().filter((t) => t.name === "read"),
+      model: "faux:test",
+      approvalMode: "auto-accept",
+      autoAcceptCli: true,
+    });
+
+    expect(providerCalls).toBeGreaterThanOrEqual(2);
+    expect(ctx.messages.some((m) => m.role === "user" && m.content[0]?.type === "text" &&
+      (m.content[0] as { text: string }).text.includes("invalid"))).toBe(true);
+  });
 });

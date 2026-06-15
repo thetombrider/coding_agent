@@ -37,4 +37,22 @@ describe("faux provider", () => {
     const toolCall = message.content.find((c) => c.type === "toolCall");
     expect(toolCall).toMatchObject({ name: "read", id: "tc1" });
   });
+
+  it("parses XML tool calls embedded in assistant text", async () => {
+    const provider = createFauxProvider({
+      text: ['<tool_call name="read"><path>package.json</path></tool_call>'],
+    });
+
+    const { message } = await collectStreamEvents(
+      provider,
+      [] as Message[],
+      { model: "faux:test", tools: {} },
+    );
+
+    const toolCall = message.content.find((c) => c.type === "toolCall");
+    expect(toolCall).toMatchObject({
+      name: "read",
+      arguments: { path: "package.json" },
+    });
+  });
 });
