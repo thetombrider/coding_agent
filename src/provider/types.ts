@@ -26,6 +26,8 @@ export interface StreamAssistantOptions {
   system?: string;
   tools?: ToolSet;
   signal?: AbortSignal;
+  /** OpenRouter session id for sticky provider routing (prompt cache affinity). */
+  sessionId?: string;
 }
 
 export interface StreamAssistantFn {

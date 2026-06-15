@@ -1,7 +1,7 @@
 import { streamText, type ModelMessage, type ToolSet } from "ai";
 import {
+  buildStreamProviderOptions,
   markPromptCacheBreakpoints,
-  promptCacheProviderOptions,
 } from "./prompt-cache.js";
 import { getOpenRouter, resolveOpenRouterModelId } from "./openrouter.js";
 import type { Message } from "../types.js";
@@ -96,7 +96,7 @@ export const streamAssistant: StreamAssistantFn = async (
     messages: toAiMessages(messages, options.model),
     tools: options.tools ?? ({} as ToolSet),
     abortSignal: options.signal,
-    providerOptions: promptCacheProviderOptions(options.model),
+    providerOptions: buildStreamProviderOptions(options.model, options.sessionId),
   });
 
   for await (const part of result.fullStream) {

@@ -16,6 +16,8 @@ export interface RunLoopOptions {
   model: string;
   system?: string;
   signal?: AbortSignal;
+  /** OpenRouter session id for sticky routing across turns and tool rounds. */
+  sessionId?: string;
   /** @deprecated use approvalMode + autoAcceptCli */
   autoAccept?: boolean;
   approvalMode?: ApprovalMode;
@@ -62,6 +64,7 @@ export async function runLoop(
         system: options.system,
         tools: toProviderTools(options.tools),
         signal: options.signal,
+        sessionId: options.sessionId,
       },
       (event) => {
         if (event.type === "text_delta") emit({ type: "text_delta", text: event.text });
