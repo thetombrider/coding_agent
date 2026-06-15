@@ -1,8 +1,13 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { loadConfig } from "../config/config.js";
 
+/** OpenRouter API key from env or config; undefined when not configured. */
+export function getOpenRouterApiKey(): string | undefined {
+  return process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey;
+}
+
 export function getOpenRouter() {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey;
+  const apiKey = getOpenRouterApiKey();
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is not set (env var or ~/.orin/config.json)");
   }

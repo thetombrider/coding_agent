@@ -10,13 +10,23 @@ import type { StreamAssistantFn } from "../provider/types.js";
 import { enrichAssistantMessage, formatToolValidationErrors } from "../provider/tool-call-parser.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext, Message, SessionEventCallback } from "../types.js";
+import { defaultCheapModel } from "../config/models.js";
 import { resolvePath } from "../util/paths.js";
+import {
+  currentTurnCount,
+  evictStaleToolResults,
+  shouldCompact,
+  summariseOldTurns,
+} from "./compaction.js";
+import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, writeMutationKey } from "./mutation-queue.js";
 
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
   tools: AnyTool[];
   model: string;
+  /** Cheap model used for context compaction summarisation. */
+  cheapModel?: string;
   system?: string;
   signal?: AbortSignal;
   /** OpenRouter session id for sticky routing across turns and tool rounds. */
@@ -196,6 +206,15 @@ export async function runLoop(
   let parseCorrectionRetries = 0;
 
   while (true) {
+    const turnIndex = currentTurnCount(ctx.messages);
+    const contextWindow = await getContextWindow(options.model);
+
+    if (shouldCompact(ctx.messages, contextWindow)) {
+      const cheapModel = options.cheapModel ?? defaultCheapModel();
+      ctx.messages = await summariseOldTurns(ctx.messages, cheapModel);
+    }
+    ctx.messages = evictStaleToolResults(ctx.messages, turnIndex);
+
     const rawMessage = await options.provider(
       ctx.messages,
       {

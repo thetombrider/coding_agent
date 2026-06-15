@@ -39,3 +39,18 @@ export interface StreamAssistantFn {
     emit: (event: StreamEvent) => void,
   ): Promise<AssistantMessage>;
 }
+
+/** Model limits and metadata supplied by an LLM provider backend. */
+export interface ModelMetadata {
+  contextWindow: number;
+}
+
+/**
+ * Provider capability for resolving model metadata (context window, etc.).
+ * Each backend in the provider registry (issue #12) should implement this.
+ */
+export interface ModelMetadataProvider {
+  readonly id: string;
+  supportsModel(modelId: string): boolean;
+  getContextWindow(modelId: string): Promise<number | undefined>;
+}
