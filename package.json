@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "bun src/cli.ts",
-    "update": "bun install && bun run build && bun link",
+    "init-config": "bun src/config/init-config.ts",
+    "update": "bun install && bun run build && bun run init-config && bun link",
     "dev": "bun src/cli.ts",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
