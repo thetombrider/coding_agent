@@ -1,4 +1,4 @@
-# SPEC: Build a Terminal Coding Agent ("minicoder")
+# SPEC: Build a Terminal Coding Agent ("Orin")
 
 A spec + phased build plan for an agentic coding CLI, modeled on three OSS agents that were read from source. Hand this to Claude Code and execute the phases in order. Each phase is independently runnable and testable.
 
@@ -452,7 +452,7 @@ function makeTransport(s: McpServerConfig) {
 }
 
 export async function connectServer(s: McpServerConfig) {
-  const client = new Client({ name: "minicoder", version: "0.1.0" });
+  const client = new Client({ name: "orin", version: "0.1.0" });
   await client.connect(makeTransport(s));
   const { tools } = await client.listTools();      // discover remote tools
   return { client, tools };
@@ -491,7 +491,7 @@ Your instinct is right: telemetry is **pure observation**, so it rides the `obse
 - **per tool:** name, duration (pair the `before_tool`/`after_tool` events), ok/error, output size.
 - **per session:** turn count, total tokens/cost, wall-clock, and **model mix** — including the cheap-model share driven by `delegate_read` (§2.1), so you can see delegation paying off.
 
-**Emitter + exporters** (`src/telemetry/`): a `MetricEvent` union into pluggable sinks. Default = JSONL at `~/.minicoder/metrics.jsonl`; optional stdout; optional OTel/HTTP later.
+**Emitter + exporters** (`src/telemetry/`): a `MetricEvent` union into pluggable sinks. Default = JSONL at `~/.orin/metrics.jsonl`; optional stdout; optional OTel/HTTP later.
 ```ts
 type MetricEvent =
   | { kind: "turn";    model: string; usage: Usage; stopReason: string }

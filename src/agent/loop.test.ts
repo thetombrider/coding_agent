@@ -126,7 +126,7 @@ describe("runLoop", () => {
   });
 
   it("serializes concurrent edits on the same file", async () => {
-    const dir = join(tmpdir(), `minicoder-parallel-${Date.now()}`);
+    const dir = join(tmpdir(), `orin-parallel-${Date.now()}`);
     const filePath = join(dir, "counter.txt");
     await mkdir(dir, { recursive: true });
     await writeFile(filePath, "0\n", "utf8");
@@ -197,7 +197,7 @@ describe("runLoop", () => {
     expect(result.messages.some((m) => m.role === "tool")).toBe(true);
     const toolResult = result.messages.find((m) => m.role === "tool");
     const output = toolResult?.content.find((c) => c.type === "toolResult")?.output ?? "";
-    expect(output).toContain("minicoder");
+    expect(output).toContain("orin");
   });
 
   it("re-prompts when fallback-parsed tool args are invalid", async () => {
