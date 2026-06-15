@@ -108,6 +108,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         tools: config.tools,
         model: activeModel,
         system: config.system,
+        sessionId: activeSessionId,
         approvalMode: activeApprovalMode,
         autoAcceptCli: config.autoAcceptCli,
         confirm: controller.requestApproval,

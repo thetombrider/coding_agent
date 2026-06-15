@@ -1,4 +1,8 @@
 import { streamText, type ModelMessage, type ToolSet } from "ai";
+import {
+  buildStreamProviderOptions,
+  markPromptCacheBreakpoints,
+} from "./prompt-cache.js";
 import { getOpenRouter, resolveOpenRouterModelId } from "./openrouter.js";
 import type { Message } from "../types.js";
 import type {
@@ -18,7 +22,7 @@ function toolCallNames(messages: Message[]): Map<string, string> {
   return names;
 }
 
-function toAiMessages(messages: Message[]): ModelMessage[] {
+function toAiMessages(messages: Message[], modelId: string): ModelMessage[] {
   const callNames = toolCallNames(messages);
   const result: ModelMessage[] = [];
 
@@ -65,6 +69,7 @@ function toAiMessages(messages: Message[]): ModelMessage[] {
     result.push({ role: m.role, content: text });
   }
 
+  markPromptCacheBreakpoints(result, modelId);
   return result;
 }
 
@@ -88,9 +93,10 @@ export const streamAssistant: StreamAssistantFn = async (
   const result = streamText({
     model: resolveModel(options.model),
     system: options.system,
-    messages: toAiMessages(messages),
+    messages: toAiMessages(messages, options.model),
     tools: options.tools ?? ({} as ToolSet),
     abortSignal: options.signal,
+    providerOptions: buildStreamProviderOptions(options.model, options.sessionId),
   });
 
   for await (const part of result.fullStream) {
@@ -144,7 +150,11 @@ export const streamAssistant: StreamAssistantFn = async (
       ? {
           input: usage.inputTokens ?? 0,
           output: usage.outputTokens ?? 0,
-          totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+          cacheRead: usage.inputTokenDetails?.cacheReadTokens,
+          cacheWrite: usage.inputTokenDetails?.cacheWriteTokens,
+          totalTokens:
+            usage.totalTokens ??
+            (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
         }
       : undefined,
     stopReason: finishReason ?? undefined,

@@ -195,6 +195,7 @@ async function runHeadless(opts: {
   };
   const { provider, model } = resolveProvider(opts.useFaux);
   const { runLoop } = await import("./agent/loop.js");
+  const sessionId = opts.useFaux ? undefined : generateSessionId();
 
   await runLoop(ctx, (event) => {
     if (event.type === "text_delta") process.stdout.write(event.text);
@@ -209,6 +210,7 @@ async function runHeadless(opts: {
     tools: getCoreTools(),
     model,
     system: SYSTEM,
+    sessionId,
     approvalMode: opts.approvalMode,
     autoAcceptCli: opts.autoAcceptCli,
   });
