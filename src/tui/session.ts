@@ -88,6 +88,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         onExit: resolveExit,
         onSetModel: setModel,
         onSetMode: setApprovalMode,
+        onClear: () => { config.ctx.messages = []; },
       }),
     renderer,
   );

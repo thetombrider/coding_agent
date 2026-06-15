@@ -44,6 +44,7 @@ export function App(props: {
   onExit: () => void;
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
+  onClear: () => void;
 }) {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
@@ -103,6 +104,7 @@ export function App(props: {
       closePalette();
 
       if (name === "clear") {
+        props.onClear();
         props.controller.clearHistory();
       } else if (name === "exit") {
         props.onExit();
@@ -168,6 +170,7 @@ export function App(props: {
           props.onExit();
           return;
         case "clear":
+          props.onClear();
           props.controller.clearHistory();
           return;
         case "set-model":
