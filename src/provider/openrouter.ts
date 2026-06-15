@@ -1,9 +1,10 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { loadConfig } from "../config/config.js";
 
 export function getOpenRouter() {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey;
   if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY is not set");
+    throw new Error("OPENROUTER_API_KEY is not set (env var or ~/.coding-agent/config.json)");
   }
   return createOpenRouter({ apiKey });
 }
