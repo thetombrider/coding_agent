@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "bun src/cli.ts",
+    "update": "bun install && bun run build && bun link",
     "dev": "bun src/cli.ts",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",

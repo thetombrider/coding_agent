@@ -42,7 +42,7 @@ echo "Linking orin command..."
 bun link
 
 echo
-echo "Orin is installed."
+echo "Orin is ready."
 echo
 echo "Start the agent:"
 echo "  orin"
@@ -52,6 +52,8 @@ echo "  orin --faux"
 echo
 echo "From this repo without a global install:"
 echo "  bun run start"
+echo
+echo "After git pull, run this script again (or: bun run update) to rebuild."
 echo
 
 ensure_path_hint

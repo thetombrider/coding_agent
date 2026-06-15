@@ -13,6 +13,23 @@ orin --faux     # offline demo without an API key
 bun run start   # run from source without a global install
 ```
 
+### Updating after `git pull`
+
+Re-run the install script from the repo root — it is safe to run again and will refresh dependencies, rebuild, and re-link `orin`:
+
+```bash
+git pull
+./install.sh
+```
+
+Equivalent from the repo without the shell script:
+
+```bash
+bun run update
+```
+
+Your config (`~/.orin/config.json`), sessions, and env vars are untouched.
+
 Non-obvious caveats:
 
 - **Bun is required**, not just Node. The dev entrypoint is `bun src/cli.ts` and the TUI relies on Bun FFI plus the `@opentui/solid/preload` transform configured in `bunfig.toml`. Running the TUI/dev command under plain `node` will not work. Install Bun (`curl -fsSL https://bun.sh/install | bash`) and use `~/.bun/bin/bun`. Use `bun install` (a `bun.lock` is committed).
