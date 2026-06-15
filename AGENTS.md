@@ -28,7 +28,7 @@ Equivalent from the repo without the shell script:
 bun run update
 ```
 
-Your config (`~/.orin/config.json`), sessions, and env vars are untouched.
+Your config (`~/.orin/config.json`), sessions, and env vars are untouched. If `config.json` is missing or empty, `./install.sh` (or the first `orin` run) seeds it with defaults you can edit.
 
 Non-obvious caveats:
 

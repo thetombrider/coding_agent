@@ -110,10 +110,32 @@ function readRawConfig(): Record<string, unknown> {
   const path = configPath();
   if (!existsSync(path)) return {};
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    const raw = readFileSync(path, "utf8").trim();
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return {};
   }
+}
+
+/** Write the default config file when missing or empty so users have something to edit. */
+export function ensureConfigFile(): boolean {
+  const path = configPath();
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  if (!existsSync(path)) {
+    saveConfig({});
+    return true;
+  }
+
+  const raw = readFileSync(path, "utf8").trim();
+  if (!raw) {
+    saveConfig({});
+    return true;
+  }
+
+  return false;
 }
 
 /** Load config: file merged with defaults, then env var overrides applied on top. */

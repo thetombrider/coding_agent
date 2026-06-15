@@ -4,7 +4,7 @@ import "dotenv/config";
 
 import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
-import { loadConfig } from "./config/config.js";
+import { loadConfig, ensureConfigFile } from "./config/config.js";
 import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { streamAssistant } from "./provider/stream.js";
@@ -27,6 +27,7 @@ function flagValue(args: string[], ...names: string[]): string | undefined {
 }
 
 async function main(): Promise<void> {
+  ensureConfigFile();
   const args = process.argv.slice(2);
   const flags = new Set(args.filter((a) => a.startsWith("-")));
   const promptParts = args.filter((a) => !a.startsWith("-"));

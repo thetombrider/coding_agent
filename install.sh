@@ -38,6 +38,9 @@ bun install
 echo "Building orin..."
 bun run build
 
+echo "Initializing ~/.orin/config.json..."
+bun run init-config
+
 echo "Linking orin command..."
 bun link
 
