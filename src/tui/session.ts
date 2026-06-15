@@ -3,10 +3,10 @@ import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { ApprovalMode } from "../approval/policy.js";
 import { saveConfig } from "../config/config.js";
-import { openLog, sessionPath } from "../session/log.js";
+import { listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
-import type { AgentContext } from "../types.js";
+import type { AgentContext, Message } from "../types.js";
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { terminalBg, terminalFg, theme } from "./theme.js";
@@ -34,7 +34,7 @@ export interface TuiSessionConfig {
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
 
-  const log = openLog(sessionPath(config.sessionId));
+  let log = openLog(sessionPath(config.sessionId));
   log.write({
     type: "session_meta",
     ts: new Date().toISOString(),
@@ -42,6 +42,18 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     cwd: config.ctx.cwd,
     model: config.meta.model,
   });
+
+  const onResume = (resumeSessionId: string) => {
+    log.close();
+    const messages = replayLog(sessionPath(resumeSessionId));
+    config.ctx.messages = messages;
+    log = openLog(sessionPath(resumeSessionId));
+    const turns = messagesToTurns(messages);
+    controller.loadHistory(turns);
+    controller.setStatusHint(
+      `Resumed session ${resumeSessionId} — ${turns.length} turn${turns.length !== 1 ? "s" : ""}`,
+    );
+  };
 
   // Mutable so /model and /mode take effect on the next turn.
   let activeModel = config.model;
@@ -106,6 +118,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           config.ctx.messages = [];
           log.write({ type: "session_clear", ts: new Date().toISOString() });
         },
+        onResume,
+        onListSessions: listSessions,
       }),
     renderer,
   );
@@ -136,6 +150,30 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   }
 
   return config.ctx;
+}
+
+/** Convert a flat message list into displayable turns for the controller. */
+function messagesToTurns(messages: Message[]) {
+  const turns: { userText: string; assistantText: string; tools: [] }[] = [];
+  let current: { userText: string; assistantText: string } | null = null;
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      if (current) turns.push({ ...current, tools: [] });
+      const text = msg.content
+        .filter((c): c is { type: "text"; text: string } => c.type === "text")
+        .map((c) => c.text)
+        .join("");
+      current = { userText: text, assistantText: "" };
+    } else if (msg.role === "assistant" && current) {
+      const text = msg.content
+        .filter((c): c is { type: "text"; text: string } => c.type === "text")
+        .map((c) => c.text)
+        .join("");
+      current.assistantText += text;
+    }
+  }
+  if (current) turns.push({ ...current, tools: [] });
+  return turns;
 }
 
 /** @deprecated use runTuiSession */

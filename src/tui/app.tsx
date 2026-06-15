@@ -9,15 +9,17 @@ import { ApprovalBar, Header, TurnView } from "./views.js";
 import { processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { KNOWN_MAIN_MODELS } from "../config/models.js";
+import type { SessionSummary } from "../session/log.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
 const SLASH_COMMANDS = [
-  { name: "model", label: "/model", description: "switch model" },
-  { name: "mode", label: "/mode", description: "set approval mode" },
-  { name: "clear", label: "/clear", description: "clear conversation" },
-  { name: "help", label: "/help", description: "show help" },
-  { name: "exit", label: "/exit", description: "quit" },
+  { name: "model",    label: "/model",    description: "switch model" },
+  { name: "mode",     label: "/mode",     description: "set approval mode" },
+  { name: "sessions", label: "/sessions", description: "browse sessions" },
+  { name: "clear",    label: "/clear",    description: "clear conversation" },
+  { name: "help",     label: "/help",     description: "show help" },
+  { name: "exit",     label: "/exit",     description: "quit" },
 ] as const;
 
 type CommandName = (typeof SLASH_COMMANDS)[number]["name"];
@@ -25,7 +27,21 @@ type CommandName = (typeof SLASH_COMMANDS)[number]["name"];
 type PaletteState =
   | { phase: "commands"; index: number }
   | { phase: "model"; index: number }
-  | { phase: "mode"; index: number };
+  | { phase: "mode"; index: number }
+  | { phase: "sessions"; index: number; sessions: SessionSummary[] };
+
+function formatSessionDate(ts: string): string {
+  try {
+    const d = new Date(ts);
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hour = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${d.getFullYear()}-${month}-${day} ${hour}:${min}`;
+  } catch {
+    return ts;
+  }
+}
 
 function currentTurn(state: SessionState): Turn | null {
   if (!state.currentUserText && !state.streamingText && state.currentTools.length === 0) {
@@ -45,6 +61,8 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onClear: () => void;
+  onResume: (sessionId: string) => void;
+  onListSessions: () => SessionSummary[];
 }) {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
@@ -101,6 +119,19 @@ export function App(props: {
         return;
       }
 
+      if (name === "sessions") {
+        const sessions = props.onListSessions();
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        if (sessions.length === 0) {
+          closePalette();
+          props.controller.setStatusHint("No sessions found.");
+          return;
+        }
+        setPalette({ phase: "sessions", index: 0, sessions });
+        return;
+      }
+
       closePalette();
 
       if (name === "clear") {
@@ -132,6 +163,15 @@ export function App(props: {
         setPalette(null);
         props.onSetMode(mode);
         props.controller.setStatusHint(`mode → ${APPROVAL_MODE_LABELS[mode]}`);
+      }
+      return;
+    }
+
+    if (p.phase === "sessions") {
+      const session = p.sessions[p.index];
+      if (session) {
+        setPalette(null);
+        props.onResume(session.sessionId);
       }
     }
   };
@@ -173,6 +213,15 @@ export function App(props: {
           props.onClear();
           props.controller.clearHistory();
           return;
+        case "sessions": {
+          const sessions = props.onListSessions();
+          if (sessions.length === 0) {
+            props.controller.setStatusHint("No sessions found.");
+            return;
+          }
+          setPalette({ phase: "sessions", index: 0, sessions });
+          return;
+        }
         case "set-model":
           props.onSetModel(result.model);
           props.controller.setStatusHint(result.message);
@@ -246,12 +295,14 @@ export function App(props: {
             ? Math.max(0, filteredCommands().length - 1)
             : p.phase === "model"
               ? KNOWN_MAIN_MODELS.length - 1
-              : APPROVAL_MODES.length - 1;
+              : p.phase === "sessions"
+                ? Math.max(0, p.sessions.length - 1)
+                : APPROVAL_MODES.length - 1;
         setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
         return;
       }
       if (key.name === "escape") {
-        if (p.phase === "model" || p.phase === "mode") {
+        if (p.phase === "model" || p.phase === "mode" || p.phase === "sessions") {
           // Go back to command list
           setPalette({ phase: "commands", index: 0 });
         } else {
@@ -371,6 +422,24 @@ export function App(props: {
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
                         </Show>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "sessions"}>
+                <For each={(p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).sessions}>
+                  {(session, i) => {
+                    const selected = () => (p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).index === i();
+                    const date = formatSessionDate(session.lastTs || session.createdAt);
+                    const turns = `${session.turns} turn${session.turns !== 1 ? "s" : ""}`;
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{date}  {session.sessionId}
+                        </text>
+                        <text fg={theme.secondary}>  {turns}  {session.cwd}</text>
                       </box>
                     );
                   }}
