@@ -1,5 +1,4 @@
 import { generateText } from "ai";
-import { loadConfig } from "../config/config.js";
 import { getOpenRouter, resolveOpenRouterModelId } from "../provider/openrouter.js";
 import type { Message } from "../types.js";
 
@@ -29,10 +28,6 @@ export interface TurnSlice {
 export type SummariseGenerate = (
   options: Parameters<typeof generateText>[0],
 ) => Promise<{ text: string }>;
-
-export function getContextWindow(modelId: string): number {
-  return loadConfig().models.contextWindows[modelId] ?? 32000;
-}
 
 export function estimateMessageTokens(messages: Message[]): number {
   return JSON.stringify(messages).length / 4;

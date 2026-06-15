@@ -15,10 +15,10 @@ import { resolvePath } from "../util/paths.js";
 import {
   currentTurnCount,
   evictStaleToolResults,
-  getContextWindow,
   shouldCompact,
   summariseOldTurns,
 } from "./compaction.js";
+import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, writeMutationKey } from "./mutation-queue.js";
 
 export interface RunLoopOptions {
@@ -207,7 +207,7 @@ export async function runLoop(
 
   while (true) {
     const turnIndex = currentTurnCount(ctx.messages);
-    const contextWindow = getContextWindow(options.model);
+    const contextWindow = await getContextWindow(options.model);
 
     if (shouldCompact(ctx.messages, contextWindow)) {
       const cheapModel = options.cheapModel ?? defaultCheapModel();
