@@ -43,6 +43,28 @@ export function shouldAutoAccept(mode: ApprovalMode, cliFlag: boolean): boolean 
   return cliFlag || mode === "auto-accept";
 }
 
+/** True when a bash command matches a configured auto-approval prefix or exact entry. */
+export function matchesAutoApprovedCommand(
+  command: string,
+  patterns: readonly string[],
+): boolean {
+  const cmd = command.trim();
+  if (!cmd) return false;
+  return patterns.some((pattern) => {
+    const p = pattern.trim();
+    if (!p) return false;
+    if (cmd === p) return true;
+    return cmd.startsWith(`${p} `);
+  });
+}
+
+export function isAutoApprovedBash(name: string, args: unknown): boolean {
+  if (name !== "bash") return false;
+  const command = (args as { command?: string }).command;
+  if (typeof command !== "string") return false;
+  return matchesAutoApprovedCommand(command, loadConfig().approval.autoApprovedCommands);
+}
+
 export function isToolBlocked(mode: ApprovalMode, toolName: string): boolean {
   return mode === "plan" && WRITE_TOOLS.has(toolName);
 }
@@ -52,8 +74,10 @@ export function needsInteractiveApproval(
   autoAcceptCli: boolean,
   toolName: string,
   toolNeedsApproval?: boolean,
+  autoApproved = false,
 ): boolean {
   if (shouldAutoAccept(mode, autoAcceptCli)) return false;
   if (isToolBlocked(mode, toolName)) return true;
+  if (autoApproved) return false;
   return toolNeedsApproval === true;
 }

@@ -4,13 +4,26 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { runLoop, lastAssistantText } from "../agent/loop.js";
-import { noopSink } from "../agent/events.js";
+import { createHookRegistry } from "../hooks/registry.js";
+import { installCoreHooks } from "../hooks/install.js";
+import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { createStatefulFauxProvider } from "../provider/faux.js";
 import { getCoreTools } from "../tools/registry.js";
+import type { AnyTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 import type { AgentContext, SessionEvent } from "../types.js";
 
 describe("runLoop", () => {
+  function hooks(tools: AnyTool[] = [], approval?: Partial<ApprovalGateRef>) {
+    const registry = createHookRegistry();
+    installCoreHooks(registry, {
+      mode: "auto-accept",
+      autoAcceptCli: true,
+      tools,
+      ...approval,
+    });
+    return registry;
+  }
   it("executes read then completes on second turn", async () => {
     const provider = createStatefulFauxProvider([
       {
@@ -29,12 +42,11 @@ describe("runLoop", () => {
       ],
     };
 
-    const result = await runLoop(ctx, noopSink, {
+    const readTools = getCoreTools().filter((t) => t.name === "read");
+    const result = await runLoop(ctx, hooks(readTools), {
       provider,
-      tools: getCoreTools().filter((t) => t.name === "read"),
+      tools: readTools,
       model: "faux:test",
-      approvalMode: "auto-accept",
-      autoAcceptCli: true,
     });
 
     expect(result.messages.some((m) => m.role === "tool")).toBe(true);
@@ -52,13 +64,12 @@ describe("runLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
     };
 
+    const readTools = getCoreTools().filter((t) => t.name === "read");
     const events: SessionEvent[] = [];
-    await runLoop(ctx, noopSink, {
+    await runLoop(ctx, hooks(readTools), {
       provider,
-      tools: getCoreTools().filter((t) => t.name === "read"),
+      tools: readTools,
       model: "faux:test",
-      approvalMode: "auto-accept",
-      autoAcceptCli: true,
       onEvent: (ev) => events.push(ev),
     });
 
@@ -78,7 +89,7 @@ describe("runLoop", () => {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
     };
-    await expect(runLoop(ctx, noopSink, { provider, tools: [], model: "faux:test" })).resolves.toBeDefined();
+    await expect(runLoop(ctx, hooks(), { provider, tools: [], model: "faux:test" })).resolves.toBeDefined();
   });
 
   it("runs independent tool calls in parallel", async () => {
@@ -114,12 +125,11 @@ describe("runLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
     };
 
-    await runLoop(ctx, noopSink, {
+    const slowTools = [slowTool("slow_a"), slowTool("slow_b"), slowTool("slow_c")];
+    await runLoop(ctx, hooks(slowTools), {
       provider,
-      tools: [slowTool("slow_a"), slowTool("slow_b"), slowTool("slow_c")],
+      tools: slowTools,
       model: "faux:test",
-      approvalMode: "auto-accept",
-      autoAcceptCli: true,
     });
 
     expect(maxConcurrent).toBeGreaterThan(1);
@@ -160,12 +170,10 @@ describe("runLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "increment" }] }],
     };
 
-    await runLoop(ctx, noopSink, {
+    await runLoop(ctx, hooks([editCounter]), {
       provider,
       tools: [editCounter],
       model: "faux:test",
-      approvalMode: "auto-accept",
-      autoAcceptCli: true,
     });
 
     const final = Number((await readFile(filePath, "utf8")).trim());
@@ -186,12 +194,11 @@ describe("runLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "read package.json" }] }],
     };
 
-    const result = await runLoop(ctx, noopSink, {
+    const readTools = getCoreTools().filter((t) => t.name === "read");
+    const result = await runLoop(ctx, hooks(readTools), {
       provider,
-      tools: getCoreTools().filter((t) => t.name === "read"),
+      tools: readTools,
       model: "faux:test",
-      approvalMode: "auto-accept",
-      autoAcceptCli: true,
     });
 
     expect(result.messages.some((m) => m.role === "tool")).toBe(true);
@@ -222,16 +229,131 @@ describe("runLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "read file" }] }],
     };
 
-    await runLoop(ctx, noopSink, {
+    const readTools = getCoreTools().filter((t) => t.name === "read");
+    await runLoop(ctx, hooks(readTools), {
       provider,
-      tools: getCoreTools().filter((t) => t.name === "read"),
+      tools: readTools,
       model: "faux:test",
-      approvalMode: "auto-accept",
-      autoAcceptCli: true,
     });
 
     expect(providerCalls).toBeGreaterThanOrEqual(2);
     expect(ctx.messages.some((m) => m.role === "user" && m.content[0]?.type === "text" &&
       (m.content[0] as { text: string }).text.includes("invalid"))).toBe(true);
+  });
+
+  it("before_tool hook blocks dangerous bash commands", async () => {
+    const executed: string[] = [];
+    const bashTool: Tool<{ command: string }> = {
+      name: "bash",
+      description: "run shell",
+      schema: z.object({ command: z.string() }),
+      async execute({ command }) {
+        executed.push(command);
+        return { output: "ok" };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "bash", arguments: { command: "rm -rf /tmp/foo" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "delete" }] }],
+    };
+
+    const registry = hooks([bashTool]);
+    registry.on("before_tool", ({ name, args }) => {
+      if (name !== "bash") return;
+      const command = (args as { command: string }).command;
+      if (command.includes("rm -rf")) {
+        return { block: true, reason: "rm -rf is not allowed" };
+      }
+    });
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [bashTool],
+      model: "faux:test",
+    });
+
+    expect(executed).toHaveLength(0);
+    const toolResult = ctx.messages.find((m) => m.role === "tool");
+    const output = toolResult?.content.find((c) => c.type === "toolResult")?.output ?? "";
+    expect(output).toContain("[Blocked: rm -rf is not allowed]");
+  });
+
+  it("before_tool hook rewrites args before execution", async () => {
+    let executedCommand = "";
+    const bashTool: Tool<{ command: string }> = {
+      name: "bash",
+      description: "run shell",
+      schema: z.object({ command: z.string() }),
+      async execute({ command }) {
+        executedCommand = command;
+        return { output: "ok" };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "bash", arguments: { command: "git log" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "log" }] }],
+    };
+
+    const registry = hooks([bashTool]);
+    registry.on("before_tool", ({ name, args }) => {
+      if (name !== "bash") return;
+      const cmd = (args as { command: string }).command.trim();
+      if (cmd.startsWith("git ") && !cmd.startsWith("rtk ")) {
+        return { args: { command: `rtk ${cmd}` } };
+      }
+    });
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [bashTool],
+      model: "faux:test",
+    });
+
+    expect(executedCommand).toBe("rtk git log");
+  });
+
+  it("before_prompt hook injects messages seen by the provider", async () => {
+    let providerMessages: AgentContext["messages"] | undefined;
+    const provider = createStatefulFauxProvider([{ text: ["hello"] }]);
+    const wrappedProvider: typeof provider = (messages, options, emit) => {
+      providerMessages = messages;
+      return provider(messages, options, emit);
+    };
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    };
+
+    const registry = hooks();
+    registry.on("before_prompt", ({ messages }) => ({
+      messages: [
+        ...messages,
+        { role: "user", content: [{ type: "text", text: "CONVENTIONS: use tabs" }] },
+      ],
+    }));
+
+    await runLoop(ctx, registry, {
+      provider: wrappedProvider,
+      tools: [],
+      model: "faux:test",
+    });
+
+    expect(providerMessages?.some((m) =>
+      m.role === "user"
+      && m.content.some((c) => c.type === "text" && c.text.includes("CONVENTIONS: use tabs")),
+    )).toBe(true);
   });
 });

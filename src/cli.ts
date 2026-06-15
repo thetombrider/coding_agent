@@ -2,6 +2,9 @@
 
 import "dotenv/config";
 
+import { createHookRegistry } from "./hooks/registry.js";
+import { installCoreHooks } from "./hooks/install.js";
+import type { ApprovalGateRef } from "./hooks/approval-gate.js";
 import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
 import { loadConfig, ensureConfigFile } from "./config/config.js";
@@ -15,6 +18,10 @@ import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
 
 const SYSTEM = loadConfig().system.prompt;
+
+function createSessionHooks(): ReturnType<typeof createHookRegistry> {
+  return createHookRegistry();
+}
 
 function flagValue(args: string[], ...names: string[]): string | undefined {
   for (const name of names) {
@@ -119,6 +126,7 @@ async function runInteractive(opts: {
   }
 
   const ctx: AgentContext = { cwd, messages };
+  const hooks = createSessionHooks();
 
   await runTuiSession({
     ctx,
@@ -130,6 +138,7 @@ async function runInteractive(opts: {
     autoAcceptCli: opts.autoAcceptCli,
     initialMessage: opts.initialMessage,
     sessionId,
+    hooks,
     meta: {
       model: opts.useFaux ? "faux" : models.main,
       approval: opts.approvalMode,
@@ -197,8 +206,15 @@ async function runHeadless(opts: {
   const { provider, model } = resolveProvider(opts.useFaux);
   const { runLoop } = await import("./agent/loop.js");
   const sessionId = opts.useFaux ? undefined : generateSessionId();
+  const hooks = createSessionHooks();
+  const approvalRef: ApprovalGateRef = {
+    mode: opts.approvalMode,
+    autoAcceptCli: opts.autoAcceptCli,
+    tools: getCoreTools(),
+  };
+  installCoreHooks(hooks, approvalRef);
 
-  await runLoop(ctx, (event) => {
+  hooks.observe((event) => {
     if (event.type === "text_delta") process.stdout.write(event.text);
     if (event.type === "tool_start") {
       process.stdout.write(`\n[tool ${event.name}] ${JSON.stringify(event.args)}\n`);
@@ -206,15 +222,20 @@ async function runHeadless(opts: {
     if (event.type === "tool_end" && event.isError) {
       process.stdout.write(`[tool error] ${event.output}\n`);
     }
-  }, {
-    provider,
-    tools: getCoreTools(),
-    model,
-    system: SYSTEM,
-    sessionId,
-    approvalMode: opts.approvalMode,
-    autoAcceptCli: opts.autoAcceptCli,
   });
+
+  await hooks.fireHook("session_start", { cwd }, ctx);
+  try {
+    await runLoop(ctx, hooks, {
+      provider,
+      tools: getCoreTools(),
+      model,
+      system: SYSTEM,
+      sessionId,
+    });
+  } finally {
+    await hooks.fireHook("session_end", { reason: "complete" }, ctx);
+  }
 
   const answer = lastAssistantText(ctx);
   if (answer && !answer.endsWith("\n")) process.stdout.write("\n");
