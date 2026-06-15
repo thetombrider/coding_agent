@@ -8,7 +8,7 @@ import { confirmTool } from "../approval/prompt.js";
 import type { AgentEventSink } from "./events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
-import type { AgentContext, Message } from "../types.js";
+import type { AgentContext, Message, SessionEventCallback } from "../types.js";
 
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
@@ -21,6 +21,7 @@ export interface RunLoopOptions {
   approvalMode?: ApprovalMode;
   autoAcceptCli?: boolean;
   confirm?: (name: string, args: unknown) => Promise<boolean>;
+  onEvent?: SessionEventCallback;
 }
 
 function toolMap(tools: AnyTool[]): Map<string, AnyTool> {
@@ -67,7 +68,9 @@ export async function runLoop(
       },
     );
 
+    const ts = () => new Date().toISOString();
     ctx.messages.push(message);
+    options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
     emit({ type: "assistant_message", message });
 
     const toolCalls = message.content.filter((c) => c.type === "toolCall");
@@ -82,7 +85,9 @@ export async function runLoop(
       const tool = registry.get(call.name);
       if (!tool) {
         const output = `Unknown tool: ${call.name}`;
-        ctx.messages.push(toolResultMessage(call.id, output, true));
+        const msg = toolResultMessage(call.id, output, true);
+        ctx.messages.push(msg);
+        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
         emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
         continue;
       }
@@ -94,7 +99,9 @@ export async function runLoop(
       if (isToolBlocked(mode, call.name)) {
         const output = `Tool ${call.name} blocked in plan mode.`;
         emit({ type: "approval_required", id: call.id, name: call.name, args });
-        ctx.messages.push(toolResultMessage(call.id, output, true));
+        const msg = toolResultMessage(call.id, output, true);
+        ctx.messages.push(msg);
+        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
         emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
         continue;
       }
@@ -111,7 +118,9 @@ export async function runLoop(
         const approved = await (options.confirm ?? confirmTool)(call.name, args);
         if (!approved) {
           const output = "Tool execution denied by user.";
-          ctx.messages.push(toolResultMessage(call.id, output, true));
+          const msg = toolResultMessage(call.id, output, true);
+          ctx.messages.push(msg);
+          options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
           emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
           continue;
         }
@@ -121,9 +130,9 @@ export async function runLoop(
 
       try {
         const result = await tool.execute(args, ctx, options.signal ?? new AbortController().signal);
-        ctx.messages.push(
-          toolResultMessage(call.id, result.output, result.isError),
-        );
+        const msg = toolResultMessage(call.id, result.output, result.isError);
+        ctx.messages.push(msg);
+        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
         emit({
           type: "tool_end",
           id: call.id,
@@ -138,7 +147,9 @@ export async function runLoop(
         }
       } catch (err) {
         const output = err instanceof Error ? err.message : String(err);
-        ctx.messages.push(toolResultMessage(call.id, output, true));
+        const msg = toolResultMessage(call.id, output, true);
+        ctx.messages.push(msg);
+        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
         emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
       }
     }

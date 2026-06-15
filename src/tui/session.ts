@@ -3,6 +3,7 @@ import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { ApprovalMode } from "../approval/policy.js";
 import { saveConfig } from "../config/config.js";
+import { openLog, sessionPath } from "../session/log.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
@@ -27,10 +28,20 @@ export interface TuiSessionConfig {
   autoAcceptCli: boolean;
   meta: SessionMeta;
   initialMessage?: string;
+  sessionId: string;
 }
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
+
+  const log = openLog(sessionPath(config.sessionId));
+  log.write({
+    type: "session_meta",
+    ts: new Date().toISOString(),
+    sessionId: config.sessionId,
+    cwd: config.ctx.cwd,
+    model: config.meta.model,
+  });
 
   // Mutable so /model and /mode take effect on the next turn.
   let activeModel = config.model;
@@ -54,10 +65,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   };
 
   const runTurn = async (userText: string) => {
-    config.ctx.messages.push({
-      role: "user",
-      content: [{ type: "text", text: userText }],
-    });
+    const userContent = [{ type: "text" as const, text: userText }];
+    config.ctx.messages.push({ role: "user", content: userContent });
+    log.write({ type: "user_message", ts: new Date().toISOString(), content: userContent });
     controller.beginTurn(userText);
 
     try {
@@ -69,6 +79,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         approvalMode: activeApprovalMode,
         autoAcceptCli: config.autoAcceptCli,
         confirm: controller.requestApproval,
+        onEvent: log.write,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -91,7 +102,10 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         onExit: resolveExit,
         onSetModel: setModel,
         onSetMode: setApprovalMode,
-        onClear: () => { config.ctx.messages = []; },
+        onClear: () => {
+          config.ctx.messages = [];
+          log.write({ type: "session_clear", ts: new Date().toISOString() });
+        },
       }),
     renderer,
   );
@@ -116,6 +130,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   try {
     await exitPromise;
   } finally {
+    log.close();
     renderer.destroy();
     if (process.stdout.isTTY) process.stdout.write(RESET_TERMINAL_COLORS);
   }
