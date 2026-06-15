@@ -44,7 +44,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   });
 
   const onResume = (resumeSessionId: string) => {
-    log.close();
+    void log.close();
     const messages = replayLog(sessionPath(resumeSessionId));
     config.ctx.messages = messages;
     log = openLog(sessionPath(resumeSessionId));
@@ -144,7 +144,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   try {
     await exitPromise;
   } finally {
-    log.close();
+    await log.close();
     renderer.destroy();
     if (process.stdout.isTTY) process.stdout.write(RESET_TERMINAL_COLORS);
   }

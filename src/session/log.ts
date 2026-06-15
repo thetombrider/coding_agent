@@ -17,7 +17,7 @@ export function generateSessionId(): string {
 
 export interface LogHandle {
   write: (event: SessionEvent) => void;
-  close: () => void;
+  close: () => Promise<void>;
 }
 
 export function openLog(path: string): LogHandle {
@@ -26,7 +26,11 @@ export function openLog(path: string): LogHandle {
   const stream = createWriteStream(path, { flags: "a" });
   return {
     write: (ev) => stream.write(JSON.stringify(ev) + "\n"),
-    close: () => { stream.end(); },
+    close: () => new Promise<void>((resolve, reject) => {
+      stream.end((err?: Error | null) => {
+        if (err) reject(err); else resolve();
+      });
+    }),
   };
 }
 
@@ -77,8 +81,8 @@ export function getLastEventTimestamp(path: string): string | undefined {
   return undefined;
 }
 
-export function listSessions(): SessionSummary[] {
-  const dir = sessionsDir();
+export function listSessions(scanDir?: string): SessionSummary[] {
+  const dir = scanDir ?? sessionsDir();
   if (!existsSync(dir)) return [];
 
   const files = readdirSync(dir)

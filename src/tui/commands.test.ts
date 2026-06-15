@@ -21,6 +21,10 @@ describe("processCommand", () => {
     expect(processCommand("/clear", ctx).type).toBe("clear");
   });
 
+  it("handles /sessions", () => {
+    expect(processCommand("/sessions", ctx).type).toBe("sessions");
+  });
+
   it("reports unknown commands", () => {
     const r = processCommand("/bogus", ctx);
     expect(r.type).toBe("error");

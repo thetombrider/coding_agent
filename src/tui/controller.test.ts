@@ -59,4 +59,31 @@ describe("createSessionController", () => {
     controller.clearHistory();
     expect(controller.getState().completedTurns).toHaveLength(0);
   });
+
+  it("loadHistory replaces completedTurns and resets to input phase", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("live turn");
+
+    const turns = [
+      { userText: "hello", assistantText: "hi there", tools: [] },
+      { userText: "how are you?", assistantText: "fine", tools: [] },
+    ];
+    controller.loadHistory(turns);
+
+    const state = controller.getState();
+    expect(state.completedTurns).toHaveLength(2);
+    expect(state.completedTurns[0]?.userText).toBe("hello");
+    expect(state.completedTurns[1]?.assistantText).toBe("fine");
+    expect(state.phase).toBe("input");
+    expect(state.currentUserText).toBe("");
+    expect(state.streamingText).toBe("");
+  });
+
+  it("loadHistory with empty turns clears the conversation", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("something");
+    controller.finalizeTurn();
+    controller.loadHistory([]);
+    expect(controller.getState().completedTurns).toHaveLength(0);
+  });
 });
