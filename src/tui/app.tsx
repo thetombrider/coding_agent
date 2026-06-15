@@ -362,7 +362,11 @@ export function App(props: {
       </scrollbox>
 
       <Show when={state().pendingApproval}>
-        {(pending) => <ApprovalBar name={pending().name} args={pending().args} />}
+        {(pending) => (
+          <box flexShrink={0}>
+            <ApprovalBar name={pending().name} args={pending().args} />
+          </box>
+        )}
       </Show>
 
       <box flexShrink={0} flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>

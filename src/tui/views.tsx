@@ -117,10 +117,13 @@ export function Header(props: { model: string; approval: string; cwd: string }) 
 export function ApprovalBar(props: { name: string; args: unknown }) {
   return (
     <box
+      flexShrink={0}
       marginTop={1}
       marginBottom={1}
       paddingLeft={1}
       paddingRight={1}
+      paddingTop={1}
+      paddingBottom={1}
       borderStyle="rounded"
       border
       borderColor={theme.border}
