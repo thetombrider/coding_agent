@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isToolBlocked,
+  matchesAutoApprovedCommand,
   needsInteractiveApproval,
   parseApprovalMode,
   shouldAutoAccept,
@@ -27,5 +28,18 @@ describe("approval policy", () => {
   it("requires approval in normal mode for gated tools", () => {
     expect(needsInteractiveApproval("normal", false, "bash", true)).toBe(true);
     expect(needsInteractiveApproval("normal", false, "read", false)).toBe(false);
+  });
+
+  it("matches exact and prefix auto-approved bash commands", () => {
+    const patterns = ["git status", "ls"];
+    expect(matchesAutoApprovedCommand("git status", patterns)).toBe(true);
+    expect(matchesAutoApprovedCommand("git status --short", patterns)).toBe(true);
+    expect(matchesAutoApprovedCommand("ls -la", patterns)).toBe(true);
+    expect(matchesAutoApprovedCommand("git diff", patterns)).toBe(false);
+  });
+
+  it("skips approval when bash command is auto-approved", () => {
+    expect(needsInteractiveApproval("normal", false, "bash", true, true)).toBe(false);
+    expect(needsInteractiveApproval("normal", false, "write", true, false)).toBe(true);
   });
 });

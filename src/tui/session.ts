@@ -2,6 +2,9 @@ import { createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { ApprovalMode } from "../approval/policy.js";
+import type { ApprovalGateRef } from "../hooks/approval-gate.js";
+import { installCoreHooks } from "../hooks/install.js";
+import type { HookRegistryImpl } from "../hooks/registry.js";
 import { saveConfig } from "../config/config.js";
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
 import type { StreamAssistantFn } from "../provider/types.js";
@@ -29,10 +32,13 @@ export interface TuiSessionConfig {
   meta: SessionMeta;
   initialMessage?: string;
   sessionId: string;
+  hooks: HookRegistryImpl;
 }
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
+  config.hooks.observe(controller.handleEvent);
+  await config.hooks.fireHook("session_start", { cwd: config.ctx.cwd }, config.ctx);
 
   let activeSessionId = config.sessionId;
   let log = openLog(sessionPath(activeSessionId));
@@ -79,6 +85,14 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   let activeModel = config.model;
   let activeApprovalMode = config.approvalMode;
 
+  const approvalRef: ApprovalGateRef = {
+    mode: activeApprovalMode,
+    autoAcceptCli: config.autoAcceptCli,
+    tools: config.tools,
+    confirm: controller.requestApproval,
+  };
+  installCoreHooks(config.hooks, approvalRef);
+
   let resolveExit!: () => void;
   const exitPromise = new Promise<void>((resolve) => {
     resolveExit = resolve;
@@ -92,6 +106,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
   const setApprovalMode = (mode: ApprovalMode) => {
     activeApprovalMode = mode;
+    approvalRef.mode = mode;
     controller.updateMeta({ approval: mode });
     saveConfig({ approval: { mode } });
   };
@@ -103,15 +118,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     controller.beginTurn(userText);
 
     try {
-      await runLoop(config.ctx, controller.handleEvent, {
+      await runLoop(config.ctx, config.hooks, {
         provider: config.provider,
         tools: config.tools,
         model: activeModel,
         system: config.system,
         sessionId: activeSessionId,
-        approvalMode: activeApprovalMode,
-        autoAcceptCli: config.autoAcceptCli,
-        confirm: controller.requestApproval,
         onEvent: log.write,
       });
     } catch (err) {
@@ -166,6 +178,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   try {
     await exitPromise;
   } finally {
+    await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
     await log.close();
     renderer.destroy();
     if (process.stdout.isTTY) process.stdout.write(RESET_TERMINAL_COLORS);
