@@ -2,7 +2,16 @@
 
 ## Cursor Cloud specific instructions
 
-`orin` is a single-package terminal coding-agent CLI (Bun + SolidJS via `@opentui`). Standard scripts live in `package.json` (`dev`, `build`, `typecheck`, `test`).
+`orin` is a single-package terminal coding-agent CLI (Bun + SolidJS via `@opentui`). Standard scripts live in `package.json` (`start`, `dev`, `build`, `typecheck`, `test`).
+
+### Install and run
+
+```bash
+./install.sh    # installs Bun (if needed), deps, build, and links the orin command
+orin            # start the interactive agent
+orin --faux     # offline demo without an API key
+bun run start   # run from source without a global install
+```
 
 Non-obvious caveats:
 

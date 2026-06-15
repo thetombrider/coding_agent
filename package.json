@@ -7,6 +7,7 @@
     "orin": "./dist/cli.js"
   },
   "scripts": {
+    "start": "bun src/cli.ts",
     "dev": "bun src/cli.ts",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
