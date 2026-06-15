@@ -108,7 +108,7 @@ export function Header(props: { model: string; approval: string; cwd: string }) 
   return (
     <box paddingBottom={1}>
       <text fg={theme.muted} attributes={BOLD}>
-        minicoder  {shortModel(props.model)}  {props.approval}  {path()}
+        Orin  {shortModel(props.model)}  {props.approval}  {path()}
       </text>
     </box>
   );

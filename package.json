@@ -1,10 +1,10 @@
 {
-  "name": "minicoder",
+  "name": "orin",
   "version": "0.1.0",
-  "description": "Terminal coding agent CLI",
+  "description": "Orin — terminal coding agent CLI",
   "type": "module",
   "bin": {
-    "minicoder": "./dist/cli.js"
+    "orin": "./dist/cli.js"
   },
   "scripts": {
     "dev": "bun src/cli.ts",

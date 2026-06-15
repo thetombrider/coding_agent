@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "minicoder",
+      "name": "orin",
       "dependencies": {
         "@openrouter/ai-sdk-provider": "^2.9.1",
         "@opentui/core": "^0.4.1",

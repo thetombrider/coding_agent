@@ -23,7 +23,7 @@ describe("applyExactEdits", () => {
 
 describe("phase 3 tools integration", () => {
   it("write, edit, grep end-to-end", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "minicoder-"));
+    const cwd = await mkdtemp(join(tmpdir(), "orin-"));
     const ctx: AgentContext = { cwd, messages: [] };
 
     try {

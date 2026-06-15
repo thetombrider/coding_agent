@@ -8,10 +8,10 @@ import {
 
 describe("approval policy", () => {
   it("parses approval mode from env", () => {
-    const prev = process.env.MINICODER_APPROVAL_MODE;
-    process.env.MINICODER_APPROVAL_MODE = "plan";
+    const prev = process.env.ORIN_APPROVAL_MODE;
+    process.env.ORIN_APPROVAL_MODE = "plan";
     expect(parseApprovalMode()).toBe("plan");
-    process.env.MINICODER_APPROVAL_MODE = prev;
+    process.env.ORIN_APPROVAL_MODE = prev;
   });
 
   it("blocks write tools in plan mode", () => {

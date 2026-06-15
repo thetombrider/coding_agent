@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import type { Message, SessionEvent } from "../types.js";
 
 export function sessionsDir(): string {
-  return join(homedir(), ".coding-agent", "sessions");
+  return join(homedir(), ".orin", "sessions");
 }
 
 export function sessionPath(sessionId: string): string {

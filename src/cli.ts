@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 
   if (headless) {
     if (!prompt) {
-      console.error("Usage: minicoder --headless <prompt>");
+      console.error("Usage: orin --headless <prompt>");
       process.exit(1);
     }
     await runHeadless({ prompt, useFaux, approvalMode, autoAcceptCli });
@@ -81,7 +81,7 @@ function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model
 
   if (!process.env.OPENROUTER_API_KEY?.trim() && !loadConfig().provider.openrouter?.apiKey) {
     console.error(
-      "OPENROUTER_API_KEY is not set. Use --faux for offline demo, set the env var, or add it to ~/.coding-agent/config.json.",
+      "OPENROUTER_API_KEY is not set. Use --faux for offline demo, set the env var, or add it to ~/.orin/config.json.",
     );
     process.exit(1);
   }
@@ -225,7 +225,7 @@ async function runOneShotMode(opts: { prompt: string; useFaux: boolean }): Promi
 
   if (opts.useFaux) {
     provider = fauxOneShot(
-      "Hello from minicoder! Phase 1 provider stream is working (faux mode).",
+      "Hello from Orin! Phase 1 provider stream is working (faux mode).",
     );
     model = "faux:test";
   } else {
@@ -242,7 +242,7 @@ async function runOneShotMode(opts: { prompt: string; useFaux: boolean }): Promi
   await runOneShot(
     provider,
     opts.prompt,
-    { model, system: "You are a concise coding assistant." },
+    { model, system: "You are Orin, a concise coding assistant." },
     (chunk) => process.stdout.write(chunk),
   );
   process.stdout.write("\n");

@@ -80,12 +80,12 @@ const DEFAULT_CONFIG: Config = {
     },
   },
   approval: { mode: "normal", autoApprovedCommands: [] },
-  system: { prompt: "You are a coding agent. Use tools to inspect and modify the codebase. Answer concisely." },
-  telemetry: { enabled: true, metricsFile: "~/.coding-agent/metrics.jsonl" },
+  system: { prompt: "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely." },
+  telemetry: { enabled: true, metricsFile: "~/.orin/metrics.jsonl" },
 };
 
 function configPath(): string {
-  return join(homedir(), ".coding-agent", "config.json");
+  return join(homedir(), ".orin", "config.json");
 }
 
 function deepMerge(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
@@ -123,12 +123,12 @@ export function loadConfig(): Config {
     readRawConfig(),
   ) as unknown as Config;
 
-  if (process.env.MINICODER_MODEL?.trim()) merged.models.main = process.env.MINICODER_MODEL.trim();
-  if (process.env.MINICODER_CHEAP_MODEL?.trim()) merged.models.cheap = process.env.MINICODER_CHEAP_MODEL.trim();
+  if (process.env.ORIN_MODEL?.trim()) merged.models.main = process.env.ORIN_MODEL.trim();
+  if (process.env.ORIN_CHEAP_MODEL?.trim()) merged.models.cheap = process.env.ORIN_CHEAP_MODEL.trim();
   if (process.env.OPENROUTER_API_KEY?.trim()) {
     merged.provider.openrouter = { ...merged.provider.openrouter, apiKey: process.env.OPENROUTER_API_KEY.trim() };
   }
-  const rawMode = process.env.MINICODER_APPROVAL_MODE?.trim().toLowerCase();
+  const rawMode = process.env.ORIN_APPROVAL_MODE?.trim().toLowerCase();
   if (rawMode === "auto-accept" || rawMode === "auto") merged.approval.mode = "auto-accept";
   else if (rawMode === "plan") merged.approval.mode = "plan";
   else if (rawMode === "normal") merged.approval.mode = "normal";

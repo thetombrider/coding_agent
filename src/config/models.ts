@@ -9,7 +9,7 @@ export interface ModelConfig {
 
 /**
  * Curated main-model ids offered by the `/model` picker. Populated from
- * ~/.coding-agent/config.json (models.picker) at startup; falls back to
+ * ~/.orin/config.json (models.picker) at startup; falls back to
  * the built-in default list when no config file exists.
  */
 export const KNOWN_MAIN_MODELS: readonly string[] = loadConfig().models.picker;
