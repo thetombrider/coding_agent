@@ -4,6 +4,7 @@ import "dotenv/config";
 
 import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
+import { loadConfig } from "./config/config.js";
 import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { streamAssistant } from "./provider/stream.js";
@@ -12,8 +13,7 @@ import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
 
-const SYSTEM =
-  "You are a coding agent. Use tools to inspect and modify the codebase. Answer concisely.";
+const SYSTEM = loadConfig().system.prompt;
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -61,9 +61,9 @@ function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model
     };
   }
 
-  if (!process.env.OPENROUTER_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY?.trim() && !loadConfig().provider.openrouter?.apiKey) {
     console.error(
-      "OPENROUTER_API_KEY is not set. Use --faux for offline demo, or add it to .env.",
+      "OPENROUTER_API_KEY is not set. Use --faux for offline demo, set the env var, or add it to ~/.coding-agent/config.json.",
     );
     process.exit(1);
   }

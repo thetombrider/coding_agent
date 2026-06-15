@@ -1,3 +1,5 @@
+import { loadConfig } from "../config/config.js";
+
 export type ApprovalMode = "normal" | "auto-accept" | "plan";
 
 const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
@@ -33,7 +35,8 @@ export function parseApprovalMode(): ApprovalMode {
   const raw = process.env.MINICODER_APPROVAL_MODE?.trim().toLowerCase();
   if (raw === "auto-accept" || raw === "auto") return "auto-accept";
   if (raw === "plan") return "plan";
-  return "normal";
+  if (raw === "normal") return "normal";
+  return loadConfig().approval.mode;
 }
 
 export function shouldAutoAccept(mode: ApprovalMode, cliFlag: boolean): boolean {

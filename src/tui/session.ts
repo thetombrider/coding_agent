@@ -2,6 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { ApprovalMode } from "../approval/policy.js";
+import { saveConfig } from "../config/config.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
@@ -43,11 +44,13 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   const setModel = (model: string) => {
     activeModel = model;
     controller.updateMeta({ model });
+    saveConfig({ models: { main: model } });
   };
 
   const setApprovalMode = (mode: ApprovalMode) => {
     activeApprovalMode = mode;
     controller.updateMeta({ approval: mode });
+    saveConfig({ approval: { mode } });
   };
 
   const runTurn = async (userText: string) => {
