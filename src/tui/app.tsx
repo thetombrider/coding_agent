@@ -248,7 +248,12 @@ export function App(props: {
           props.controller.setStatusHint(result.message);
           return;
         case "set-sandbox":
-          await props.onSetSandbox(result.kind);
+          setSubmitting(true);
+          try {
+            await props.onSetSandbox(result.kind);
+          } finally {
+            setSubmitting(false);
+          }
           return;
         case "info":
         case "error":
