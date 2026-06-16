@@ -158,6 +158,11 @@ export function loadConfig(): Config {
   return merged;
 }
 
+/** True when an OpenRouter API key is available from the env var or config file. */
+export function hasOpenRouterApiKey(): boolean {
+  return Boolean(process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey);
+}
+
 /** Deep-merge a partial patch into the persisted config file. Creates the file if absent. */
 export function saveConfig(patch: DeepPartial<Config>): void {
   const path = configPath();
