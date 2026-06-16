@@ -58,3 +58,48 @@ describe("ensureConfigFile", () => {
     expect(JSON.parse(raw).models.main).toBe("custom/model");
   });
 });
+
+describe("API key onboarding", () => {
+  let home: string;
+  let prevHome: string | undefined;
+  let prevKey: string | undefined;
+
+  beforeEach(() => {
+    prevHome = process.env.HOME;
+    prevKey = process.env.OPENROUTER_API_KEY;
+    home = mkdtempSync(join(tmpdir(), "orin-config-key-"));
+    process.env.HOME = home;
+    delete process.env.OPENROUTER_API_KEY;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = prevKey;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("reports no key when neither env nor config provide one", async () => {
+    const { hasOpenRouterApiKey } = await import("./config.js");
+    expect(hasOpenRouterApiKey()).toBe(false);
+  });
+
+  it("detects a key from the env var", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-env";
+    const { hasOpenRouterApiKey } = await import("./config.js");
+    expect(hasOpenRouterApiKey()).toBe(true);
+  });
+
+  it("persists a key to config.json and reads it back from any directory", async () => {
+    const { saveConfig, hasOpenRouterApiKey, loadConfig } = await import("./config.js");
+    saveConfig({ provider: { openrouter: { apiKey: "sk-saved" } } });
+
+    expect(hasOpenRouterApiKey()).toBe(true);
+    expect(loadConfig().provider.openrouter?.apiKey).toBe("sk-saved");
+
+    const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
+    expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-saved");
+  });
+});

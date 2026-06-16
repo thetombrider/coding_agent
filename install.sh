@@ -39,6 +39,8 @@ echo "Building orin..."
 bun run build
 
 echo "Initializing ~/.orin/config.json..."
+# Prompts for the OpenRouter API key (if not already configured) and stores it
+# in ~/.orin/config.json so orin works from any directory.
 bun run init-config
 
 echo "Linking orin command..."
@@ -49,6 +51,9 @@ echo "Orin is ready."
 echo
 echo "Start the agent:"
 echo "  orin"
+echo
+echo "Your API key lives in ~/.orin/config.json (provider.openrouter.apiKey)."
+echo "Edit that file to change it, or override per-shell with OPENROUTER_API_KEY."
 echo
 echo "Offline demo (no API key):"
 echo "  orin --faux"
