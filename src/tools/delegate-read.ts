@@ -22,6 +22,7 @@ export const delegateReadTool: Tool<DelegateReadArgs> = {
       task,
       paths,
       cwd: ctx.cwd,
+      workspace: ctx.workspace,
       signal,
     });
 

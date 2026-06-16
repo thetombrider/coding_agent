@@ -26,6 +26,7 @@ export interface SessionMeta {
   model: string;
   approval: string;
   cwd: string;
+  sandbox?: string;
   faux?: boolean;
 }
 

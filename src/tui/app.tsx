@@ -16,6 +16,7 @@ const BOLD = createTextAttributes({ bold: true });
 const SLASH_COMMANDS = [
   { name: "model",    label: "/model",    description: "switch model" },
   { name: "mode",     label: "/mode",     description: "set approval mode" },
+  { name: "sandbox",  label: "/sandbox",  description: "local or E2B sandbox" },
   { name: "sessions", label: "/sessions", description: "browse sessions" },
   { name: "new",      label: "/new",      description: "archive & start new session" },
   { name: "clear",    label: "/clear",    description: "clear conversation" },
@@ -61,6 +62,8 @@ export function App(props: {
   onExit: () => void;
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
+  onSetSandbox: (kind: "local" | "e2b") => void | Promise<void>;
+  getSandbox: () => "local" | "e2b";
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -205,6 +208,7 @@ export function App(props: {
       const result = processCommand(text, {
         currentModel: meta.model,
         currentMode: coerceApprovalMode(meta.approval) ?? "normal",
+        currentSandbox: props.getSandbox(),
         knownModels: KNOWN_MAIN_MODELS,
       });
 
@@ -237,6 +241,15 @@ export function App(props: {
           props.onSetMode(result.mode);
           props.controller.setStatusHint(result.message);
           return;
+        case "set-sandbox": {
+          const set = props.onSetSandbox(result.kind);
+          if (set instanceof Promise) {
+            void set.then(() => props.controller.setStatusHint(result.message));
+          } else {
+            props.controller.setStatusHint(result.message);
+          }
+          return;
+        }
         case "info":
         case "error":
           props.controller.setStatusHint(result.message);
@@ -345,7 +358,12 @@ export function App(props: {
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.bg} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <box flexShrink={0}>
-        <Header model={state().meta.model} approval={state().meta.approval} cwd={state().meta.cwd} />
+        <Header
+          model={state().meta.model}
+          approval={state().meta.approval}
+          cwd={state().meta.cwd}
+          sandbox={state().meta.sandbox}
+        />
       </box>
 
       <scrollbox

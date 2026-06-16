@@ -1,5 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { loadToolDescription } from "../util/load-txt.js";
@@ -19,8 +17,7 @@ export const writeTool: Tool<WriteArgs> = {
   needsApproval: () => true,
   async execute({ path, content }, ctx) {
     const fullPath = resolvePath(ctx.cwd, path);
-    await mkdir(dirname(fullPath), { recursive: true });
-    await writeFile(fullPath, content, "utf8");
+    await ctx.workspace.writeFile(fullPath, content);
     return { output: `Wrote ${path} (${content.length} bytes)` };
   },
 };

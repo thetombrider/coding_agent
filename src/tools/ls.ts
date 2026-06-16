@@ -1,5 +1,3 @@
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
 import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { loadToolDescription } from "../util/load-txt.js";
@@ -17,12 +15,27 @@ export const lsTool: Tool<LsArgs> = {
   schema,
   async execute({ path }, ctx) {
     const dir = resolvePath(ctx.cwd, path ?? ".");
-    const entries = await readdir(dir);
-    const lines: string[] = [];
-    for (const name of entries.sort()) {
-      const info = await stat(join(dir, name));
-      lines.push(`${info.isDirectory() ? "d" : "f"} ${name}`);
+    let raw = "";
+    const { exitCode } = await ctx.workspace.exec("ls -1p", dir, {
+      onData: (chunk) => {
+        raw += chunk.toString();
+      },
+    });
+    if (exitCode !== 0) {
+      throw new Error(raw.trim() || `ls failed with exit ${exitCode}`);
     }
+
+    const lines = raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((name) => {
+        const isDir = name.endsWith("/");
+        const label = isDir ? name.slice(0, -1) : name;
+        return `${isDir ? "d" : "f"} ${label}`;
+      })
+      .sort();
+
     return { output: lines.join("\n") || "(empty)" };
   },
 };

@@ -1,5 +1,4 @@
 import { createTwoFilesPatch } from "diff";
-import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { loadToolDescription } from "../util/load-txt.js";
@@ -53,10 +52,10 @@ export const editTool: Tool<EditArgs> = {
   needsApproval: () => true,
   async execute({ path, edits }, ctx) {
     const fullPath = resolvePath(ctx.cwd, path);
-    const original = await readFile(fullPath, "utf8");
+    const original = await ctx.workspace.readFile(fullPath);
     const updated = applyExactEdits(original, edits);
     const patch = createTwoFilesPatch(path, path, original, updated, "", "");
-    await writeFile(fullPath, updated, "utf8");
+    await ctx.workspace.writeFile(fullPath, updated);
     return { output: patch || `Updated ${path} (${edits.length} edit(s))` };
   },
 };
