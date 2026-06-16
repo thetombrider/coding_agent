@@ -134,53 +134,64 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     }
   };
 
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: false,
-    backgroundColor: theme.bg,
-  });
+  // Creating the renderer switches the terminal into raw mode / the alternate
+  // screen and enables mouse tracking. From here on, any failure (a renderer or
+  // render error, an uncaught exception, or the process being killed) must
+  // restore it — otherwise the user is left with a garbled terminal echoing
+  // mouse/color-query escapes. `process.exit` fires the "exit" event, so this
+  // also covers hard exits.
+  const onProcessExit = () => restoreTerminal();
+  process.once("exit", onProcessExit);
 
-  await render(
-    () =>
-      App({
-        controller,
-        onSubmit: runTurn,
-        onExit: resolveExit,
-        onSetModel: setModel,
-        onSetMode: setApprovalMode,
-        onClear: () => {
-          config.ctx.messages = [];
-          log.write({ type: "session_clear", ts: new Date().toISOString() });
-        },
-        onNew,
-        onResume,
-        onListSessions: listSessions,
-      }),
-    renderer,
-  );
-
-  // Set the terminal's default fg/bg AFTER OpenTUI has switched to the alternate
-  // screen (done in native setup during render), so the emulator paints its
-  // window padding with the theme color instead of its own default. Re-assert on
-  // the next tick in case the initial frame races the screen switch.
-  if (process.stdout.isTTY) {
-    process.stdout.write(SET_TERMINAL_COLORS);
-    setTimeout(() => {
-      if (process.stdout.isTTY) process.stdout.write(SET_TERMINAL_COLORS);
-    }, 50);
-  }
-
-  if (config.initialMessage) {
-    queueMicrotask(() => {
-      void runTurn(config.initialMessage!);
-    });
-  }
-
+  let renderer: Awaited<ReturnType<typeof createCliRenderer>> | undefined;
   try {
+    renderer = await createCliRenderer({
+      exitOnCtrlC: false,
+      backgroundColor: theme.bg,
+    });
+
+    await render(
+      () =>
+        App({
+          controller,
+          onSubmit: runTurn,
+          onExit: resolveExit,
+          onSetModel: setModel,
+          onSetMode: setApprovalMode,
+          onClear: () => {
+            config.ctx.messages = [];
+            log.write({ type: "session_clear", ts: new Date().toISOString() });
+          },
+          onNew,
+          onResume,
+          onListSessions: listSessions,
+        }),
+      renderer,
+    );
+
+    // Set the terminal's default fg/bg AFTER OpenTUI has switched to the alternate
+    // screen (done in native setup during render), so the emulator paints its
+    // window padding with the theme color instead of its own default. Re-assert on
+    // the next tick in case the initial frame races the screen switch.
+    if (process.stdout.isTTY) {
+      process.stdout.write(SET_TERMINAL_COLORS);
+      setTimeout(() => {
+        if (process.stdout.isTTY) process.stdout.write(SET_TERMINAL_COLORS);
+      }, 50);
+    }
+
+    if (config.initialMessage) {
+      queueMicrotask(() => {
+        void runTurn(config.initialMessage!);
+      });
+    }
+
     await exitPromise;
   } finally {
+    process.removeListener("exit", onProcessExit);
     await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
     await log.close();
-    renderer.destroy();
+    renderer?.destroy();
     restoreTerminal();
   }
 
