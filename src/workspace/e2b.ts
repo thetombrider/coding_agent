@@ -41,6 +41,10 @@ export async function createE2BWorkspace(): Promise<Workspace> {
 }
 
 type E2BSandbox = Awaited<ReturnType<typeof import("e2b").Sandbox.create>>;
+type E2BCommandHandle = Extract<
+  Awaited<ReturnType<E2BSandbox["commands"]["run"]>>,
+  { kill: () => Promise<boolean> }
+>;
 
 async function execE2B(
   sbx: E2BSandbox,
@@ -57,12 +61,21 @@ async function execE2B(
   };
 
   if (opts.signal) {
-    const handle = await sbx.commands.run(command, { ...runOpts, background: true });
+    if (opts.signal.aborted) {
+      throw opts.signal.reason ?? new Error("Aborted");
+    }
+
+    let handle: E2BCommandHandle | undefined;
     const abort = () => {
-      void handle.kill().catch(() => {});
+      void handle?.kill().catch(() => {});
     };
     opts.signal.addEventListener("abort", abort, { once: true });
     try {
+      handle = await sbx.commands.run(command, { ...runOpts, background: true });
+      if (opts.signal.aborted) {
+        await handle.kill();
+        throw opts.signal.reason ?? new Error("Aborted");
+      }
       const result = await handle.wait();
       return { exitCode: result.exitCode };
     } finally {

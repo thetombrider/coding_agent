@@ -172,7 +172,9 @@ export function hasOpenRouterApiKey(): boolean {
 
 /** True when an E2B API key is available from the env var or config file. */
 export function hasE2BApiKey(): boolean {
-  return Boolean(process.env.E2B_API_KEY?.trim() || loadConfig().sandbox?.e2b?.apiKey);
+  const fromEnv = process.env.E2B_API_KEY?.trim();
+  const fromConfig = loadConfig().sandbox?.e2b?.apiKey?.trim();
+  return Boolean(fromEnv || fromConfig);
 }
 
 /** Deep-merge a partial patch into the persisted config file. Creates the file if absent. */

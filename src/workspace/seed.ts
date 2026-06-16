@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { shellQuote } from "../util/shell.js";
 import type { Workspace } from "./types.js";
 
 /** Read `git remote get-url origin` from a local directory (host-side seeding only). */
@@ -8,6 +9,21 @@ export function getGitOriginUrl(localCwd: string): string | undefined {
   });
   const url = result.stdout?.trim();
   return result.status === 0 && url ? url : undefined;
+}
+
+/** Safe label for UI — strips credentials from git/https URLs. */
+export function safeRemoteLabel(url: string): string {
+  const normalized = url.replace(/^git@([^:]+):/, "https://$1/");
+  try {
+    const parsed = new URL(normalized);
+    parsed.username = "";
+    parsed.password = "";
+    const path = parsed.pathname.replace(/^\//, "").replace(/\.git$/, "");
+    return path || parsed.host || "repository";
+  } catch {
+    const match = url.match(/\/([^/]+?)(?:\.git)?$/);
+    return match?.[1] ?? "repository";
+  }
 }
 
 /**
@@ -29,14 +45,11 @@ export async function seedRepoIntoWorkspace(
     remoteRoot,
     { onData: () => {}, timeout: 300 },
   );
+  const label = safeRemoteLabel(origin);
   if (exitCode === 0) {
-    return `Cloned ${origin} into sandbox`;
+    return `Cloned ${label} into sandbox`;
   }
   return `git clone failed (exit ${exitCode})`;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /** Default logical cwd inside a fresh E2B sandbox after seeding. */

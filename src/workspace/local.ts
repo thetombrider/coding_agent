@@ -3,6 +3,8 @@ import { readdir, readFile as fsReadFile, writeFile as fsWriteFile, mkdir } from
 import { dirname } from "node:path";
 import type { Workspace } from "./types.js";
 
+const FORCE_KILL_MS = 2000;
+
 export function createLocalWorkspace(): Workspace {
   const workspace: Workspace = {
     kind: "local",
@@ -16,6 +18,8 @@ export function createLocalWorkspace(): Workspace {
         });
 
         let settled = false;
+        let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
         const finish = (exitCode: number | null) => {
           if (settled) return;
           settled = true;
@@ -23,20 +27,23 @@ export function createLocalWorkspace(): Workspace {
           resolvePromise({ exitCode });
         };
 
-        const onAbort = () => {
+        const terminate = () => {
           child.kill("SIGTERM");
+          forceKillTimer ??= setTimeout(() => child.kill("SIGKILL"), FORCE_KILL_MS);
         };
+
+        const onAbort = () => terminate();
 
         const cleanup = () => {
           opts.signal?.removeEventListener("abort", onAbort);
+          if (forceKillTimer) clearTimeout(forceKillTimer);
         };
 
+        if (opts.signal?.aborted) terminate();
         opts.signal?.addEventListener("abort", onAbort, { once: true });
 
         if (opts.timeout && opts.timeout > 0) {
-          const timer = setTimeout(() => {
-            child.kill("SIGTERM");
-          }, opts.timeout * 1000);
+          const timer = setTimeout(() => terminate(), opts.timeout * 1000);
           child.on("close", () => clearTimeout(timer));
         }
 

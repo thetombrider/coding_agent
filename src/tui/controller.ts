@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../agent/events.js";
+import type { SandboxKind } from "../workspace/types.js";
 
 export type ToolStatus = "running" | "done" | "error";
 export type SessionPhase = "input" | "running" | "approval";
@@ -26,7 +27,7 @@ export interface SessionMeta {
   model: string;
   approval: string;
   cwd: string;
-  sandbox?: string;
+  sandbox?: SandboxKind;
   faux?: boolean;
 }
 

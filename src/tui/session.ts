@@ -129,14 +129,17 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       } else {
         config.ctx.workspace = createLocalWorkspace();
         config.ctx.cwd = config.meta.cwd;
+        controller.setStatusHint(`sandbox → ${kind}`);
       }
       activeSandbox = kind;
       controller.updateMeta({ sandbox: kind, cwd: config.ctx.cwd });
       saveConfig({ sandbox: { active: kind } });
     } catch (err) {
+      await config.ctx.workspace.dispose().catch(() => {});
       config.ctx.workspace = createLocalWorkspace();
       config.ctx.cwd = config.meta.cwd;
       activeSandbox = "local";
+      controller.updateMeta({ sandbox: "local", cwd: config.ctx.cwd });
       const message = err instanceof Error ? err.message : String(err);
       controller.setStatusHint(`sandbox switch failed: ${message}`);
     }

@@ -42,4 +42,23 @@ describe("installRtkRewrite", () => {
 
     expect(result).toBeUndefined();
   });
+
+  it("rewrites supported bash commands in e2b workspace even when local rtk lookup fails", async () => {
+    const hooks = createHookRegistry();
+    installRtkRewrite(hooks, () => false);
+
+    const baseCtx = testAgentContext("/tmp");
+    const e2bCtx = {
+      ...baseCtx,
+      workspace: { ...baseCtx.workspace, kind: "e2b" as const },
+    };
+
+    const result = await hooks.fireHook(
+      "before_tool",
+      { id: "tc1", name: "bash", args: { command: "git log --oneline" } },
+      e2bCtx,
+    );
+
+    expect(result).toEqual({ args: { command: "rtk git log --oneline" } });
+  });
 });

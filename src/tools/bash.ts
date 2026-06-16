@@ -22,10 +22,10 @@ export const bashTool: Tool<BashArgs> = {
       signal,
     });
 
-    const suffix = exitCode === 0 ? "" : `\n[exit ${exitCode}]`;
+    const suffix = exitCode === 0 ? "" : `\n[exit ${exitCode ?? "signal"}]`;
     return {
       output: output + suffix,
-      isError: exitCode !== 0 && exitCode !== null,
+      isError: exitCode !== 0,
     };
   },
 };

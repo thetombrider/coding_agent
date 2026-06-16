@@ -28,13 +28,10 @@ async function walkWorkspace(
   root: string,
   re: RegExp,
   results: string[],
+  preloadedNames?: string[],
 ): Promise<void> {
-  let names: string[];
-  try {
-    names = await workspace.list(dir);
-  } catch {
-    return;
-  }
+  const names = preloadedNames ?? await workspace.list(dir).catch(() => null);
+  if (!names) return;
 
   for (const name of names) {
     if (name === "node_modules" || name === ".git") continue;
@@ -49,7 +46,7 @@ async function walkWorkspace(
     }
 
     if (childNames !== null) {
-      await walkWorkspace(workspace, full, root, re, results);
+      await walkWorkspace(workspace, full, root, re, results, childNames);
     } else if (re.test(rel)) {
       results.push(rel);
     }

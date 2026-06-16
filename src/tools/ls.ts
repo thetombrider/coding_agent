@@ -27,8 +27,8 @@ export const lsTool: Tool<LsArgs> = {
 
     const lines = raw
       .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
+      .map((line) => line.replace(/\r$/, ""))
+      .filter((line) => line.length > 0)
       .map((name) => {
         const isDir = name.endsWith("/");
         const label = isDir ? name.slice(0, -1) : name;

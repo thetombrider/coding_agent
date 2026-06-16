@@ -58,3 +58,11 @@ describe("getGitOriginUrl", () => {
     expect(url).toBeTruthy();
   });
 });
+
+describe("safeRemoteLabel", () => {
+  it("strips credentials from remote URLs", async () => {
+    const { safeRemoteLabel } = await import("./seed.js");
+    expect(safeRemoteLabel("https://user:token@github.com/org/repo.git")).toBe("org/repo");
+    expect(safeRemoteLabel("git@github.com:org/repo.git")).toBe("org/repo");
+  });
+});

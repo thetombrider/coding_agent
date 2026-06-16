@@ -36,12 +36,12 @@ export const grepTool: Tool<GrepArgs> = {
     const target = shellQuote(resolvePath(ctx.cwd, path ?? "."));
     const pat = shellQuote(pattern);
     const rgArgs = glob
-      ? `rg --line-number --color=never -g ${shellQuote(glob)} ${pat} ${target}`
-      : `rg --line-number --color=never ${pat} ${target}`;
+      ? `rg --line-number --color=never -g ${shellQuote(glob)} -- ${pat} ${target}`
+      : `rg --line-number --color=never -- ${pat} ${target}`;
     try {
       return { output: await runGrep(ctx, rgArgs, signal) };
     } catch {
-      const grepArgs = `grep -rn ${pat} ${target}`;
+      const grepArgs = `grep -rn -- ${pat} ${target}`;
       return { output: await runGrep(ctx, grepArgs, signal) };
     }
   },

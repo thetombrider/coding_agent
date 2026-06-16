@@ -137,6 +137,12 @@ export function App(props: {
         return;
       }
 
+      if (name === "sandbox") {
+        closePalette();
+        void handleSubmit("/sandbox");
+        return;
+      }
+
       closePalette();
 
       if (name === "clear") {
@@ -241,15 +247,9 @@ export function App(props: {
           props.onSetMode(result.mode);
           props.controller.setStatusHint(result.message);
           return;
-        case "set-sandbox": {
-          const set = props.onSetSandbox(result.kind);
-          if (set instanceof Promise) {
-            void set.then(() => props.controller.setStatusHint(result.message));
-          } else {
-            props.controller.setStatusHint(result.message);
-          }
+        case "set-sandbox":
+          await props.onSetSandbox(result.kind);
           return;
-        }
         case "info":
         case "error":
           props.controller.setStatusHint(result.message);
