@@ -10,9 +10,12 @@ export interface Message {
   content: ContentBlock[];
 }
 
+import type { Workspace } from "./workspace/types.js";
+
 export interface AgentContext {
   messages: Message[];
   cwd: string;
+  workspace: Workspace;
 }
 
 export type SessionEvent =

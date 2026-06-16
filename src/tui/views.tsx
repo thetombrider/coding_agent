@@ -99,16 +99,18 @@ export function TurnView(props: { turn: Turn; first?: boolean }) {
   );
 }
 
-export function Header(props: { model: string; approval: string; cwd: string }) {
+export function Header(props: { model: string; approval: string; cwd: string; sandbox?: string }) {
   const path = () => {
     const home = process.env.HOME;
     return home && props.cwd.startsWith(home) ? `~${props.cwd.slice(home.length)}` : props.cwd;
   };
 
+  const sandboxLabel = () => (props.sandbox && props.sandbox !== "local" ? `  ${props.sandbox}` : "");
+
   return (
     <box paddingBottom={1}>
       <text fg={theme.muted} attributes={BOLD}>
-        Orin  {shortModel(props.model)}  {props.approval}  {path()}
+        Orin  {shortModel(props.model)}  {props.approval}{sandboxLabel()}  {path()}
       </text>
     </box>
   );

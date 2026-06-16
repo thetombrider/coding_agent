@@ -4,6 +4,7 @@ import { processCommand, type CommandContext } from "./commands.js";
 const ctx: CommandContext = {
   currentModel: "anthropic/claude-sonnet-4",
   currentMode: "normal",
+  currentSandbox: "local",
   knownModels: ["anthropic/claude-opus-4", "anthropic/claude-sonnet-4", "openai/gpt-4o"],
 };
 
@@ -89,6 +90,35 @@ describe("processCommand", () => {
 
     it("is a no-op info when already using the model", () => {
       expect(processCommand("/model anthropic/claude-sonnet-4", ctx).type).toBe("info");
+    });
+  });
+
+  describe("/sandbox", () => {
+    it("stays on local when e2b is not configured and cycling", () => {
+      const r = processCommand("/sandbox", ctx);
+      expect(r.type).toBe("info");
+    });
+
+    it("cycles to e2b when an API key is available", () => {
+      const prev = process.env.E2B_API_KEY;
+      process.env.E2B_API_KEY = "test-key";
+      try {
+        const r = processCommand("/sandbox", ctx);
+        expect(r).toMatchObject({ type: "set-sandbox", kind: "e2b" });
+      } finally {
+        if (prev === undefined) delete process.env.E2B_API_KEY;
+        else process.env.E2B_API_KEY = prev;
+      }
+    });
+
+    it("sets local explicitly", () => {
+      const r = processCommand("/sandbox local", { ...ctx, currentSandbox: "e2b" });
+      expect(r).toMatchObject({ type: "set-sandbox", kind: "local" });
+    });
+
+    it("errors when e2b is requested without an API key", () => {
+      const r = processCommand("/sandbox e2b", ctx);
+      expect(r.type).toBe("error");
     });
   });
 });

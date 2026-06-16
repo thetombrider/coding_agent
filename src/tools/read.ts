@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { loadToolDescription } from "../util/load-txt.js";
@@ -16,7 +15,7 @@ export const readTool: Tool<ReadArgs> = {
   schema,
   async execute({ path }, ctx) {
     const fullPath = resolvePath(ctx.cwd, path);
-    const content = await readFile(fullPath, "utf8");
+    const content = await ctx.workspace.readFile(fullPath);
     return { output: content };
   },
 };

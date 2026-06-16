@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { z } from "zod";
 import { loadToolDescription } from "../util/load-txt.js";
 import type { Tool } from "./types.js";
@@ -14,34 +13,19 @@ export const bashTool: Tool<BashArgs> = {
   description: loadToolDescription("bash"),
   schema,
   needsApproval: () => true,
-  execute({ command }, ctx, signal) {
-    return new Promise((resolvePromise) => {
-      const child = spawn(command, {
-        cwd: ctx.cwd,
-        shell: true,
-        env: process.env,
-        signal,
-      });
-
-      let output = "";
-      child.stdout.on("data", (chunk: Buffer) => {
+  async execute({ command }, ctx, signal) {
+    let output = "";
+    const { exitCode } = await ctx.workspace.exec(command, ctx.cwd, {
+      onData: (chunk) => {
         output += chunk.toString();
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-      });
-
-      child.on("close", (code) => {
-        const suffix = code === 0 ? "" : `\n[exit ${code}]`;
-        resolvePromise({
-          output: output + suffix,
-          isError: code !== 0 && code !== null,
-        });
-      });
-
-      child.on("error", (err) => {
-        resolvePromise({ output: err.message, isError: true });
-      });
+      },
+      signal,
     });
+
+    const suffix = exitCode === 0 ? "" : `\n[exit ${exitCode ?? "signal"}]`;
+    return {
+      output: output + suffix,
+      isError: exitCode !== 0,
+    };
   },
 };

@@ -12,13 +12,14 @@ export function installRtkRewrite(
   hooks: HookRegistry,
   exists: (cmd: string) => boolean = commandExists,
 ): void {
-  if (!exists("rtk")) return;
-
-  hooks.on("before_tool", ({ name, args }) => {
+  hooks.on("before_tool", ({ name, args }, ctx) => {
     if (name !== "bash") return;
     const cmd = (args as { command: string }).command.trim();
-    if (RTK_SUPPORTED.test(cmd) && !cmd.startsWith("rtk ")) {
-      return { args: { ...args as object, command: `rtk ${cmd}` } };
-    }
+    if (!RTK_SUPPORTED.test(cmd) || cmd.startsWith("rtk ")) return;
+
+    const hasRtk = ctx.workspace.kind === "e2b" || exists("rtk");
+    if (!hasRtk) return;
+
+    return { args: { ...args as object, command: `rtk ${cmd}` } };
   });
 }
