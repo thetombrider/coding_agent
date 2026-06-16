@@ -11,7 +11,13 @@ export function restoreTerminal(): void {
     "\x1b[?2031l" + // theme/color-change notification mode off
     "\x1b[0m" + // reset attributes
     "\x1b]111\x07\x1b]110\x07"; // reset default fg/bg
-  process.stdout.write(reset);
+  // Best-effort and must never throw: this runs in `finally` blocks and a
+  // process "exit" handler, where a throw would mask the original error.
+  try {
+    process.stdout.write(reset);
+  } catch {
+    // ignore (e.g. stdout already closed)
+  }
   try {
     if (process.stdin.isTTY && process.stdin.setRawMode) {
       process.stdin.setRawMode(false);
