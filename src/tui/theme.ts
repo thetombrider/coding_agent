@@ -18,6 +18,12 @@ export const theme = {
   toolDone: "#4A4540",
   toolError: "#9F1239",
   approval: "#713F12",
+  /** Logo fill gradient — light limestone through deep stone. */
+  logoHighlight: "#D4CCC0",
+  logo: "#B8AEA0",
+  logoDeep: "#9A9288",
+  /** Box-drawing edges and extrusion on filled logo glyphs. */
+  logoShadow: "#6B6560",
 } as const;
 
 /** RGB for terminal-wide ANSI foreground (matches theme.fg). */

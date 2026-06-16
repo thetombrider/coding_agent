@@ -5,6 +5,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { SessionController, SessionState, Turn } from "./controller.js";
 import { theme } from "./theme.js";
 import { useSpinnerClock } from "./spinner.js";
+import { StartupLogo } from "./logo.js";
 import { ApprovalBar, Header, TurnView } from "./views.js";
 import { processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
@@ -539,7 +540,15 @@ export function App(props: {
         stickyStart="bottom"
         contentOptions={{ flexDirection: "column" }}
       >
-        <Show when={hasContent()} fallback={<text fg={theme.fg}>Ask anything about this codebase.</text>}>
+        <Show
+          when={hasContent()}
+          fallback={
+            <box flexDirection="column">
+              <StartupLogo />
+              <text fg={theme.secondary}>Ask anything about this codebase.</text>
+            </box>
+          }
+        >
           <For each={completed()}>{(turn, i) => <TurnView turn={turn} first={i() === 0} />}</For>
           <Show when={live()}>{(turn) => <TurnView turn={turn()} first={completed().length === 0} />}</Show>
         </Show>
