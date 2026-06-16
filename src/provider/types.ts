@@ -1,4 +1,5 @@
-import type { LanguageModel, ToolSet } from "ai";
+import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
+import type { LanguageModel, ModelMessage, ToolSet } from "ai";
 import type { Message } from "../types.js";
 
 export type StreamEvent =
@@ -81,6 +82,21 @@ export interface Provider {
   normalizeModelId(modelId: string): string;
   /** AI SDK language model handle for `streamText` / `generateText`. */
   languageModel(modelId: string): LanguageModel;
+  /**
+   * Provider-specific options for the shared `streamText` transport — e.g.
+   * prompt-cache hints and session affinity. Optional: providers without such
+   * options omit it. `stream.ts` calls this on the active provider.
+   */
+  streamProviderOptions?(
+    modelId: string,
+    sessionId?: string,
+  ): SharedV3ProviderOptions | undefined;
+  /**
+   * Mark prompt-cache breakpoints on the converted AI SDK messages in place
+   * (e.g. Anthropic-style `cache_control`). Optional no-op for providers
+   * without explicit cache control.
+   */
+  markCacheBreakpoints?(aiMessages: ModelMessage[], modelId: string): void;
   /** Context-window / metadata lookups for this backend. */
   readonly metadata: ModelMetadataProvider;
 }

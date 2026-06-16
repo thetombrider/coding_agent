@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getContextWindow, MODEL_METADATA_PROVIDERS } from "./context-window.js";
-import { resetOpenRouterModelsCache } from "./openrouter-models.js";
+import { resetOpenRouterModelsCache } from "./providers/openrouter.js";
 
 const SINGLE_MODEL = {
   data: {
