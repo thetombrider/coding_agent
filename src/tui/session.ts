@@ -111,6 +111,14 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     saveConfig({ approval: { mode } });
   };
 
+  // Persist the active provider. The provider call paths (stream/delegate/
+  // compaction) resolve the active provider from config on each turn, so the
+  // switch takes effect on the next turn without rewiring the loop.
+  const setProvider = (provider: string) => {
+    controller.updateMeta({ provider });
+    saveConfig({ provider: { active: provider } });
+  };
+
   const runTurn = async (userText: string) => {
     const userContent = [{ type: "text" as const, text: userText }];
     config.ctx.messages.push({ role: "user", content: userContent });
@@ -158,6 +166,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onExit: resolveExit,
           onSetModel: setModel,
           onSetMode: setApprovalMode,
+          onSetProvider: setProvider,
           onClear: () => {
             config.ctx.messages = [];
             log.write({ type: "session_clear", ts: new Date().toISOString() });

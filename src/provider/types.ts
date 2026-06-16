@@ -1,4 +1,4 @@
-import type { ToolSet } from "ai";
+import type { LanguageModel, ToolSet } from "ai";
 import type { Message } from "../types.js";
 
 export type StreamEvent =
@@ -53,4 +53,34 @@ export interface ModelMetadataProvider {
   readonly id: string;
   supportsModel(modelId: string): boolean;
   getContextWindow(modelId: string): Promise<number | undefined>;
+}
+
+/**
+ * How a provider authenticates. `oauth` backends (added in follow-ups) store
+ * their tokens in `~/.orin/tokens.json` rather than the main config file.
+ */
+export type AuthStrategy = "api-key" | "oauth";
+
+/**
+ * An LLM backend the agent can resolve models from. Each provider owns its
+ * credentials, base URL, model-id normalization, and model metadata. The
+ * streaming/generation transport itself is shared (the Vercel AI SDK's
+ * `streamText` / `generateText`), so a provider only needs to hand back an AI
+ * SDK `LanguageModel` handle — it does not reimplement the transport.
+ *
+ * The registry (`src/provider/registry.ts`) maps `id` → implementation and
+ * resolves the active provider from `loadConfig().provider.active`.
+ */
+export interface Provider {
+  readonly id: string;
+  readonly displayName: string;
+  readonly authStrategy: AuthStrategy;
+  /** True when credentials are available (env var or config file). */
+  isConfigured(): boolean;
+  /** Map our internal model id to the provider-native id. */
+  normalizeModelId(modelId: string): string;
+  /** AI SDK language model handle for `streamText` / `generateText`. */
+  languageModel(modelId: string): LanguageModel;
+  /** Context-window / metadata lookups for this backend. */
+  readonly metadata: ModelMetadataProvider;
 }

@@ -3,7 +3,7 @@ import {
   buildStreamProviderOptions,
   markPromptCacheBreakpoints,
 } from "./prompt-cache.js";
-import { getOpenRouter, resolveOpenRouterModelId } from "./openrouter.js";
+import { resolveLanguageModel } from "./registry.js";
 import { enrichAssistantMessage } from "./tool-call-parser.js";
 import type { Message } from "../types.js";
 import type {
@@ -75,8 +75,7 @@ function toAiMessages(messages: Message[], modelId: string): ModelMessage[] {
 }
 
 function resolveModel(modelId: string) {
-  const openrouter = getOpenRouter();
-  return openrouter.chat(resolveOpenRouterModelId(modelId));
+  return resolveLanguageModel(modelId);
 }
 
 export const streamAssistant: StreamAssistantFn = async (

@@ -99,16 +99,17 @@ export function TurnView(props: { turn: Turn; first?: boolean }) {
   );
 }
 
-export function Header(props: { model: string; approval: string; cwd: string }) {
+export function Header(props: { model: string; approval: string; cwd: string; provider?: string }) {
   const path = () => {
     const home = process.env.HOME;
     return home && props.cwd.startsWith(home) ? `~${props.cwd.slice(home.length)}` : props.cwd;
   };
+  const prefix = () => (props.provider ? `${props.provider}  ` : "");
 
   return (
     <box paddingBottom={1}>
       <text fg={theme.muted} attributes={BOLD}>
-        Orin  {shortModel(props.model)}  {props.approval}  {path()}
+        Orin  {prefix()}{shortModel(props.model)}  {props.approval}  {path()}
       </text>
     </box>
   );

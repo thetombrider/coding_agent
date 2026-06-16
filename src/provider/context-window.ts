@@ -1,37 +1,29 @@
 import { loadConfig } from "../config/config.js";
-import { lookupOpenRouterContextWindow } from "./openrouter-models.js";
-import { resolveOpenRouterModelId } from "./openrouter.js";
+import { activeProviderId, metadataProviders, resolveActiveProvider } from "./registry.js";
 import type { ModelMetadataProvider } from "./types.js";
 
 export const DEFAULT_CONTEXT_WINDOW = 32000;
 
-const openRouterMetadataProvider: ModelMetadataProvider = {
-  id: "openrouter",
-  supportsModel(modelId) {
-    return !modelId.startsWith("faux:");
-  },
-  getContextWindow(modelId) {
-    return lookupOpenRouterContextWindow(modelId);
-  },
-};
-
-/** Registered metadata providers. Issue #12 registry will own this list. */
-export const MODEL_METADATA_PROVIDERS: ModelMetadataProvider[] = [
-  openRouterMetadataProvider,
-];
+/**
+ * Metadata providers registered with the provider registry (issue #12). This
+ * is a snapshot for inspection; the resolution below queries the registry live
+ * so providers registered after import are still considered.
+ */
+export const MODEL_METADATA_PROVIDERS: ModelMetadataProvider[] = metadataProviders();
 
 function configContextWindow(modelId: string): number | undefined {
   const cfg = loadConfig().models.contextWindows;
-  return cfg[modelId] ?? cfg[resolveOpenRouterModelId(modelId)];
+  return cfg[modelId] ?? cfg[resolveActiveProvider().normalizeModelId(modelId)];
 }
 
 function resolveMetadataProvider(modelId: string): ModelMetadataProvider | undefined {
-  const active = loadConfig().provider.active;
-  const activeProvider = MODEL_METADATA_PROVIDERS.find(
+  const active = activeProviderId();
+  const providers = metadataProviders();
+  const activeProvider = providers.find(
     (provider) => provider.id === active && provider.supportsModel(modelId),
   );
   if (activeProvider) return activeProvider;
-  return MODEL_METADATA_PROVIDERS.find((provider) => provider.supportsModel(modelId));
+  return providers.find((provider) => provider.supportsModel(modelId));
 }
 
 /**

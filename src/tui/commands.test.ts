@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { processCommand, type CommandContext } from "./commands.js";
+import type { ProviderSummary } from "../provider/registry.js";
 
 const ctx: CommandContext = {
   currentModel: "anthropic/claude-sonnet-4",
   currentMode: "normal",
   knownModels: ["anthropic/claude-opus-4", "anthropic/claude-sonnet-4", "openai/gpt-4o"],
 };
+
+const providers: ProviderSummary[] = [
+  { id: "openrouter", displayName: "OpenRouter", authStrategy: "api-key", active: true, configured: true },
+  { id: "anthropic", displayName: "Anthropic", authStrategy: "oauth", active: false, configured: false },
+];
+
+const provCtx: CommandContext = { ...ctx, currentProvider: "openrouter", providers };
 
 describe("processCommand", () => {
   it("treats non-slash input as a normal turn", () => {
@@ -89,6 +97,54 @@ describe("processCommand", () => {
 
     it("is a no-op info when already using the model", () => {
       expect(processCommand("/model anthropic/claude-sonnet-4", ctx).type).toBe("info");
+    });
+  });
+
+  describe("/providers", () => {
+    it("lists providers when given no argument", () => {
+      const r = processCommand("/providers", provCtx);
+      expect(r.type).toBe("info");
+      if (r.type === "info") {
+        expect(r.message).toContain("openrouter");
+        expect(r.message).toContain("anthropic");
+        expect(r.message).toContain("[oauth]");
+        expect(r.message).toContain("needs setup");
+      }
+    });
+
+    it("accepts the /provider alias", () => {
+      expect(processCommand("/provider", provCtx).type).toBe("info");
+    });
+
+    it("switches by explicit id", () => {
+      expect(processCommand("/providers anthropic", provCtx)).toMatchObject({
+        type: "set-provider",
+        provider: "anthropic",
+      });
+    });
+
+    it("switches by numeric index", () => {
+      expect(processCommand("/providers 2", provCtx)).toMatchObject({
+        type: "set-provider",
+        provider: "anthropic",
+      });
+    });
+
+    it("warns when switching to an unconfigured provider", () => {
+      const r = processCommand("/providers anthropic", provCtx);
+      if (r.type === "set-provider") expect(r.message).toMatch(/not configured/);
+    });
+
+    it("is a no-op info when already active", () => {
+      expect(processCommand("/providers openrouter", provCtx).type).toBe("info");
+    });
+
+    it("errors on an unknown provider", () => {
+      expect(processCommand("/providers bogus", provCtx).type).toBe("error");
+    });
+
+    it("errors on an out-of-range index", () => {
+      expect(processCommand("/providers 99", provCtx).type).toBe("error");
     });
   });
 });

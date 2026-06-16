@@ -5,11 +5,14 @@ import {
   nextApprovalMode,
   type ApprovalMode,
 } from "../approval/policy.js";
+import type { ProviderSummary } from "../provider/registry.js";
 
 export interface CommandContext {
   currentModel: string;
   currentMode: ApprovalMode;
   knownModels: readonly string[];
+  currentProvider?: string;
+  providers?: ProviderSummary[];
 }
 
 export type CommandResult =
@@ -20,13 +23,15 @@ export type CommandResult =
   | { type: "sessions" }
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
+  | { type: "set-provider"; provider: string; message: string }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
 /** List of `/commands` shown by `/help`. */
 const HELP_LINES = [
   "/mode [normal|allow-all|plan]  cycle or set approval mode",
-  "/model [id|number]            switch the OpenRouter model",
+  "/model [id|number]            switch the model",
+  "/providers [id|number]        list or switch the active LLM provider",
   "/sessions                     browse and resume saved sessions",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
@@ -99,6 +104,46 @@ function handleModel(arg: string, ctx: CommandContext): CommandResult {
   return { type: "set-model", model, message: `model → ${model}` };
 }
 
+function providerInfo(ctx: CommandContext): string {
+  const providers = ctx.providers ?? [];
+  if (!providers.length) return "no providers registered";
+  const lines = providers.map((p, i) => {
+    const marker = p.active ? " ←" : "";
+    const auth = p.authStrategy === "oauth" ? " [oauth]" : "";
+    const status = p.configured ? "" : "  (needs setup)";
+    return `${i + 1}. ${p.id}${auth}${status}${marker}`;
+  });
+  return `provider: ${ctx.currentProvider ?? "?"}\n${lines.join("\n")}\n/providers <number|id> to switch`;
+}
+
+function handleProviders(arg: string, ctx: CommandContext): CommandResult {
+  const providers = ctx.providers ?? [];
+  if (!arg) {
+    return { type: "info", message: providerInfo(ctx) };
+  }
+
+  let target = arg;
+  if (/^\d+$/.test(arg)) {
+    const picked = providers[Number(arg) - 1];
+    if (!picked) {
+      return { type: "error", message: `no provider #${arg}. ${providerInfo(ctx)}` };
+    }
+    target = picked.id;
+  }
+
+  const match = providers.find((p) => p.id === target);
+  if (!match) {
+    return { type: "error", message: `unknown provider "${target}". ${providerInfo(ctx)}` };
+  }
+  if (match.active) {
+    return { type: "info", message: `already using ${match.id}` };
+  }
+  const warn = match.configured
+    ? ""
+    : " (not configured — set its API key in ~/.orin/config.json)";
+  return { type: "set-provider", provider: match.id, message: `provider → ${match.id}${warn}` };
+}
+
 /**
  * Parse and resolve a submitted line. Returns `not-command` for anything that
  * is not a recognized `/command`, so the caller can run it as a normal turn.
@@ -127,6 +172,9 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
       return handleMode(arg, ctx);
     case "/model":
       return handleModel(arg, ctx);
+    case "/providers":
+    case "/provider":
+      return handleProviders(arg, ctx);
     default:
       return { type: "error", message: `unknown command ${name} — try /help` };
   }
