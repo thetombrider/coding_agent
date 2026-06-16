@@ -1,7 +1,7 @@
 import type { InputRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { createTextAttributes } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { SessionController, SessionState, Turn } from "./controller.js";
 import { theme } from "./theme.js";
 import { useSpinnerClock } from "./spinner.js";
@@ -15,6 +15,7 @@ import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
 
 const BOLD = createTextAttributes({ bold: true });
+const SESSION_LIST_MAX_VISIBLE = 10;
 
 const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
@@ -93,7 +94,19 @@ export function App(props: {
   useSpinnerClock();
 
   let scrollRef: ScrollBoxRenderable | undefined;
+  let sessionListScrollRef: ScrollBoxRenderable | undefined;
   let inputRef: InputRenderable | undefined;
+
+  const scrollSessionIntoView = (index: number) => {
+    sessionListScrollRef?.scrollChildIntoView(`session-row-${index}`);
+  };
+
+  createEffect(() => {
+    const p = palette();
+    if (p?.phase !== "sessions") return;
+    const index = p.index;
+    queueMicrotask(() => scrollSessionIntoView(index));
+  });
 
   const live = () => currentTurn(state());
   const completed = () => state().completedTurns;
@@ -679,21 +692,31 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "sessions"}>
-                <For each={(p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).sessions}>
-                  {(session, i) => {
-                    const selected = () => (p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).index === i();
-                    const date = formatSessionDate(session.lastTs || session.createdAt);
-                    const turns = `${session.turns} turn${session.turns !== 1 ? "s" : ""}`;
-                    return (
-                      <box flexDirection="row">
-                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{date}  {session.sessionId}
-                        </text>
-                        <text fg={theme.secondary}>  {turns}  {session.cwd}</text>
-                      </box>
-                    );
-                  }}
-                </For>
+                <scrollbox
+                  ref={sessionListScrollRef}
+                  height={Math.min(
+                    (p() as { phase: "sessions"; sessions: SessionSummary[] }).sessions.length,
+                    SESSION_LIST_MAX_VISIBLE,
+                  )}
+                  scrollY
+                  contentOptions={{ flexDirection: "column" }}
+                >
+                  <For each={(p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).sessions}>
+                    {(session, i) => {
+                      const selected = () => (p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).index === i();
+                      const date = formatSessionDate(session.lastTs || session.createdAt);
+                      const turns = `${session.turns} turn${session.turns !== 1 ? "s" : ""}`;
+                      return (
+                        <box id={`session-row-${i()}`} flexDirection="row">
+                          <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                            {selected() ? "▶ " : "  "}{date}  {session.sessionId}
+                          </text>
+                          <text fg={theme.secondary}>  {turns}  {session.cwd}</text>
+                        </box>
+                      );
+                    }}
+                  </For>
+                </scrollbox>
               </Show>
 
               <box marginTop={1}>
