@@ -78,7 +78,7 @@ describe("openrouter-models", () => {
     const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls;
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(String(calls[0]?.[0])).toContain("/api/v1/model/anthropic/claude-sonnet-4");
-    expect(calls[0]?.[1]).toEqual({
+    expect(calls[0]?.[1]).toMatchObject({
       headers: { Authorization: "Bearer sk-test" },
     });
   });
@@ -106,13 +106,19 @@ describe("openrouter-models", () => {
   });
 
   it("tries stripped routing suffixes on single-model lookup", async () => {
+    // The suffixed lookup 404s, so resolution must fall back to the stripped id.
     const fetchImpl = mockFetch({
-      "/api/v1/model/anthropic/claude-sonnet-4:nitro": { body: SINGLE_MODEL },
+      "/api/v1/model/anthropic/claude-sonnet-4:nitro": { ok: false, status: 404, body: {} },
+      "/api/v1/model/anthropic/claude-sonnet-4": { body: SINGLE_MODEL },
     });
 
     await expect(
       lookupOpenRouterContextWindow("anthropic/claude-sonnet-4:nitro", fetchImpl),
     ).resolves.toBe(200000);
+
+    const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(calls.some((u) => u.endsWith("claude-sonnet-4:nitro"))).toBe(true);
+    expect(calls.some((u) => u.endsWith("/anthropic/claude-sonnet-4"))).toBe(true);
   });
 });
 

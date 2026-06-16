@@ -63,7 +63,7 @@ export function metadataProviders(): ModelMetadataProvider[] {
 
 /** Snapshot of every provider's status for `/providers` listing and switching. */
 export function providerSummaries(): ProviderSummary[] {
-  const active = activeProviderId();
+  const active = resolveActiveProvider().id;
   return listProviders().map((provider) => ({
     id: provider.id,
     displayName: provider.displayName,

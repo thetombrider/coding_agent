@@ -146,7 +146,7 @@ async function runInteractive(opts: {
     hooks,
     meta: {
       model: opts.useFaux ? "faux" : models.main,
-      provider: opts.useFaux ? "faux" : loadConfig().provider.active,
+      provider: opts.useFaux ? "faux" : resolveActiveProvider().id,
       approval: opts.approvalMode,
       cwd: localCwd,
       sandbox: sandboxPref === "e2b" && hasE2BApiKey() ? "e2b" : "local",

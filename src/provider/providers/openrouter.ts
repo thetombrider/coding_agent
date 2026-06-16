@@ -19,7 +19,10 @@ import type { ModelMetadataProvider, Provider } from "../types.js";
 
 /** OpenRouter API key from env or config; undefined when not configured. */
 export function getOpenRouterApiKey(): string | undefined {
-  return process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey;
+  return (
+    process.env.OPENROUTER_API_KEY?.trim() ||
+    loadConfig().provider.openrouter?.apiKey?.trim()
+  );
 }
 
 export function getOpenRouter() {
@@ -108,6 +111,23 @@ export function resetOpenRouterModelsCache(): void {
   catalogFetchedAt = 0;
 }
 
+const OPENROUTER_FETCH_TIMEOUT_MS = 8000;
+
+/** fetch with a bounded timeout so a stalled metadata call fails fast instead of hanging. */
+async function fetchWithTimeout(
+  fetchImpl: FetchModelsCatalog,
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OPENROUTER_FETCH_TIMEOUT_MS);
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchSingleModelContextWindow(
   modelId: string,
   fetchImpl: FetchModelsCatalog,
@@ -116,7 +136,7 @@ async function fetchSingleModelContextWindow(
   const url = openRouterModelLookupUrl(modelId);
   if (!url) return undefined;
 
-  const response = await fetchImpl(url, openRouterRequestInit(apiKey));
+  const response = await fetchWithTimeout(fetchImpl, url, openRouterRequestInit(apiKey));
   if (response.status === 404) return undefined;
   if (!response.ok) {
     throw new Error(`OpenRouter model API failed: ${response.status} ${response.statusText}`);
@@ -134,7 +154,11 @@ export async function loadOpenRouterModelsCatalog(
     return catalogCache;
   }
 
-  const response = await fetchImpl(OPENROUTER_MODELS_URL, openRouterRequestInit(apiKey));
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    OPENROUTER_MODELS_URL,
+    openRouterRequestInit(apiKey),
+  );
   if (!response.ok) {
     throw new Error(`OpenRouter models API failed: ${response.status} ${response.statusText}`);
   }

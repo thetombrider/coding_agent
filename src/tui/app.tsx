@@ -104,6 +104,13 @@ export function App(props: {
     const p = palette();
     if (!p) return;
 
+    // Don't act on palette selections (model/mode/provider/sandbox/session
+    // switches) while a turn is running — close the palette instead.
+    if (submitting() || state().phase !== "input") {
+      setPalette(null);
+      return;
+    }
+
     if (p.phase === "commands") {
       const cmds = filteredCommands();
       const cmd = cmds[p.index];
