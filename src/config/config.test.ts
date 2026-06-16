@@ -108,6 +108,16 @@ describe("API key onboarding", () => {
     expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-saved");
   });
 
+  it("saveProviderConfig writes provider-specific fields", async () => {
+    const { saveProviderConfig, loadConfig } = await import("./config.js");
+    saveProviderConfig("openrouter", { apiKey: "  sk-trimmed  " });
+
+    expect(loadConfig().provider.openrouter?.apiKey).toBe("sk-trimmed");
+
+    const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
+    expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-trimmed");
+  });
+
   it("reports no E2B key when neither env nor config provide one", async () => {
     const { hasE2BApiKey } = await import("./config.js");
     expect(hasE2BApiKey()).toBe(false);

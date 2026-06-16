@@ -1,7 +1,7 @@
 import type { LanguageModel } from "ai";
 import { loadConfig } from "../config/config.js";
 import { openRouterProvider } from "./providers/openrouter.js";
-import type { AuthStrategy, ModelMetadataProvider, Provider } from "./types.js";
+import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
 
 /** Provider id used as the fallback when config selects an unknown provider. */
 export const DEFAULT_PROVIDER_ID = "openrouter";
@@ -26,6 +26,11 @@ export function registerProvider(provider: Provider): void {
 
 export function getProvider(id: string): Provider | undefined {
   return registry.get(id);
+}
+
+/** Config fields the TUI can collect for a registered provider. */
+export function providerConfigFields(id: string): readonly ProviderConfigField[] {
+  return getProvider(id)?.configFields ?? [];
 }
 
 export function listProviders(): Provider[] {

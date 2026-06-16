@@ -5,7 +5,8 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig } from "../config/config.js";
+import { saveConfig, saveProviderConfig } from "../config/config.js";
+import { getProvider } from "../provider/registry.js";
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
@@ -123,6 +124,17 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     saveConfig({ provider: { active: provider } });
   };
 
+  const configureProvider = (providerId: string, values: Record<string, string>, activate: boolean) => {
+    saveProviderConfig(providerId, values);
+    const display = getProvider(providerId)?.displayName ?? providerId;
+    if (activate) {
+      setProvider(providerId);
+      controller.setStatusHint(`${display} configured and active`);
+    } else {
+      controller.setStatusHint(`${display} configured — saved to ~/.orin/config.json`);
+    }
+  };
+
   let activeSandbox: SandboxKind = config.meta.sandbox === "e2b" ? "e2b" : "local";
 
   const setSandbox = async (kind: SandboxKind) => {
@@ -206,6 +218,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetModel: setModel,
           onSetMode: setApprovalMode,
           onSetProvider: setProvider,
+          onConfigureProvider: configureProvider,
           onSetSandbox: setSandbox,
           getSandbox: () => activeSandbox,
           onClear: () => {

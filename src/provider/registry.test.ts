@@ -94,4 +94,11 @@ describe("provider registry", () => {
     const { getProvider } = await import("./registry.js");
     expect(getProvider("openrouter")?.isConfigured()).toBe(true);
   });
+
+  it("exposes config fields for api-key providers", async () => {
+    const { providerConfigFields } = await import("./registry.js");
+    const fields = providerConfigFields("openrouter");
+    expect(fields.some((f) => f.key === "apiKey")).toBe(true);
+    expect(providerConfigFields("missing")).toEqual([]);
+  });
 });

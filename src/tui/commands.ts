@@ -7,6 +7,7 @@ import {
 } from "../approval/policy.js";
 import { hasE2BApiKey } from "../config/config.js";
 import type { ProviderSummary } from "../provider/registry.js";
+import type { ProviderConfigField } from "../provider/types.js";
 import type { SandboxKind } from "../workspace/types.js";
 
 export interface CommandContext {
@@ -16,6 +17,8 @@ export interface CommandContext {
   knownModels: readonly string[];
   currentProvider?: string;
   providers?: ProviderSummary[];
+  /** Optional lookup injected by the TUI for configure flows. */
+  providerConfigFields?: (id: string) => readonly ProviderConfigField[];
 }
 
 export type CommandResult =
@@ -27,6 +30,13 @@ export type CommandResult =
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
   | { type: "set-provider"; provider: string; message: string }
+  | {
+      type: "configure-provider";
+      provider: string;
+      fields: readonly ProviderConfigField[];
+      activateOnComplete: boolean;
+      message: string;
+    }
   | { type: "set-sandbox"; kind: SandboxKind; message: string }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
@@ -36,6 +46,7 @@ const HELP_LINES = [
   "/mode [normal|allow-all|plan]  cycle or set approval mode",
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
+  "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
   "/sandbox [local|e2b]          run tools locally or in an E2B cloud sandbox",
   "/sessions                     browse and resume saved sessions",
   "/new                          archive this session and start a new one",
@@ -118,10 +129,89 @@ function providerInfo(ctx: CommandContext): string {
     const status = p.configured ? "" : "  (needs setup)";
     return `${i + 1}. ${p.id}${auth}${status}${marker}`;
   });
-  return `provider: ${ctx.currentProvider ?? "?"}\n${lines.join("\n")}\n/providers <number|id> to switch`;
+  return `provider: ${ctx.currentProvider ?? "?"}\n${lines.join("\n")}\n/providers <number|id> to switch · /providers configure <id> to set up`;
 }
 
-function handleProviders(arg: string, ctx: CommandContext): CommandResult {
+function resolveProviderTarget(
+  arg: string,
+  providers: ProviderSummary[],
+): ProviderSummary | { error: string } {
+  if (!arg) {
+    return { error: "missing provider id — pick one from the list below" };
+  }
+
+  let target = arg;
+  if (/^\d+$/.test(arg)) {
+    const picked = providers[Number(arg) - 1];
+    if (!picked) {
+      return { error: `no provider #${arg}` };
+    }
+    target = picked.id;
+  }
+
+  const match = providers.find((p) => p.id === target);
+  if (!match) {
+    return { error: `unknown provider "${target}"` };
+  }
+  return match;
+}
+
+function configureFieldHint(fields: readonly ProviderConfigField[]): string {
+  const field = fields[0];
+  if (!field) return "nothing to configure";
+  const env = field.envVar ? ` (or set ${field.envVar})` : "";
+  return `enter ${field.label}${env}`;
+}
+
+function handleProviderConfigure(arg: string, ctx: CommandContext): CommandResult {
+  const providers = ctx.providers ?? [];
+  if (!providers.length) {
+    return { type: "error", message: "no providers registered" };
+  }
+
+  if (!arg) {
+    const lines = providers.map((p, i) => {
+      const auth = p.authStrategy === "oauth" ? " [oauth]" : "";
+      const status = p.configured ? "" : "  (needs setup)";
+      return `${i + 1}. ${p.id}${auth}${status}`;
+    });
+    return {
+      type: "info",
+      message: `configure a provider:\n${lines.join("\n")}\n/providers configure <number|id>`,
+    };
+  }
+
+  const resolved = resolveProviderTarget(arg, providers);
+  if ("error" in resolved) {
+    return { type: "error", message: `${resolved.error}. ${providerInfo(ctx)}` };
+  }
+
+  const fields = ctx.providerConfigFields?.(resolved.id) ?? [];
+
+  if (resolved.authStrategy === "oauth") {
+    return {
+      type: "info",
+      message: `${resolved.id} uses OAuth — loopback auth is not available in the TUI yet. Complete OAuth setup when that provider is implemented.`,
+    };
+  }
+
+  if (!fields.length) {
+    return {
+      type: "error",
+      message: `${resolved.id} has no TUI-configurable fields yet.`,
+    };
+  }
+
+  return {
+    type: "configure-provider",
+    provider: resolved.id,
+    fields,
+    activateOnComplete: false,
+    message: `Configure ${resolved.displayName}: ${configureFieldHint(fields)} · Esc to cancel`,
+  };
+}
+
+function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
   const providers = ctx.providers ?? [];
   if (!arg) {
     return { type: "info", message: providerInfo(ctx) };
@@ -147,8 +237,17 @@ function handleProviders(arg: string, ctx: CommandContext): CommandResult {
     ? ""
     : match.authStrategy === "oauth"
       ? " (not configured — complete its OAuth setup)"
-      : " (not configured — set its API key in ~/.orin/config.json)";
+      : " (not configured — run /providers configure " + match.id + ")";
   return { type: "set-provider", provider: match.id, message: `provider → ${match.id}${warn}` };
+}
+
+function handleProviders(arg: string, ctx: CommandContext): CommandResult {
+  const parts = arg.trim().split(/\s+/).filter(Boolean);
+  const sub = parts[0]?.toLowerCase();
+  if (sub === "configure" || sub === "config") {
+    return handleProviderConfigure(parts.slice(1).join(" "), ctx);
+  }
+  return handleProviderSwitch(arg, ctx);
 }
 
 const SANDBOX_KINDS: SandboxKind[] = ["local", "e2b"];
