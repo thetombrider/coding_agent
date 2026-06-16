@@ -9,7 +9,8 @@ import { ApprovalBar, Header, TurnView } from "./views.js";
 import { processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { KNOWN_MAIN_MODELS } from "../config/models.js";
-import { activeProviderId, providerSummaries, type ProviderSummary } from "../provider/registry.js";
+import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
+import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
 
 const BOLD = createTextAttributes({ bold: true });
@@ -34,6 +35,15 @@ type PaletteState =
   | { phase: "mode"; index: number }
   | { phase: "providers"; index: number; providers: ProviderSummary[] }
   | { phase: "sessions"; index: number; sessions: SessionSummary[] };
+
+type ConfigPromptState = {
+  providerId: string;
+  displayName: string;
+  fields: readonly ProviderConfigField[];
+  fieldIndex: number;
+  values: Record<string, string>;
+  activateOnComplete: boolean;
+};
 
 function formatSessionDate(ts: string): string {
   try {
@@ -66,6 +76,7 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onSetProvider: (provider: string) => void;
+  onConfigureProvider: (provider: string, values: Record<string, string>, activate: boolean) => void;
   onSetSandbox: (kind: "local" | "e2b") => void | Promise<void>;
   getSandbox: () => "local" | "e2b";
   onClear: () => void;
@@ -76,6 +87,7 @@ export function App(props: {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
+  const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
   onCleanup(props.controller.subscribe(setState));
   useSpinnerClock();
 
@@ -92,6 +104,70 @@ export function App(props: {
     const filter = input.slice(1).toLowerCase();
     if (!filter) return [...SLASH_COMMANDS];
     return SLASH_COMMANDS.filter((c) => c.name.startsWith(filter));
+  };
+
+  const closeConfigPrompt = () => {
+    setConfigPrompt(null);
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+  };
+
+  const configFieldHint = (prompt: ConfigPromptState): string => {
+    const field = prompt.fields[prompt.fieldIndex];
+    if (!field) return "";
+    const env = field.envVar ? ` (or set ${field.envVar})` : "";
+    return `Configure ${prompt.displayName}: enter ${field.label}${env} · Esc to cancel`;
+  };
+
+  const beginConfigPrompt = (opts: {
+    providerId: string;
+    displayName: string;
+    fields: readonly ProviderConfigField[];
+    activateOnComplete: boolean;
+  }) => {
+    setConfigPrompt({
+      providerId: opts.providerId,
+      displayName: opts.displayName,
+      fields: opts.fields,
+      fieldIndex: 0,
+      values: {},
+      activateOnComplete: opts.activateOnComplete,
+    });
+    props.controller.setStatusHint(
+      `Configure ${opts.displayName}: enter ${opts.fields[0]?.label ?? "value"}`
+      + (opts.fields[0]?.envVar ? ` (or set ${opts.fields[0].envVar})` : "")
+      + " · Esc to cancel",
+    );
+  };
+
+  const handleConfigSubmit = (raw: string) => {
+    const prompt = configPrompt();
+    if (!prompt) return;
+
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      props.controller.setStatusHint("value required — Esc to cancel");
+      return;
+    }
+
+    const field = prompt.fields[prompt.fieldIndex];
+    if (!field) return;
+
+    const values = { ...prompt.values, [field.key]: trimmed };
+    const nextIndex = prompt.fieldIndex + 1;
+
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+
+    if (nextIndex < prompt.fields.length) {
+      const next = { ...prompt, fieldIndex: nextIndex, values };
+      setConfigPrompt(next);
+      props.controller.setStatusHint(configFieldHint(next));
+      return;
+    }
+
+    closeConfigPrompt();
+    props.onConfigureProvider(prompt.providerId, values, prompt.activateOnComplete);
   };
 
   const closePalette = () => {
@@ -204,8 +280,20 @@ export function App(props: {
       const provider = p.providers[p.index];
       if (provider && !provider.active) {
         setPalette(null);
+        if (!provider.configured && provider.authStrategy === "api-key") {
+          const fields = providerConfigFields(provider.id);
+          if (fields.length) {
+            beginConfigPrompt({
+              providerId: provider.id,
+              displayName: provider.displayName,
+              fields,
+              activateOnComplete: true,
+            });
+            return;
+          }
+        }
         props.onSetProvider(provider.id);
-        const warn = provider.configured ? "" : " (needs setup in ~/.orin/config.json)";
+        const warn = provider.configured ? "" : " (needs setup — /providers configure " + provider.id + ")";
         props.controller.setStatusHint(`provider → ${provider.id}${warn}`);
       } else {
         setPalette(null);
@@ -223,6 +311,12 @@ export function App(props: {
   };
 
   const handleSubmit = async (raw: string) => {
+    // Provider config prompt takes priority over the command palette.
+    if (configPrompt() !== null) {
+      handleConfigSubmit(raw);
+      return;
+    }
+
     // If palette is open, Enter selects the current item instead of submitting.
     if (palette() !== null) {
       handlePaletteSelect();
@@ -251,6 +345,7 @@ export function App(props: {
         knownModels: KNOWN_MAIN_MODELS,
         currentProvider: meta.provider ?? activeProviderId(),
         providers: providerSummaries(),
+        providerConfigFields,
       });
 
       props.controller.clearInput();
@@ -286,6 +381,15 @@ export function App(props: {
           props.onSetProvider(result.provider);
           props.controller.setStatusHint(result.message);
           return;
+        case "configure-provider":
+          beginConfigPrompt({
+            providerId: result.provider,
+            displayName:
+              providerSummaries().find((p) => p.id === result.provider)?.displayName ?? result.provider,
+            fields: result.fields,
+            activateOnComplete: result.activateOnComplete,
+          });
+          return;
         case "set-sandbox":
           setSubmitting(true);
           try {
@@ -314,6 +418,8 @@ export function App(props: {
 
   const handleInput = (value: string) => {
     props.controller.setInput(value);
+    if (configPrompt() !== null) return;
+
     const p = palette();
 
     if (value.startsWith("/")) {
@@ -343,7 +449,20 @@ export function App(props: {
     }
 
     if (key.ctrl && key.name === "c") {
+      if (configPrompt() !== null) {
+        closeConfigPrompt();
+        props.controller.setStatusHint("configuration cancelled");
+        return;
+      }
       props.onExit();
+      return;
+    }
+
+    if (configPrompt() !== null) {
+      if (key.name === "escape") {
+        closeConfigPrompt();
+        props.controller.setStatusHint("configuration cancelled");
+      }
       return;
     }
 
@@ -435,6 +554,31 @@ export function App(props: {
       </Show>
 
       <box flexShrink={0} flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
+        <Show when={configPrompt()}>
+          {(prompt) => (
+            <box
+              flexShrink={0}
+              flexDirection="column"
+              marginBottom={1}
+              paddingLeft={1}
+              paddingRight={1}
+              borderStyle="rounded"
+              border
+              borderColor={theme.accent}
+              backgroundColor={theme.codeBg}
+            >
+              <text fg={theme.accent} attributes={BOLD}>
+                Provider setup — {prompt().displayName}
+              </text>
+              <text fg={theme.secondary}>
+                {prompt().fields[prompt().fieldIndex]?.secret
+                  ? "Paste your API key (saved to ~/.orin/config.json, not sent to the agent)"
+                  : "Enter the value below (saved to ~/.orin/config.json)"}
+              </text>
+            </box>
+          )}
+        </Show>
+
         <Show when={palette()}>
           {(p) => (
             <box

@@ -62,6 +62,16 @@ export interface ModelMetadataProvider {
  */
 export type AuthStrategy = "api-key" | "oauth";
 
+/** A user-editable config field persisted under `provider.<id>.<key>`. */
+export interface ProviderConfigField {
+  key: string;
+  label: string;
+  /** Mask input in the TUI when true (API keys, tokens). */
+  secret?: boolean;
+  /** Env var that overrides this field when set (shown in configure hints). */
+  envVar?: string;
+}
+
 /**
  * An LLM backend the agent can resolve models from. Each provider owns its
  * credentials, base URL, model-id normalization, and model metadata. The
@@ -76,6 +86,12 @@ export interface Provider {
   readonly id: string;
   readonly displayName: string;
   readonly authStrategy: AuthStrategy;
+  /**
+   * Config fields the TUI `/providers configure` command can collect and
+   * persist to `~/.orin/config.json`. OAuth providers omit this — tokens live
+   * in `~/.orin/tokens.json`.
+   */
+  readonly configFields?: readonly ProviderConfigField[];
   /** True when credentials are available (env var or config file). */
   isConfigured(): boolean;
   /** Map our internal model id to the provider-native id. */

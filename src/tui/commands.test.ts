@@ -12,9 +12,15 @@ const ctx: CommandContext = {
 const providers: ProviderSummary[] = [
   { id: "openrouter", displayName: "OpenRouter", authStrategy: "api-key", active: true, configured: true },
   { id: "anthropic", displayName: "Anthropic", authStrategy: "oauth", active: false, configured: false },
+  { id: "regolo", displayName: "Regolo", authStrategy: "api-key", active: false, configured: false },
 ];
 
-const provCtx: CommandContext = { ...ctx, currentProvider: "openrouter", providers };
+const provCtx: CommandContext = {
+  ...ctx,
+  currentProvider: "openrouter",
+  providers,
+  providerConfigFields: (id) => (id === "openrouter" ? [{ key: "apiKey", label: "OpenRouter API key", secret: true }] : []),
+};
 
 describe("processCommand", () => {
   it("treats non-slash input as a normal turn", () => {
@@ -146,6 +152,41 @@ describe("processCommand", () => {
 
     it("errors on an out-of-range index", () => {
       expect(processCommand("/providers 99", provCtx).type).toBe("error");
+    });
+
+    it("lists providers for configure with no argument", () => {
+      const r = processCommand("/providers configure", provCtx);
+      expect(r.type).toBe("info");
+      if (r.type === "info") {
+        expect(r.message).toContain("configure a provider");
+        expect(r.message).toContain("openrouter");
+      }
+    });
+
+    it("starts configure flow for an api-key provider", () => {
+      expect(processCommand("/providers configure openrouter", provCtx)).toMatchObject({
+        type: "configure-provider",
+        provider: "openrouter",
+        activateOnComplete: false,
+      });
+    });
+
+    it("starts configure flow by numeric index", () => {
+      expect(processCommand("/providers configure 1", provCtx)).toMatchObject({
+        type: "configure-provider",
+        provider: "openrouter",
+      });
+    });
+
+    it("reports oauth providers as not yet configurable in the TUI", () => {
+      const r = processCommand("/providers configure anthropic", provCtx);
+      expect(r.type).toBe("info");
+      if (r.type === "info") expect(r.message).toMatch(/OAuth/i);
+    });
+
+    it("points unconfigured api-key switches at /providers configure", () => {
+      const r = processCommand("/providers regolo", provCtx);
+      if (r.type === "set-provider") expect(r.message).toMatch(/\/providers configure regolo/);
     });
   });
 

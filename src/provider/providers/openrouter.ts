@@ -336,6 +336,9 @@ export const openRouterProvider: Provider = {
   id: "openrouter",
   displayName: "OpenRouter",
   authStrategy: "api-key",
+  configFields: [
+    { key: "apiKey", label: "OpenRouter API key", secret: true, envVar: "OPENROUTER_API_KEY" },
+  ],
   isConfigured() {
     return Boolean(getOpenRouterApiKey());
   },

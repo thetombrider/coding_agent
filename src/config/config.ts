@@ -177,6 +177,16 @@ export function hasE2BApiKey(): boolean {
   return Boolean(fromEnv || fromConfig);
 }
 
+/** Persist provider-specific settings under `provider.<id>.<key>` in config.json. */
+export function saveProviderConfig(providerId: string, values: Record<string, string>): void {
+  const section: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    const trimmed = value.trim();
+    if (trimmed) section[key] = trimmed;
+  }
+  saveConfig({ provider: { [providerId]: section } } as DeepPartial<Config>);
+}
+
 /** Deep-merge a partial patch into the persisted config file. Creates the file if absent. */
 export function saveConfig(patch: DeepPartial<Config>): void {
   const path = configPath();
