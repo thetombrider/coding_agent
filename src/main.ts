@@ -8,6 +8,7 @@ import { parseApprovalMode } from "./approval/policy.js";
 import { loadConfig, ensureConfigFile } from "./config/config.js";
 import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
+import { resolveActiveProvider } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
 import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, sessionPath } from "./session/log.js";
 import { getCoreTools } from "./tools/registry.js";
@@ -87,9 +88,11 @@ function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model
     };
   }
 
-  if (!process.env.OPENROUTER_API_KEY?.trim() && !loadConfig().provider.openrouter?.apiKey) {
+  const active = resolveActiveProvider();
+  if (!active.isConfigured()) {
     console.error(
-      "OPENROUTER_API_KEY is not set. Use --faux for offline demo, set the env var, or add it to ~/.orin/config.json.",
+      `Provider "${active.id}" (${active.displayName}) is not configured. `
+      + "Use --faux for an offline demo, set its API key env var, or add it to ~/.orin/config.json.",
     );
     process.exit(1);
   }
@@ -143,6 +146,7 @@ async function runInteractive(opts: {
     hooks,
     meta: {
       model: opts.useFaux ? "faux" : models.main,
+      provider: opts.useFaux ? "faux" : loadConfig().provider.active,
       approval: opts.approvalMode,
       cwd: localCwd,
       sandbox: sandboxPref === "e2b" && hasE2BApiKey() ? "e2b" : "local",
@@ -256,9 +260,11 @@ async function runOneShotMode(opts: { prompt: string; useFaux: boolean }): Promi
     );
     model = "faux:test";
   } else {
-    if (!process.env.OPENROUTER_API_KEY) {
+    const active = resolveActiveProvider();
+    if (!active.isConfigured()) {
       console.error(
-        "OPENROUTER_API_KEY is not set. Use --faux for offline demo, or add it to .env.",
+        `Provider "${active.id}" (${active.displayName}) is not configured. `
+        + "Use --faux for an offline demo, or configure it in ~/.orin/config.json.",
       );
       process.exit(1);
     }

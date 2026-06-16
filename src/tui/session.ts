@@ -115,6 +115,14 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     saveConfig({ approval: { mode } });
   };
 
+  // Persist the active provider. The provider call paths (stream/delegate/
+  // compaction) resolve the active provider from config on each turn, so the
+  // switch takes effect on the next turn without rewiring the loop.
+  const setProvider = (provider: string) => {
+    controller.updateMeta({ provider });
+    saveConfig({ provider: { active: provider } });
+  };
+
   let activeSandbox: SandboxKind = config.meta.sandbox === "e2b" ? "e2b" : "local";
 
   const setSandbox = async (kind: SandboxKind) => {
@@ -148,6 +156,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   if (activeSandbox === "e2b") {
     await setSandbox("e2b");
   }
+
 
   const runTurn = async (userText: string) => {
     const userContent = [{ type: "text" as const, text: userText }];
@@ -196,6 +205,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onExit: resolveExit,
           onSetModel: setModel,
           onSetMode: setApprovalMode,
+          onSetProvider: setProvider,
           onSetSandbox: setSandbox,
           getSandbox: () => activeSandbox,
           onClear: () => {

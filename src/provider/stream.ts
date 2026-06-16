@@ -1,9 +1,5 @@
 import { streamText, type ModelMessage, type ToolSet } from "ai";
-import {
-  buildStreamProviderOptions,
-  markPromptCacheBreakpoints,
-} from "./prompt-cache.js";
-import { getOpenRouter, resolveOpenRouterModelId } from "./openrouter.js";
+import { resolveActiveProvider } from "./registry.js";
 import { enrichAssistantMessage } from "./tool-call-parser.js";
 import type { Message } from "../types.js";
 import type {
@@ -23,7 +19,7 @@ function toolCallNames(messages: Message[]): Map<string, string> {
   return names;
 }
 
-function toAiMessages(messages: Message[], modelId: string): ModelMessage[] {
+function toAiMessages(messages: Message[]): ModelMessage[] {
   const callNames = toolCallNames(messages);
   const result: ModelMessage[] = [];
 
@@ -70,13 +66,7 @@ function toAiMessages(messages: Message[], modelId: string): ModelMessage[] {
     result.push({ role: m.role, content: text });
   }
 
-  markPromptCacheBreakpoints(result, modelId);
   return result;
-}
-
-function resolveModel(modelId: string) {
-  const openrouter = getOpenRouter();
-  return openrouter.chat(resolveOpenRouterModelId(modelId));
 }
 
 export const streamAssistant: StreamAssistantFn = async (
@@ -84,6 +74,7 @@ export const streamAssistant: StreamAssistantFn = async (
   options,
   emit,
 ) => {
+  const provider = resolveActiveProvider();
   const content: AssistantMessage["content"] = [];
   let textBuffer = "";
   const toolCalls = new Map<
@@ -91,13 +82,16 @@ export const streamAssistant: StreamAssistantFn = async (
     { id: string; name: string; arguments: string }
   >();
 
+  const aiMessages = toAiMessages(messages);
+  provider.markCacheBreakpoints?.(aiMessages, options.model);
+
   const result = streamText({
-    model: resolveModel(options.model),
+    model: provider.languageModel(options.model),
     system: options.system,
-    messages: toAiMessages(messages, options.model),
+    messages: aiMessages,
     tools: options.tools ?? ({} as ToolSet),
     abortSignal: options.signal,
-    providerOptions: buildStreamProviderOptions(options.model, options.sessionId),
+    providerOptions: provider.streamProviderOptions?.(options.model, options.sessionId),
   });
 
   for await (const part of result.fullStream) {

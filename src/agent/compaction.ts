@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { getOpenRouter, resolveOpenRouterModelId } from "../provider/openrouter.js";
+import { resolveLanguageModel } from "../provider/registry.js";
 import type { Message } from "../types.js";
 
 const COMPACT_THRESHOLD = 0.85;
@@ -151,7 +151,7 @@ export async function summariseOldTurns(
   const corpus = formatMessagesForSummary(oldMessages);
 
   const { text } = await generate({
-    model: getOpenRouter().chat(resolveOpenRouterModelId(model)),
+    model: resolveLanguageModel(model),
     system: SUMMARY_SYSTEM,
     messages: [
       {

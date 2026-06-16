@@ -9,19 +9,21 @@ import { ApprovalBar, Header, TurnView } from "./views.js";
 import { processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { KNOWN_MAIN_MODELS } from "../config/models.js";
+import { activeProviderId, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { SessionSummary } from "../session/log.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
 const SLASH_COMMANDS = [
-  { name: "model",    label: "/model",    description: "switch model" },
-  { name: "mode",     label: "/mode",     description: "set approval mode" },
-  { name: "sandbox",  label: "/sandbox",  description: "local or E2B sandbox" },
-  { name: "sessions", label: "/sessions", description: "browse sessions" },
-  { name: "new",      label: "/new",      description: "archive & start new session" },
-  { name: "clear",    label: "/clear",    description: "clear conversation" },
-  { name: "help",     label: "/help",     description: "show help" },
-  { name: "exit",     label: "/exit",     description: "quit" },
+  { name: "model",     label: "/model",     description: "switch model" },
+  { name: "mode",      label: "/mode",      description: "set approval mode" },
+  { name: "providers", label: "/providers", description: "switch LLM provider" },
+  { name: "sandbox",   label: "/sandbox",   description: "local or E2B sandbox" },
+  { name: "sessions",  label: "/sessions",  description: "browse sessions" },
+  { name: "new",       label: "/new",       description: "archive & start new session" },
+  { name: "clear",     label: "/clear",     description: "clear conversation" },
+  { name: "help",      label: "/help",      description: "show help" },
+  { name: "exit",      label: "/exit",      description: "quit" },
 ] as const;
 
 type CommandName = (typeof SLASH_COMMANDS)[number]["name"];
@@ -30,6 +32,7 @@ type PaletteState =
   | { phase: "commands"; index: number }
   | { phase: "model"; index: number }
   | { phase: "mode"; index: number }
+  | { phase: "providers"; index: number; providers: ProviderSummary[] }
   | { phase: "sessions"; index: number; sessions: SessionSummary[] };
 
 function formatSessionDate(ts: string): string {
@@ -62,6 +65,7 @@ export function App(props: {
   onExit: () => void;
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
+  onSetProvider: (provider: string) => void;
   onSetSandbox: (kind: "local" | "e2b") => void | Promise<void>;
   getSandbox: () => "local" | "e2b";
   onClear: () => void;
@@ -124,6 +128,15 @@ export function App(props: {
         return;
       }
 
+      if (name === "providers") {
+        const providers = providerSummaries();
+        const currentIdx = providers.findIndex((p) => p.active);
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        setPalette({ phase: "providers", index: Math.max(0, currentIdx), providers });
+        return;
+      }
+
       if (name === "sessions") {
         const sessions = props.onListSessions();
         if (inputRef) inputRef.value = "";
@@ -180,6 +193,19 @@ export function App(props: {
       return;
     }
 
+    if (p.phase === "providers") {
+      const provider = p.providers[p.index];
+      if (provider && !provider.active) {
+        setPalette(null);
+        props.onSetProvider(provider.id);
+        const warn = provider.configured ? "" : " (needs setup in ~/.orin/config.json)";
+        props.controller.setStatusHint(`provider → ${provider.id}${warn}`);
+      } else {
+        setPalette(null);
+      }
+      return;
+    }
+
     if (p.phase === "sessions") {
       const session = p.sessions[p.index];
       if (session) {
@@ -216,6 +242,8 @@ export function App(props: {
         currentMode: coerceApprovalMode(meta.approval) ?? "normal",
         currentSandbox: props.getSandbox(),
         knownModels: KNOWN_MAIN_MODELS,
+        currentProvider: meta.provider ?? activeProviderId(),
+        providers: providerSummaries(),
       });
 
       props.controller.clearInput();
@@ -245,6 +273,10 @@ export function App(props: {
           return;
         case "set-mode":
           props.onSetMode(result.mode);
+          props.controller.setStatusHint(result.message);
+          return;
+        case "set-provider":
+          props.onSetProvider(result.provider);
           props.controller.setStatusHint(result.message);
           return;
         case "set-sandbox":
@@ -320,14 +352,16 @@ export function App(props: {
             ? Math.max(0, filteredCommands().length - 1)
             : p.phase === "model"
               ? KNOWN_MAIN_MODELS.length - 1
-              : p.phase === "sessions"
-                ? Math.max(0, p.sessions.length - 1)
-                : APPROVAL_MODES.length - 1;
+              : p.phase === "providers"
+                ? Math.max(0, p.providers.length - 1)
+                : p.phase === "sessions"
+                  ? Math.max(0, p.sessions.length - 1)
+                  : APPROVAL_MODES.length - 1;
         setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
         return;
       }
       if (key.name === "escape") {
-        if (p.phase === "model" || p.phase === "mode" || p.phase === "sessions") {
+        if (p.phase !== "commands") {
           // Go back to command list
           setPalette({ phase: "commands", index: 0 });
         } else {
@@ -367,6 +401,7 @@ export function App(props: {
           model={state().meta.model}
           approval={state().meta.approval}
           cwd={state().meta.cwd}
+          provider={state().meta.provider}
           sandbox={state().meta.sandbox}
         />
       </box>
@@ -436,6 +471,27 @@ export function App(props: {
                         </text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
+                        </Show>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "providers"}>
+                <For each={(p() as { phase: "providers"; providers: ProviderSummary[] }).providers}>
+                  {(provider, i) => {
+                    const selected = () => (p() as { phase: "providers"; index: number }).index === i();
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{provider.id}{provider.authStrategy === "oauth" ? " [oauth]" : ""}
+                        </text>
+                        <Show when={provider.active}>
+                          <text fg={theme.secondary}>  (active)</text>
+                        </Show>
+                        <Show when={!provider.configured}>
+                          <text fg={theme.secondary}>  (needs setup)</text>
                         </Show>
                       </box>
                     );

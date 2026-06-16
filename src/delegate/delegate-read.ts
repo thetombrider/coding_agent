@@ -1,11 +1,12 @@
 /**
  * delegate_read implementation — one-shot cheap-model Q&A over file contents.
- * Reads paths into a tagged corpus, sends a single OpenRouter completion (no sub-loop).
+ * Reads paths into a tagged corpus, sends a single completion through the active
+ * provider (no sub-loop).
  */
 import { relative } from "node:path";
 import { generateText } from "ai";
 import { defaultCheapModel } from "../config/models.js";
-import { getOpenRouter, resolveOpenRouterModelId } from "../provider/openrouter.js";
+import { resolveLanguageModel } from "../provider/registry.js";
 import { resolvePath } from "../util/paths.js";
 import { findMatchingFiles } from "../tools/find.js";
 import type { Workspace } from "../workspace/types.js";
@@ -111,7 +112,7 @@ export async function runDelegateRead(
   const model = options.model ?? defaultCheapModel();
 
   const { text } = await generate({
-    model: getOpenRouter().chat(resolveOpenRouterModelId(model)),
+    model: resolveLanguageModel(model),
     system: DELEGATE_READ_SYSTEM,
     messages: buildDelegateReadMessages(corpus, options.task),
     maxOutputTokens: 8192,

@@ -102,6 +102,16 @@ Acceptance for the loop layer: it is fully unit-testable by injecting a fake pro
 ## 6. Provider layer (in `src/provider/`)
 One function: `streamAssistant(ctx, tools, model, signal) -> AsyncIterable<StreamEvent>` yielding text deltas and assembling tool calls, returning a final assistant `Message`. Back it with the AI SDK's `streamText`. Reference nanocoder `source/ai-sdk-client/chat/streaming-handler.ts` for converting SDK stream parts into our content blocks; reference pi `packages/ai/src/stream.ts` for the event shape.
 
+### Provider registry (issue #12)
+The streaming/generation transport is shared; LLM backends plug in behind a `Provider` interface (`src/provider/types.ts`) registered in `src/provider/registry.ts`:
+
+- `Provider` exposes `id` / `displayName`, an `authStrategy` (`api-key` | `oauth`), `isConfigured()`, `normalizeModelId()`, a `languageModel(modelId)` factory returning an AI SDK `LanguageModel`, a `ModelMetadataProvider` for context-window lookups, and optional `streamProviderOptions()` / `markCacheBreakpoints()` hooks so a backend owns its own prompt-cache strategy and request options while `stream.ts` stays provider-agnostic.
+- Core call paths go through the registry instead of calling `getOpenRouter()` directly: `delegate/delegate-read.ts` and `agent/compaction.ts` resolve the model via `resolveLanguageModel()`, and `stream.ts` resolves the active provider for both the model and its cache hooks. `main.ts` checks `resolveActiveProvider().isConfigured()`.
+- The active backend is `loadConfig().provider.active`; resolution falls back to the default (`openrouter`) when the configured id is unknown.
+- `/providers` lists and switches the active provider at runtime, persisting `provider.active` to `~/.orin/config.json`. Because models resolve through the registry on each turn, a switch takes effect on the next turn with no rewiring.
+
+**Currently implemented:** OpenRouter (`api-key`), the default, as a single self-contained module at `src/provider/providers/openrouter.ts` (credentials/client, model-id normalization, model-metadata lookups, and prompt-cache strategy all in one file). The interface anticipates additional backends (Anthropic/OpenAI API key + OAuth, Regolo, LiteLLM, Vercel/Cloudflare gateways) — each one self-contained file under `src/provider/providers/` that calls `registerProvider()`. OAuth backends store tokens in `~/.orin/tokens.json` (0600), not the config file.
+
 ## 7. Edit tool — the hard part (in `src/tools/edit.ts`)
 Build in two stages across phases:
 - **v1 (Phase 3): exact-unique match.** Args: `{ edits: [{ oldText, newText }] }`. Each `oldText` must appear exactly once; non-overlapping; applied against the original file; render a unified diff (use the `diff` npm package). Mirror pi `packages/coding-agent/src/core/tools/edit.ts` + `edit-diff.ts`.
