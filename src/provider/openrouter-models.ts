@@ -1,4 +1,4 @@
-import { getOpenRouterApiKey, resolveOpenRouterModelId } from "./openrouter.js";
+import { getOpenRouterApiKey, resolveOpenRouterModelId } from "./openrouter-client.js";
 
 const OPENROUTER_MODEL_URL = "https://openrouter.ai/api/v1/model";
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";

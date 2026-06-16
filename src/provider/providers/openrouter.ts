@@ -1,4 +1,4 @@
-import { getOpenRouter, getOpenRouterApiKey, resolveOpenRouterModelId } from "../openrouter.js";
+import { getOpenRouter, getOpenRouterApiKey, resolveOpenRouterModelId } from "../openrouter-client.js";
 import { lookupOpenRouterContextWindow } from "../openrouter-models.js";
 import type { ModelMetadataProvider, Provider } from "../types.js";
 

@@ -1,3 +1,9 @@
+/**
+ * Shared OpenRouter primitives: API-key resolution, AI SDK client factory, and
+ * model-id normalization. This is the single OpenRouter implementation; the
+ * `providers/openrouter.ts` Provider adapter, `openrouter-models.ts`, and
+ * `prompt-cache.ts` all build on these — there is no duplicate backend.
+ */
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { loadConfig } from "../config/config.js";
 

@@ -1,6 +1,6 @@
 import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import type { ModelMessage } from "ai";
-import { resolveOpenRouterModelId } from "./openrouter.js";
+import { resolveOpenRouterModelId } from "./openrouter-client.js";
 
 const EPHEMERAL_CACHE = { type: "ephemeral" as const };
 
