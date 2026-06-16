@@ -145,7 +145,9 @@ function handleProviders(arg: string, ctx: CommandContext): CommandResult {
   }
   const warn = match.configured
     ? ""
-    : " (not configured — set its API key in ~/.orin/config.json)";
+    : match.authStrategy === "oauth"
+      ? " (not configured — complete its OAuth setup)"
+      : " (not configured — set its API key in ~/.orin/config.json)";
   return { type: "set-provider", provider: match.id, message: `provider → ${match.id}${warn}` };
 }
 
