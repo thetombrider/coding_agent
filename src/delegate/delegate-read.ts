@@ -3,13 +3,13 @@
  * Reads paths into a tagged corpus, sends a single completion through the active
  * provider (no sub-loop).
  */
-import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { generateText } from "ai";
 import { defaultCheapModel } from "../config/models.js";
 import { resolveLanguageModel } from "../provider/registry.js";
 import { resolvePath } from "../util/paths.js";
 import { findMatchingFiles } from "../tools/find.js";
+import type { Workspace } from "../workspace/types.js";
 
 export const DELEGATE_READ_SYSTEM = (
   "You are a precise code analyst. Answer questions about the provided files "
@@ -20,6 +20,7 @@ export interface DelegateReadOptions {
   task: string;
   paths?: string[];
   cwd: string;
+  workspace: Workspace;
   model?: string;
   signal?: AbortSignal;
 }
@@ -29,7 +30,11 @@ export interface DelegateReadResult {
   warnings: string[];
 }
 
-async function resolveInputPaths(cwd: string, paths?: string[]): Promise<{
+async function resolveInputPaths(
+  cwd: string,
+  workspace: Workspace,
+  paths?: string[],
+): Promise<{
   files: string[];
   warnings: string[];
 }> {
@@ -40,7 +45,7 @@ async function resolveInputPaths(cwd: string, paths?: string[]): Promise<{
 
   for (const path of paths) {
     if (path.includes("*")) {
-      const matches = await findMatchingFiles(cwd, path);
+      const matches = await findMatchingFiles(workspace, cwd, path);
       if (!matches.length) warnings.push(`Warning: ${path} matched no files, skipping.`);
       files.push(...matches);
       continue;
@@ -48,14 +53,15 @@ async function resolveInputPaths(cwd: string, paths?: string[]): Promise<{
 
     const full = resolvePath(cwd, path);
     try {
-      const info = await stat(full);
-      if (info.isDirectory()) {
-        warnings.push(`Warning: ${path} is a directory, skipping.`);
-        continue;
-      }
+      await workspace.readFile(full);
       files.push(relative(cwd, full) || path);
     } catch {
-      warnings.push(`Warning: ${path} not found, skipping.`);
+      try {
+        await workspace.list(full);
+        warnings.push(`Warning: ${path} is a directory, skipping.`);
+      } catch {
+        warnings.push(`Warning: ${path} not found, skipping.`);
+      }
     }
   }
 
@@ -90,12 +96,16 @@ export async function runDelegateRead(
   options: DelegateReadOptions,
   generate: DelegateReadGenerate = generateText,
 ): Promise<DelegateReadResult> {
-  const { files, warnings } = await resolveInputPaths(options.cwd, options.paths);
+  const { files, warnings } = await resolveInputPaths(
+    options.cwd,
+    options.workspace,
+    options.paths,
+  );
   const contents = new Map<string, string>();
 
   for (const path of files) {
     const full = resolvePath(options.cwd, path);
-    contents.set(path, await readFile(full, "utf8"));
+    contents.set(path, await options.workspace.readFile(full));
   }
 
   const corpus = buildDelegateReadCorpus(files, contents);

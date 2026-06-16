@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createHookRegistry } from "./registry.js";
 import { installApprovalGate } from "./approval-gate.js";
 import type { Tool } from "../tools/types.js";
+import { testAgentContext } from "../test-helpers.js";
 
 vi.mock("../config/config.js", () => ({
   loadConfig: () => ({
@@ -24,7 +25,7 @@ describe("installApprovalGate", () => {
     },
   };
 
-  const ctx = { cwd: "/tmp", messages: [] };
+  const ctx = testAgentContext("/tmp");
 
   it("blocks write tools in plan mode", async () => {
     const hooks = createHookRegistry();

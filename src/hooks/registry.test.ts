@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHookRegistry } from "./registry.js";
-import type { AgentContext } from "../types.js";
+import { testAgentContext } from "../test-helpers.js";
 
-const ctx: AgentContext = { cwd: "/tmp", messages: [] };
+const ctx = testAgentContext("/tmp");
 
 describe("createHookRegistry", () => {
   it("before_tool short-circuits on first block", async () => {

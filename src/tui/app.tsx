@@ -18,6 +18,7 @@ const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
   { name: "mode",      label: "/mode",      description: "set approval mode" },
   { name: "providers", label: "/providers", description: "switch LLM provider" },
+  { name: "sandbox",   label: "/sandbox",   description: "local or E2B sandbox" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
   { name: "new",       label: "/new",       description: "archive & start new session" },
   { name: "clear",     label: "/clear",     description: "clear conversation" },
@@ -65,6 +66,8 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onSetProvider: (provider: string) => void;
+  onSetSandbox: (kind: "local" | "e2b") => void | Promise<void>;
+  getSandbox: () => "local" | "e2b";
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -144,6 +147,12 @@ export function App(props: {
           return;
         }
         setPalette({ phase: "sessions", index: 0, sessions });
+        return;
+      }
+
+      if (name === "sandbox") {
+        closePalette();
+        void handleSubmit("/sandbox");
         return;
       }
 
@@ -231,6 +240,7 @@ export function App(props: {
       const result = processCommand(text, {
         currentModel: meta.model,
         currentMode: coerceApprovalMode(meta.approval) ?? "normal",
+        currentSandbox: props.getSandbox(),
         knownModels: KNOWN_MAIN_MODELS,
         currentProvider: meta.provider ?? activeProviderId(),
         providers: providerSummaries(),
@@ -268,6 +278,14 @@ export function App(props: {
         case "set-provider":
           props.onSetProvider(result.provider);
           props.controller.setStatusHint(result.message);
+          return;
+        case "set-sandbox":
+          setSubmitting(true);
+          try {
+            await props.onSetSandbox(result.kind);
+          } finally {
+            setSubmitting(false);
+          }
           return;
         case "info":
         case "error":
@@ -379,7 +397,13 @@ export function App(props: {
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.bg} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <box flexShrink={0}>
-        <Header model={state().meta.model} approval={state().meta.approval} cwd={state().meta.cwd} provider={state().meta.provider} />
+        <Header
+          model={state().meta.model}
+          approval={state().meta.approval}
+          cwd={state().meta.cwd}
+          provider={state().meta.provider}
+          sandbox={state().meta.sandbox}
+        />
       </box>
 
       <scrollbox

@@ -9,6 +9,7 @@ import {
   buildDelegateReadMessages,
   type DelegateReadGenerate,
 } from "./delegate-read.js";
+import { createLocalWorkspace } from "../workspace/local.js";
 
 describe("runDelegateRead", () => {
   it("builds corpus and messages for the cheap model", () => {
@@ -34,7 +35,7 @@ describe("runDelegateRead", () => {
       };
 
       const result = await runDelegateRead(
-        { task: "what secret?", paths: ["sample.txt"], cwd },
+        { task: "what secret?", paths: ["sample.txt"], cwd, workspace: createLocalWorkspace() },
         mockGenerate,
       );
 
@@ -52,7 +53,7 @@ describe("runDelegateRead", () => {
   it("warns on missing paths", async () => {
     const mockGenerate: DelegateReadGenerate = async () => ({ text: "ok" });
     const result = await runDelegateRead(
-      { task: "hi", paths: ["missing.txt"], cwd: "/tmp" },
+      { task: "hi", paths: ["missing.txt"], cwd: "/tmp", workspace: createLocalWorkspace() },
       mockGenerate,
     );
     expect(result.warnings[0]).toMatch(/not found/);

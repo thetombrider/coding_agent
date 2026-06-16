@@ -10,6 +10,10 @@ import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext, Message } from "../types.js";
+import { createE2BWorkspace } from "../workspace/e2b.js";
+import { createLocalWorkspace } from "../workspace/local.js";
+import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
+import type { SandboxKind } from "../workspace/types.js";
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { restoreTerminal } from "./terminal.js";
@@ -119,6 +123,41 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     saveConfig({ provider: { active: provider } });
   };
 
+  let activeSandbox: SandboxKind = config.meta.sandbox === "e2b" ? "e2b" : "local";
+
+  const setSandbox = async (kind: SandboxKind) => {
+    controller.setStatusHint(`Switching to ${kind} sandbox…`);
+    try {
+      await config.ctx.workspace.dispose();
+      if (kind === "e2b") {
+        config.ctx.workspace = await createE2BWorkspace();
+        config.ctx.cwd = REMOTE_SANDBOX_ROOT;
+        const seedMessage = await seedRepoIntoWorkspace(config.ctx.workspace, config.meta.cwd);
+        controller.setStatusHint(seedMessage);
+      } else {
+        config.ctx.workspace = createLocalWorkspace();
+        config.ctx.cwd = config.meta.cwd;
+        controller.setStatusHint(`sandbox → ${kind}`);
+      }
+      activeSandbox = kind;
+      controller.updateMeta({ sandbox: kind, cwd: config.ctx.cwd });
+      saveConfig({ sandbox: { active: kind } });
+    } catch (err) {
+      await config.ctx.workspace.dispose().catch(() => {});
+      config.ctx.workspace = createLocalWorkspace();
+      config.ctx.cwd = config.meta.cwd;
+      activeSandbox = "local";
+      controller.updateMeta({ sandbox: "local", cwd: config.ctx.cwd });
+      const message = err instanceof Error ? err.message : String(err);
+      controller.setStatusHint(`sandbox switch failed: ${message}`);
+    }
+  };
+
+  if (activeSandbox === "e2b") {
+    await setSandbox("e2b");
+  }
+
+
   const runTurn = async (userText: string) => {
     const userContent = [{ type: "text" as const, text: userText }];
     config.ctx.messages.push({ role: "user", content: userContent });
@@ -167,6 +206,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetModel: setModel,
           onSetMode: setApprovalMode,
           onSetProvider: setProvider,
+          onSetSandbox: setSandbox,
+          getSandbox: () => activeSandbox,
           onClear: () => {
             config.ctx.messages = [];
             log.write({ type: "session_clear", ts: new Date().toISOString() });
@@ -199,6 +240,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   } finally {
     process.removeListener("exit", onProcessExit);
     await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
+    await config.ctx.workspace.dispose();
     await log.close();
     renderer?.destroy();
     restoreTerminal();

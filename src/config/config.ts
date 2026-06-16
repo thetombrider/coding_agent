@@ -38,6 +38,10 @@ export interface Config {
     enabled: boolean;
     metricsFile: string;
   };
+  sandbox?: {
+    active?: "local" | "e2b";
+    e2b?: { apiKey?: string };
+  };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
@@ -150,6 +154,9 @@ export function loadConfig(): Config {
   if (process.env.OPENROUTER_API_KEY?.trim()) {
     merged.provider.openrouter = { ...merged.provider.openrouter, apiKey: process.env.OPENROUTER_API_KEY.trim() };
   }
+  if (process.env.E2B_API_KEY?.trim()) {
+    merged.sandbox = { ...merged.sandbox, e2b: { ...merged.sandbox?.e2b, apiKey: process.env.E2B_API_KEY.trim() } };
+  }
   const rawMode = process.env.ORIN_APPROVAL_MODE?.trim().toLowerCase();
   if (rawMode === "auto-accept" || rawMode === "auto") merged.approval.mode = "auto-accept";
   else if (rawMode === "plan") merged.approval.mode = "plan";
@@ -161,6 +168,13 @@ export function loadConfig(): Config {
 /** True when an OpenRouter API key is available from the env var or config file. */
 export function hasOpenRouterApiKey(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey);
+}
+
+/** True when an E2B API key is available from the env var or config file. */
+export function hasE2BApiKey(): boolean {
+  const fromEnv = process.env.E2B_API_KEY?.trim();
+  const fromConfig = loadConfig().sandbox?.e2b?.apiKey?.trim();
+  return Boolean(fromEnv || fromConfig);
 }
 
 /** Deep-merge a partial patch into the persisted config file. Creates the file if absent. */

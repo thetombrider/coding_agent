@@ -1,8 +1,8 @@
-import { readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { relative } from "node:path";
 import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { loadToolDescription } from "../util/load-txt.js";
+import type { Workspace } from "../workspace/types.js";
 import type { Tool } from "./types.js";
 
 const schema = z.object({
@@ -22,29 +22,45 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${escaped}$`);
 }
 
-async function walk(
+async function walkWorkspace(
+  workspace: Workspace,
   dir: string,
   root: string,
   re: RegExp,
   results: string[],
+  preloadedNames?: string[],
 ): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === ".git") continue;
-    const full = join(dir, entry.name);
-    const rel = relative(root, full) || entry.name;
-    if (entry.isDirectory()) {
-      await walk(full, root, re, results);
+  const names = preloadedNames ?? await workspace.list(dir).catch(() => null);
+  if (!names) return;
+
+  for (const name of names) {
+    if (name === "node_modules" || name === ".git") continue;
+    const full = dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
+    const rel = relative(root, full) || name;
+
+    let childNames: string[] | null = null;
+    try {
+      childNames = await workspace.list(full);
+    } catch {
+      childNames = null;
+    }
+
+    if (childNames !== null) {
+      await walkWorkspace(workspace, full, root, re, results, childNames);
     } else if (re.test(rel)) {
       results.push(rel);
     }
   }
 }
 
-export async function findMatchingFiles(root: string, pattern: string): Promise<string[]> {
+export async function findMatchingFiles(
+  workspace: Workspace,
+  root: string,
+  pattern: string,
+): Promise<string[]> {
   const re = globToRegExp(pattern);
   const results: string[] = [];
-  await walk(root, root, re, results);
+  await walkWorkspace(workspace, root, root, re, results);
   results.sort();
   return results;
 }
@@ -55,7 +71,7 @@ export const findTool: Tool<FindArgs> = {
   schema,
   async execute({ pattern, path }, ctx) {
     const root = resolvePath(ctx.cwd, path ?? ".");
-    const results = await findMatchingFiles(root, pattern);
+    const results = await findMatchingFiles(ctx.workspace, root, pattern);
     return { output: results.length ? results.join("\n") : "(no matches)" };
   },
 };

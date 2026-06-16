@@ -12,6 +12,7 @@ import { getCoreTools } from "../tools/registry.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 import type { AgentContext, SessionEvent } from "../types.js";
+import { createLocalWorkspace } from "../workspace/local.js";
 
 describe("runLoop", () => {
   function hooks(tools: AnyTool[] = [], approval?: Partial<ApprovalGateRef>) {
@@ -40,6 +41,7 @@ describe("runLoop", () => {
           content: [{ type: "text", text: "what's in package.json and how many deps?" }],
         },
       ],
+      workspace: createLocalWorkspace(),
     };
 
     const readTools = getCoreTools().filter((t) => t.name === "read");
@@ -62,6 +64,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     const readTools = getCoreTools().filter((t) => t.name === "read");
@@ -88,6 +91,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      workspace: createLocalWorkspace(),
     };
     await expect(runLoop(ctx, hooks(), { provider, tools: [], model: "faux:test" })).resolves.toBeDefined();
   });
@@ -123,6 +127,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     const slowTools = [slowTool("slow_a"), slowTool("slow_b"), slowTool("slow_c")];
@@ -168,6 +173,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: dir,
       messages: [{ role: "user", content: [{ type: "text", text: "increment" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     await runLoop(ctx, hooks([editCounter]), {
@@ -192,6 +198,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "read package.json" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     const readTools = getCoreTools().filter((t) => t.name === "read");
@@ -227,6 +234,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "read file" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     const readTools = getCoreTools().filter((t) => t.name === "read");
@@ -261,6 +269,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "delete" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     const registry = hooks([bashTool]);
@@ -304,6 +313,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "log" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     const registry = hooks([bashTool]);
@@ -335,6 +345,7 @@ describe("runLoop", () => {
     const ctx: AgentContext = {
       cwd: process.cwd(),
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      workspace: createLocalWorkspace(),
     };
 
     const registry = hooks();

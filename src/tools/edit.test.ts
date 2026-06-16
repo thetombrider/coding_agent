@@ -6,6 +6,7 @@ import { applyExactEdits, editTool } from "./edit.js";
 import { writeTool } from "./write.js";
 import { grepTool } from "./grep.js";
 import type { AgentContext } from "../types.js";
+import { createLocalWorkspace } from "../workspace/local.js";
 
 describe("applyExactEdits", () => {
   it("replaces unique text against original", () => {
@@ -24,7 +25,7 @@ describe("applyExactEdits", () => {
 describe("phase 3 tools integration", () => {
   it("write, edit, grep end-to-end", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "orin-"));
-    const ctx: AgentContext = { cwd, messages: [] };
+    const ctx: AgentContext = { cwd, messages: [], workspace: createLocalWorkspace() };
 
     try {
       await writeTool.execute(

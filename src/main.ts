@@ -15,6 +15,8 @@ import { getCoreTools } from "./tools/registry.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
+import { createLocalWorkspace } from "./workspace/local.js";
+import { hasE2BApiKey } from "./config/config.js";
 
 const SYSTEM = loadConfig().system.prompt;
 
@@ -105,7 +107,6 @@ async function runInteractive(opts: {
   autoAcceptCli: boolean;
   resumeId?: string;
 }): Promise<void> {
-  const cwd = process.cwd();
   const { provider, model } = resolveProvider(opts.useFaux);
   const models = loadModelConfig();
 
@@ -126,7 +127,10 @@ async function runInteractive(opts: {
     sessionId = generateSessionId();
   }
 
-  const ctx: AgentContext = { cwd, messages };
+  const localCwd = process.cwd();
+  const sandboxPref = loadConfig().sandbox?.active;
+  const workspace = createLocalWorkspace();
+  const ctx: AgentContext = { cwd: localCwd, messages, workspace };
   const hooks = createSessionHooks();
 
   await runTuiSession({
@@ -144,7 +148,8 @@ async function runInteractive(opts: {
       model: opts.useFaux ? "faux" : models.main,
       provider: opts.useFaux ? "faux" : loadConfig().provider.active,
       approval: opts.approvalMode,
-      cwd,
+      cwd: localCwd,
+      sandbox: sandboxPref === "e2b" && hasE2BApiKey() ? "e2b" : "local",
       faux: opts.useFaux,
     },
   });
@@ -204,6 +209,7 @@ async function runHeadless(opts: {
   const ctx: AgentContext = {
     cwd,
     messages: [{ role: "user", content: [{ type: "text", text: opts.prompt }] }],
+    workspace: createLocalWorkspace(),
   };
   const { provider, model } = resolveProvider(opts.useFaux);
   const { runLoop } = await import("./agent/loop.js");
@@ -237,6 +243,7 @@ async function runHeadless(opts: {
     });
   } finally {
     await hooks.fireHook("session_end", { reason: "complete" }, ctx);
+    await ctx.workspace.dispose();
   }
 
   const answer = lastAssistantText(ctx);
