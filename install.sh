@@ -41,11 +41,24 @@ bun run build
 echo "Initializing ~/.orin/config.json..."
 bun run init-config
 
+# Seed a global ~/.orin/.env so `orin` finds the API key from ANY directory,
+# not just the repo. Without this, `orin` only works where a local .env exists.
+ORIN_ENV="${HOME}/.orin/.env"
+if [[ ! -f "$ORIN_ENV" ]]; then
+  mkdir -p "${HOME}/.orin"
+  cp "${ROOT}/.env.example" "$ORIN_ENV"
+  echo "Created ${ORIN_ENV} — add your OPENROUTER_API_KEY there to run orin anywhere."
+fi
+
 echo "Linking orin command..."
 bun link
 
 echo
 echo "Orin is ready."
+echo
+echo "Set your API key (works from any directory):"
+echo "  edit ~/.orin/.env and set OPENROUTER_API_KEY=..."
+echo "  (or add it to ~/.orin/config.json under provider.openrouter.apiKey)"
 echo
 echo "Start the agent:"
 echo "  orin"

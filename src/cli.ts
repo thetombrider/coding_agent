@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
-import "dotenv/config";
-
+import { loadEnv } from "./config/env.js";
 import { createHookRegistry } from "./hooks/registry.js";
 import { installCoreHooks } from "./hooks/install.js";
 import type { ApprovalGateRef } from "./hooks/approval-gate.js";
@@ -16,6 +15,8 @@ import { getCoreTools } from "./tools/registry.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
+
+loadEnv();
 
 const SYSTEM = loadConfig().system.prompt;
 
