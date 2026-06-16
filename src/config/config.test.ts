@@ -63,13 +63,16 @@ describe("API key onboarding", () => {
   let home: string;
   let prevHome: string | undefined;
   let prevKey: string | undefined;
+  let prevE2BKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
     prevKey = process.env.OPENROUTER_API_KEY;
+    prevE2BKey = process.env.E2B_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-config-key-"));
     process.env.HOME = home;
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.E2B_API_KEY;
     vi.resetModules();
   });
 
@@ -78,6 +81,8 @@ describe("API key onboarding", () => {
     else process.env.HOME = prevHome;
     if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = prevKey;
+    if (prevE2BKey === undefined) delete process.env.E2B_API_KEY;
+    else process.env.E2B_API_KEY = prevE2BKey;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -101,5 +106,27 @@ describe("API key onboarding", () => {
 
     const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
     expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-saved");
+  });
+
+  it("reports no E2B key when neither env nor config provide one", async () => {
+    const { hasE2BApiKey } = await import("./config.js");
+    expect(hasE2BApiKey()).toBe(false);
+  });
+
+  it("detects an E2B key from the env var", async () => {
+    process.env.E2B_API_KEY = "e2b-test";
+    const { hasE2BApiKey } = await import("./config.js");
+    expect(hasE2BApiKey()).toBe(true);
+  });
+
+  it("persists an E2B key to config.json", async () => {
+    const { saveConfig, hasE2BApiKey, loadConfig } = await import("./config.js");
+    saveConfig({ sandbox: { e2b: { apiKey: "e2b-saved" } } });
+
+    expect(hasE2BApiKey()).toBe(true);
+    expect(loadConfig().sandbox?.e2b?.apiKey).toBe("e2b-saved");
+
+    const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
+    expect(JSON.parse(raw).sandbox.e2b.apiKey).toBe("e2b-saved");
   });
 });
