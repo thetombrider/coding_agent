@@ -1,5 +1,5 @@
-import { createInterface } from "node:readline/promises";
 import { ensureConfigFile, hasE2BApiKey, hasOpenRouterApiKey, saveConfig } from "./config.js";
+import { promptSecret } from "../util/prompt-secret.js";
 
 /**
  * Prompt for API keys and persist them to ~/.orin/config.json so `orin` works
@@ -16,10 +16,9 @@ async function promptForOpenRouterApiKey(): Promise<void> {
     return;
   }
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answer = (
-      await rl.question("OpenRouter API key (get one at https://openrouter.ai/keys, blank to skip): ")
+      await promptSecret("OpenRouter API key (get one at https://openrouter.ai/keys, blank to skip): ")
     ).trim();
     if (answer) {
       saveConfig({ provider: { openrouter: { apiKey: answer } } });
@@ -27,8 +26,8 @@ async function promptForOpenRouterApiKey(): Promise<void> {
     } else {
       console.log("Skipped OpenRouter key. Add it later under provider.openrouter.apiKey.");
     }
-  } finally {
-    rl.close();
+  } catch {
+    console.log("\nSkipped OpenRouter key.");
   }
 }
 
@@ -42,10 +41,11 @@ async function promptForE2BApiKey(): Promise<void> {
     return;
   }
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answer = (
-      await rl.question("E2B API key (optional — for /sandbox e2b, get one at https://e2b.dev/docs/api-key, blank to skip): ")
+      await promptSecret(
+        "E2B API key (optional — for /sandbox e2b, get one at https://e2b.dev/docs/api-key, blank to skip): ",
+      )
     ).trim();
     if (answer) {
       saveConfig({ sandbox: { e2b: { apiKey: answer } } });
@@ -53,8 +53,8 @@ async function promptForE2BApiKey(): Promise<void> {
     } else {
       console.log("Skipped E2B key. Add it later under sandbox.e2b.apiKey.");
     }
-  } finally {
-    rl.close();
+  } catch {
+    console.log("\nSkipped E2B key.");
   }
 }
 
