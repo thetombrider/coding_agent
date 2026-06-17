@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -13,6 +13,7 @@ import type { AnyTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 import type { AgentContext, SessionEvent } from "../types.js";
 import { createLocalWorkspace } from "../workspace/local.js";
+import { INJECTION_MARKER } from "../prompt/inject.js";
 
 describe("runLoop", () => {
   function hooks(tools: AnyTool[] = [], approval?: Partial<ApprovalGateRef>) {
@@ -354,7 +355,7 @@ describe("runLoop", () => {
         ...messages,
         { role: "user", content: [{ type: "text", text: "CONVENTIONS: use tabs" }] },
       ],
-    }));
+    })); // model is available but unused in this test
 
     await runLoop(ctx, registry, {
       provider: wrappedProvider,
@@ -366,5 +367,40 @@ describe("runLoop", () => {
       m.role === "user"
       && m.content.some((c) => c.type === "text" && c.text.includes("CONVENTIONS: use tabs")),
     )).toBe(true);
+  });
+
+  it("core hooks inject AGENTS.md and environment block each turn", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "loop-agents-"));
+    await writeFile(join(cwd, "AGENTS.md"), "Always run tests after edits.");
+
+    let providerMessages: AgentContext["messages"] | undefined;
+    const provider = createStatefulFauxProvider([{ text: ["done"] }]);
+    const wrappedProvider: typeof provider = (messages, options, emit) => {
+      providerMessages = messages;
+      return provider(messages, options, emit);
+    };
+
+    const ctx: AgentContext = {
+      cwd,
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    await runLoop(ctx, hooks(), {
+      provider: wrappedProvider,
+      tools: [],
+      model: "faux:test-model",
+    });
+
+    const injected = providerMessages?.find(
+      (m) =>
+        m.role === "user"
+        && m.content.some((c) => c.type === "text" && c.text.includes(INJECTION_MARKER)),
+    );
+    const text = injected?.content.find((c) => c.type === "text")?.text ?? "";
+    expect(text).toContain("<environment>");
+    expect(text).toContain(`cwd: ${cwd}`);
+    expect(text).toContain("model: faux:test-model");
+    expect(text).toContain("Always run tests after edits.");
   });
 });

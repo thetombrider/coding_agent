@@ -11,7 +11,7 @@ export interface HookMap {
     out: void | { output: string };
   };
   before_prompt: {
-    in: { messages: Message[] };
+    in: { messages: Message[]; model: string };
     out: void | { messages: Message[] };
   };
   before_compact: {
