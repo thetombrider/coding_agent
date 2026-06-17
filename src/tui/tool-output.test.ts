@@ -79,4 +79,23 @@ describe("createToolExpandState", () => {
     expect(expand.getHoveredOutput()).toBe("collapsed");
     expect(expand.getHoveredExpandedOutput()).toBeUndefined();
   });
+
+  it("keeps separate toggles when the same tool id appears in different turns", async () => {
+    const { createToolExpandState } = await import("./tool-expand.js");
+    const expand = createToolExpandState();
+    let first = 0;
+    let second = 0;
+    expand.registerToggle("turn-0/call_0", () => { first += 1; });
+    expand.registerToggle("turn-1/call_0", () => { second += 1; });
+
+    expand.setHovered("turn-0/call_0");
+    expand.toggleHovered();
+    expect(first).toBe(1);
+    expect(second).toBe(0);
+
+    expand.setHovered("turn-1/call_0");
+    expand.toggleHovered();
+    expect(first).toBe(1);
+    expect(second).toBe(1);
+  });
 });

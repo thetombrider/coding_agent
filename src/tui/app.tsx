@@ -709,12 +709,20 @@ export function App(props: {
           }
         >
           <For each={completed()}>
-            {(turn, i) => <TurnView turn={turn} first={i() === 0} reasoningId={`reasoning-${i()}`} />}
+            {(turn, i) => (
+              <TurnView
+                turn={turn}
+                turnKey={`turn-${i()}`}
+                first={i() === 0}
+                reasoningId={`reasoning-${i()}`}
+              />
+            )}
           </For>
           <Show when={live()}>
             {(turn) => (
               <TurnView
                 turn={turn()}
+                turnKey="turn-live"
                 first={completed().length === 0}
                 reasoningId="reasoning-live"
                 reasoningStreaming={state().phase === "running" && !turn().assistantText}
