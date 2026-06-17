@@ -64,7 +64,8 @@ export interface SessionController {
   updateMeta: (patch: Partial<SessionMeta>) => void;
 }
 
-const IDLE_HINT = "scroll · Ctrl+Shift+C/V copy/paste · Ctrl+O copy · Ctrl+Y all · o expand · /exit";
+const IDLE_HINT =
+  "scroll · Ctrl+Shift+C/V copy/paste · Ctrl+O copy · Ctrl+Y all · o expand · c copy expanded/diff tool · /exit";
 
 const TOOL_VERBS: Record<string, string> = {
   read: "Reading",

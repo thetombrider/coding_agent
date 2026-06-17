@@ -55,7 +55,7 @@ describe("plaintext", () => {
     expect(text).toContain("bash  ls\nsrc");
   });
 
-  it("prefers hovered tool output, then last tool, then assistant text", () => {
+  it("prefers hovered output, then latest assistant text, then last tool output", () => {
     const state = baseState();
     state.completedTurns = [
       {
@@ -71,7 +71,13 @@ describe("plaintext", () => {
     ];
 
     expect(pickFocusedCopyText(state, "hovered")).toBe("hovered");
-    expect(pickFocusedCopyText(state)).toBe(toolEntryToPlainText(state.completedTurns[1]!.tools[0]!));
+    expect(pickFocusedCopyText(state)).toBe("latest reply");
+
+    const toolOnly = baseState();
+    toolOnly.completedTurns = [
+      { userText: "go", assistantText: "", tools: [{ id: "3", name: "bash", args: {}, status: "done", output: "ok" }] },
+    ];
+    expect(pickFocusedCopyText(toolOnly)).toBe(toolEntryToPlainText(toolOnly.completedTurns[0]!.tools[0]!));
 
     const assistantOnly = baseState();
     assistantOnly.completedTurns = [{ userText: "hi", assistantText: "only text", tools: [] }];

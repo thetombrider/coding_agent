@@ -57,17 +57,31 @@ export function buildOsc52Sequence(text: string): string {
   return `\x1b]52;c;${encodeOsc52Payload(text)}\x07`;
 }
 
-export function resolveCopyCommand(
+export function isWsl(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.WSL_DISTRO_NAME || env.WSLENV || env.WSL_INTEROP);
+}
+
+export function resolveCopyCommands(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
-): CopyCommand | null {
-  if (platform === "darwin") return { bin: "pbcopy", args: [] };
-  if (platform === "win32") return { bin: "clip.exe", args: [] };
+): CopyCommand[] {
+  if (platform === "darwin") return [{ bin: "pbcopy", args: [] }];
+  if (platform === "win32") return [{ bin: "clip.exe", args: [] }];
   if (platform === "linux") {
-    if (env.WAYLAND_DISPLAY) return { bin: "wl-copy", args: [] };
-    return { bin: "xclip", args: ["-selection", "clipboard"] };
+    const commands: CopyCommand[] = [];
+    if (isWsl(env)) commands.push({ bin: "clip.exe", args: [] });
+    if (env.WAYLAND_DISPLAY) commands.push({ bin: "wl-copy", args: [] });
+    commands.push({ bin: "xclip", args: ["-selection", "clipboard"] });
+    return commands;
   }
-  return null;
+  return [];
+}
+
+function copyMethodFor(command: CopyCommand): CopyMethod {
+  if (command.bin === "pbcopy") return "pbcopy";
+  if (command.bin === "wl-copy") return "wl-copy";
+  if (command.bin === "clip.exe") return "clip.exe";
+  return "xclip";
 }
 
 export function resolvePasteCommand(
@@ -175,21 +189,13 @@ export async function copyToClipboard(
     }
   }
 
-  const command = resolveCopyCommand(deps.platform, deps.env);
-  if (command) {
+  const commands = resolveCopyCommands(deps.platform, deps.env);
+  for (const command of commands) {
     const copied = deps.spawn
       ? await spawnCopyWithFn(text, command, deps.spawn)
       : await spawnCopy(text, command);
     if (copied) {
-      const method =
-        command.bin === "pbcopy"
-          ? "pbcopy"
-          : command.bin === "wl-copy"
-            ? "wl-copy"
-            : command.bin === "clip.exe"
-              ? "clip.exe"
-              : "xclip";
-      return { ok: true, method, lineCount };
+      return { ok: true, method: copyMethodFor(command), lineCount };
     }
   }
 

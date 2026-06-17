@@ -48,6 +48,14 @@ export function pickFocusedCopyText(
 ): string | null {
   if (hoveredToolOutput) return hoveredToolOutput;
 
+  const live = liveTurnFromState(state);
+  if (live?.assistantText) return live.assistantText;
+
+  for (let t = state.completedTurns.length - 1; t >= 0; t--) {
+    const text = state.completedTurns[t]?.assistantText;
+    if (text) return text;
+  }
+
   const turns = allTurnsFromState(state);
   for (let t = turns.length - 1; t >= 0; t--) {
     const turn = turns[t]!;
@@ -55,14 +63,6 @@ export function pickFocusedCopyText(
       const tool = turn.tools[i]!;
       if (tool.output) return toolEntryToPlainText(tool);
     }
-  }
-
-  const live = liveTurnFromState(state);
-  if (live?.assistantText) return live.assistantText;
-
-  for (let t = state.completedTurns.length - 1; t >= 0; t--) {
-    const text = state.completedTurns[t]?.assistantText;
-    if (text) return text;
   }
 
   return null;

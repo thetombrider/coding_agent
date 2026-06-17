@@ -5,8 +5,9 @@ import {
   encodeOsc52Payload,
   formatCopyStatus,
   formatPasteStatus,
+  isWsl,
   readFromClipboard,
-  resolveCopyCommand,
+  resolveCopyCommands,
   resolvePasteCommand,
   type SpawnFn,
 } from "./clipboard.js";
@@ -17,16 +18,24 @@ describe("clipboard", () => {
     expect(buildOsc52Sequence("hello")).toBe("\x1b]52;c;aGVsbG8=\x07");
   });
 
-  it("resolves platform copy commands", () => {
-    expect(resolveCopyCommand("darwin", {})).toEqual({ bin: "pbcopy", args: [] });
-    expect(resolveCopyCommand("linux", { WAYLAND_DISPLAY: "1" })).toEqual({
-      bin: "wl-copy",
-      args: [],
-    });
-    expect(resolveCopyCommand("linux", {})).toEqual({
-      bin: "xclip",
-      args: ["-selection", "clipboard"],
-    });
+  it("resolves platform copy commands in fallback order", () => {
+    expect(resolveCopyCommands("darwin", {})).toEqual([{ bin: "pbcopy", args: [] }]);
+    expect(resolveCopyCommands("linux", { WSL_DISTRO_NAME: "Ubuntu" })).toEqual([
+      { bin: "clip.exe", args: [] },
+      { bin: "xclip", args: ["-selection", "clipboard"] },
+    ]);
+    expect(resolveCopyCommands("linux", { WAYLAND_DISPLAY: "1" })).toEqual([
+      { bin: "wl-copy", args: [] },
+      { bin: "xclip", args: ["-selection", "clipboard"] },
+    ]);
+    expect(resolveCopyCommands("linux", {})).toEqual([
+      { bin: "xclip", args: ["-selection", "clipboard"] },
+    ]);
+  });
+
+  it("detects WSL environments", () => {
+    expect(isWsl({ WSL_DISTRO_NAME: "Ubuntu" })).toBe(true);
+    expect(isWsl({})).toBe(false);
   });
 
   it("resolves platform paste commands", () => {
@@ -67,6 +76,26 @@ describe("clipboard", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.method).toBe("pbcopy");
+  });
+
+  it("tries the next Linux copy command when wl-copy fails", async () => {
+    const attempted: string[] = [];
+    const result = await copyToClipboard("payload", {
+      skipOsc52: true,
+      platform: "linux",
+      env: { WAYLAND_DISPLAY: "1" },
+      spawn: (command) => {
+        attempted.push(command[0]!);
+        const ok = command[0] === "xclip";
+        return {
+          stdin: { write() {}, end() {} },
+          exited: Promise.resolve(ok ? 0 : 1),
+        } as unknown as ReturnType<SpawnFn>;
+      },
+    });
+    expect(attempted).toEqual(["wl-copy", "xclip"]);
+    expect(result.ok).toBe(true);
+    expect(result.method).toBe("xclip");
   });
 
   it("falls back to a temp file when clipboard helpers fail", async () => {
