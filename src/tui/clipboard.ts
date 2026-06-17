@@ -84,6 +84,11 @@ function copyMethodFor(command: CopyCommand): CopyMethod {
   return "xclip";
 }
 
+/** OSC 52 is best-effort over SSH on Linux; native helpers are reliable on macOS/Windows. */
+export function shouldTryOsc52First(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== "darwin" && platform !== "win32";
+}
+
 export function resolvePasteCommand(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
@@ -179,23 +184,24 @@ export async function copyToClipboard(
 
   const isTty = deps.isTty ?? process.stdout.isTTY;
   const writeStdout = deps.writeStdout ?? ((data: string) => process.stdout.write(data));
+  const platform = deps.platform ?? process.platform;
 
-  if (!deps.skipOsc52 && isTty) {
-    try {
-      writeStdout(buildOsc52Sequence(text));
-      return { ok: true, method: "osc52", lineCount };
-    } catch {
-      // fall through
-    }
-  }
-
-  const commands = resolveCopyCommands(deps.platform, deps.env);
+  const commands = resolveCopyCommands(platform, deps.env);
   for (const command of commands) {
     const copied = deps.spawn
       ? await spawnCopyWithFn(text, command, deps.spawn)
       : await spawnCopy(text, command);
     if (copied) {
       return { ok: true, method: copyMethodFor(command), lineCount };
+    }
+  }
+
+  if (!deps.skipOsc52 && shouldTryOsc52First(platform) && isTty) {
+    try {
+      writeStdout(buildOsc52Sequence(text));
+      return { ok: true, method: "osc52", lineCount };
+    } catch {
+      // fall through
     }
   }
 

@@ -9,6 +9,7 @@ import {
   readFromClipboard,
   resolveCopyCommands,
   resolvePasteCommand,
+  shouldTryOsc52First,
   type SpawnFn,
 } from "./clipboard.js";
 
@@ -50,18 +51,45 @@ describe("clipboard", () => {
     });
   });
 
-  it("writes OSC 52 when stdout is a TTY", async () => {
+  it("writes OSC 52 on Linux TTY after native helpers fail", async () => {
     let written = "";
     const result = await copyToClipboard("line one\nline two", {
+      platform: "linux",
+      env: {},
       isTty: true,
       writeStdout: (data) => {
         written = data;
       },
+      spawn: () =>
+        ({
+          stdin: { write() {}, end() {} },
+          exited: Promise.resolve(1),
+        }) as unknown as ReturnType<SpawnFn>,
     });
     expect(result.ok).toBe(true);
     expect(result.method).toBe("osc52");
     expect(result.lineCount).toBe(2);
     expect(written).toBe(buildOsc52Sequence("line one\nline two"));
+  });
+
+  it("uses pbcopy on macOS instead of OSC 52", async () => {
+    let written = "";
+    const result = await copyToClipboard("mac payload", {
+      platform: "darwin",
+      isTty: true,
+      writeStdout: (data) => {
+        written = data;
+      },
+      spawn: () =>
+        ({
+          stdin: { write() {}, end() {} },
+          exited: Promise.resolve(0),
+        }) as unknown as ReturnType<SpawnFn>,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.method).toBe("pbcopy");
+    expect(written).toBe("");
+    expect(shouldTryOsc52First("darwin")).toBe(false);
   });
 
   it("falls back to platform copy when OSC 52 is skipped", async () => {

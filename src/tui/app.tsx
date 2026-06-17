@@ -10,6 +10,7 @@ import { ApprovalBar, Header, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
+import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut } from "./shortcuts.js";
 import { KEYBOARD_HINTS, processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { KNOWN_MAIN_MODELS } from "../config/models.js";
@@ -559,20 +560,20 @@ export function App(props: {
     }
 
     if (!scrollRef) return;
-    if (pasteShortcutEnabled() && key.ctrl && key.shift && key.name === "v") {
+    if (pasteShortcutEnabled() && isPasteShortcut(key)) {
       void performPaste();
       return;
     }
     if (copyShortcutsEnabled()) {
-      if ((key.ctrl && key.name === "o") || (key.ctrl && key.shift && key.name === "c")) {
+      if (isCopyBlockShortcut(key)) {
         void copyFocusedBlock();
         return;
       }
-      if (key.ctrl && key.name === "y") {
+      if (isCopyAllShortcut(key)) {
         void copyConversation();
         return;
       }
-      if (key.name === "c") {
+      if (key.name === "c" && !key.ctrl && !key.meta && !key.shift) {
         const expanded = toolExpand.getHoveredExpandedOutput();
         if (expanded) {
           void performCopy(expanded);
