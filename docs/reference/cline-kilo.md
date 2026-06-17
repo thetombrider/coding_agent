@@ -46,6 +46,7 @@ source is cited because it's the shared implementation.
 | 7 | Auto-condense (summary replaces history, non-destructive) | Phase 7 | `src/agent/compaction.ts` | ⚠️ aligned; 2 refinements |
 | 8 | Rules files injected into the system prompt (`.clinerules`) | Phase 10 | `src/hooks/*` `before_prompt` | ✅ hook already supports it |
 | 9 | MCP tool group governance | Phase 11 | `src/mcp/*` (#10) | 🔜 informs governance |
+| 10 | System-prompt assembly + `AGENTS.md` + env block + per-model variants | Phase 10 | `src/config/config.ts`, `src/hooks/*` | ⚠️ most minimal of six → #51 |
 
 ---
 
@@ -216,11 +217,12 @@ Cline/Roo don't emphasize and pairs well with RTK (§2.1) — worth keeping.
 ## 8. Rules files in the system prompt (→ Phase 10 `before_prompt`)
 
 Cline injects **`.clinerules`** markdown into the system prompt **before every interaction**
-so a repo can teach the agent its conventions. This is *exactly* Orin's Phase 10 `before_prompt`
-hook + a `CONVENTIONS.md` — the SPEC already names this as the hook's canonical use. **Action:**
-when Phase 10 lands, ship a built-in `before_prompt` handler that reads a project rules file
-(`AGENTS.md` already exists in this repo — natural fit) and appends it. No new design needed;
-this just confirms the hook shape is right.
+so a repo can teach the agent its conventions. This is *exactly* Orin's `before_prompt` hook +
+an `AGENTS.md` — the SPEC names this as the hook's canonical use, and **the hook is already
+shipped** (`src/hooks/registry.ts`, fired at `src/agent/loop.ts:210`). **Action:** ship a
+built-in `before_prompt` handler that discovers and injects `AGENTS.md` (this repo already has
+one — natural fit), registered in `src/hooks/install.ts`. No new infrastructure needed. See the
+full six-agent comparison in §10 and tracking issue **#51**.
 
 ## 9. MCP governance (→ Phase 11)
 
@@ -229,6 +231,75 @@ mode can be denied MCP entirely. Orin's Phase 11 (#10) already plans to route ev
 through the approval gate and `before_tool` hook (untrusted-by-default). The borrowable idea is
 **group-level MCP gating** — let a preset/mode turn MCP off wholesale, not just per-tool —
 which composes with the preset tool-filtering in #36.
+
+## 10. System-prompt management (all six agents → #51)
+
+> This section broadens beyond Cline/Kilo to the three SPEC references too (**pi**,
+> **nanocoder**, **opencode**), because "do these agents even have a system prompt, and how do
+> they manage it?" only makes sense compared across the whole field. Short answer: **all six
+> have one** — "no system prompt" isn't a thing for a serious agent. What differs is *size* and
+> *how it's assembled*, on a spectrum from tiny/user-owned (Orin, pi) to large/dynamically
+> composed per model (opencode, Cline, Roo/Kilo).
+
+| Agent | Size | Assembly | Stored as | Project rules | Per-model | Per-role |
+|-------|------|----------|-----------|---------------|-----------|----------|
+| **Orin** (today) | tiny (1 line) | static string | config value (`config.ts:87`) | ❌ none | ❌ | ✅ sub-prompts only |
+| **pi** | minimal | `buildSystemPrompt()` sections | code + `SYSTEM.md` | ✅ `AGENTS.md` | ❌ | ✅ agents |
+| **nanocoder** | medium | composable section files | `source/app/prompts/sections/*` | ✅ `AGENTS.md` | ❌ | ✅ subagents |
+| **opencode** | large | `prompt.ts` orchestrator | `.txt` per provider | ✅ `AGENTS.md`/`CLAUDE.md` | ✅ by model id | ✅ agents |
+| **Cline** | large | code builder | `src/core/prompts/*` | ✅ `.clinerules` | ✅ diff format | ✅ Plan/Act |
+| **Roo/Kilo** | large | section functions | code + override files | ✅ `.roo/rules` | ~ | ✅ modes |
+
+**Per-agent detail**
+
+- **opencode — most dynamic.** Orchestrator `session/prompt.ts` assembles: *provider header
+  (optional spoofing) → a provider-specific prompt `.txt` chosen by model id (`anthropic.txt`
+  for Claude, `beast.txt` for GPT/o1/o3, `gemini.txt`, `codex_header.txt` for GPT-5,
+  `qwen.txt` fallback) → environment block (model, cwd, platform, date) → custom instructions →
+  agent prompt → user `--system` override*. `instruction.ts` walks the tree for
+  `AGENTS.md`/`CLAUDE.md` (project → package → global `~/.opencode/AGENTS.md`), scoped to each
+  file's subtree.
+- **Cline — large, rules-injected.** Built in code (tool descriptions, capabilities, MCP info,
+  env details); `.clinerules` markdown injected before every interaction; Plan vs Act are
+  different framings.
+- **Roo/Kilo — most modular.** A **per-mode** prompt from named sections (`roleDefinition` +
+  `markdownFormattingSection` + `getSharedToolUseSection` + `getToolUseGuidelinesSection` +
+  `getCapabilitiesSection` + `getModesSection` + `getSkillsSection` + `getRulesSection` +
+  `getSystemInfoSection` + `getObjectiveSection` + `addCustomInstructions`). Standouts:
+  **conditional MCP inclusion** (only when the mode has the `mcp` group *and* a server is
+  registered) and a full per-mode **override file**.
+- **pi — minimal by design, but structured.** `buildSystemPrompt()`: identity → tool list
+  (one-line snippets) → **guidelines that vary by which tools are actually available** →
+  pi-doc refs (only when discussing pi) → project files wrapped as `<project_instructions
+  path=...>` → skills → env (date, cwd). `AGENTS.md` loaded from `~/.pi/agent/`, parent dirs,
+  cwd; `SYSTEM.md` replaces/appends the default; a `before_agent_start` hook exposes
+  `systemPromptOptions` for programmatic rewriting.
+- **nanocoder — composable sections.** Monolithic `main-prompt.md` was split into
+  `source/app/prompts/sections/*` (identity, core principles, coding practices, file editing,
+  tool rules, diagnostics, task management). `AGENTS.md` via `/init`, auto-loaded every session;
+  `agents.config.json` augments or replaces built-in sections.
+
+**Where Orin stands.** The most minimal of the six, deliberately: the whole system prompt is
+one config string (`src/config/config.ts:87`, *"You are Orin, a coding agent…"*), user-overridable
+via `~/.orin/config.json`, passed as `options.system` → `src/provider/stream.ts:90`. Two things
+Orin already gets *right*: tool docs stay **out** of the system prompt (they ride the `tools`
+param from `src/tools/*.txt`), and it already has **per-role sub-prompts** (`SUMMARY_SYSTEM`,
+`DELEGATE_READ_SYSTEM`, and the `explore`/`review`/`general` prompts in #36). What's missing vs
+the others: `AGENTS.md` auto-loading, an environment block, sectioned assembly, and per-model
+variants.
+
+**Reusable best practices.** (1) Sectioned assembly beats a monolith — enables conditional
+blocks (Roo's MCP-only-if-present). (2) Keep prompt text out of code in `.txt`/`.md` (Orin does
+this for tools, not the base prompt). (3) `AGENTS.md` is the de-facto standard for project rules
+— walk up the tree, scope to subtrees, load every session; **all five references support it,
+Orin doesn't read its own**. (4) Inject a dynamic env block (cwd/date/model/platform). (5)
+Per-model prompt variants matter once you support many providers. (6) Always provide an override
+escape hatch (`--system`, `SYSTEM.md`, replace-mode) — Orin's config string covers this.
+
+**Action:** the `before_prompt` hook is already shipped (§8), so the highest-value gap —
+`AGENTS.md` injection + an environment block — is a built-in handler, not new infrastructure.
+Tracked in **#51**; coordinate with #36 (per-preset prompts apply to child loops?) and #41–#46
+(per-model/provider variants).
 
 ---
 
@@ -244,7 +315,9 @@ which composes with the preset tool-filtering in #36.
 4. **Phase 8 (#36/#37)** — adopt `fileRegex`-style edit scoping for presets; add a structured
    child "done + summary/diff" completion convention; keep sandbox-per-child for parallel
    (do **not** copy Kilo's serial/shared-tree model).
-5. **Phase 10** — ship a built-in `before_prompt` rules-file handler (read `AGENTS.md`).
+5. **Phase 10 (#51)** — ship a built-in `before_prompt` handler that injects `AGENTS.md` +
+   an environment block (cwd/date/model/platform); the hook is already shipped, so this is a
+   handler + registration, not new infrastructure. See §10 for the six-agent comparison.
 
 ## Sources
 
@@ -257,3 +330,4 @@ which composes with the preset tool-filtering in #36.
 - [Roo Code — Customizing Modes](https://docs.roocode.com/features/custom-modes/) · [Roo→Kilo migration (modes/permissions)](https://kilo.ai/articles/roo-to-kilo-migration-guide)
 - `RooCodeInc/Roo-Code` `src/core/condense/` (CONDENSE prompt, `condenseParent`, `getEffectiveApiHistory`)
 - [Kilo Code — Context Engineering explained](https://medium.com/@jasonyang.algo/context-engineering-explained-how-kilo-code-manages-context-a3126d97d44f)
+- System prompts (§10): [opencode system prompts](https://github.com/bgauryy/open-docs/blob/main/docs/opencode/05-system-prompts.md) · [opencode prompt-assembly gist](https://gist.github.com/rmk40/cde7a98c1c90614a27478216cc01551f) · [Roo system-prompt generation (DeepWiki)](https://deepwiki.com/RooVetGit/Roo-Code/2.5-system-prompt-generation) · [pi `system-prompt.ts`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/system-prompt.ts) · [nanocoder features](https://github.com/Nano-Collective/nanocoder/blob/main/docs/features/index.md)
