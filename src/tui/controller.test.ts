@@ -4,6 +4,20 @@ import { createSessionController } from "./controller.js";
 describe("createSessionController", () => {
   const meta = { model: "test/model", approval: "normal", cwd: "/tmp" };
 
+  it("accumulates reasoning deltas separately from assistant text", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("think");
+
+    controller.handleEvent({ type: "reasoning_delta", text: "Step 1. " });
+    controller.handleEvent({ type: "reasoning_delta", text: "Step 2." });
+    controller.handleEvent({ type: "text_delta", text: "Answer." });
+    controller.finalizeTurn();
+
+    const turn = controller.getState().completedTurns[0];
+    expect(turn?.reasoningText).toBe("Step 1. Step 2.");
+    expect(turn?.assistantText).toBe("Answer.");
+  });
+
   it("tracks a turn lifecycle", () => {
     const controller = createSessionController(meta);
     controller.beginTurn("hello");

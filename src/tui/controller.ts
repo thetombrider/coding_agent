@@ -21,6 +21,7 @@ export interface PendingApproval {
 export interface Turn {
   userText: string;
   assistantText: string;
+  reasoningText?: string;
   tools: ToolEntry[];
 }
 
@@ -38,6 +39,7 @@ export interface SessionState {
   completedTurns: Turn[];
   currentUserText: string;
   streamingText: string;
+  streamingReasoning: string;
   currentTools: ToolEntry[];
   phase: SessionPhase;
   pendingApproval: PendingApproval | null;
@@ -101,6 +103,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     completedTurns: [],
     currentUserText: "",
     streamingText: "",
+    streamingReasoning: "",
     currentTools: [],
     phase: "input",
     pendingApproval: null,
@@ -165,6 +168,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
       update({
         currentUserText: userText,
         streamingText: "",
+        streamingReasoning: "",
         currentTools: [],
         phase: "running",
         statusHint: "Working…",
@@ -179,11 +183,13 @@ export function createSessionController(meta: SessionMeta): SessionController {
           {
             userText: state.currentUserText,
             assistantText: state.streamingText,
+            reasoningText: state.streamingReasoning || undefined,
             tools: state.currentTools,
           },
         ],
         currentUserText: "",
         streamingText: "",
+        streamingReasoning: "",
         currentTools: [],
         phase: "input",
         statusHint: IDLE_HINT,
@@ -195,6 +201,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         completedTurns: [],
         currentUserText: "",
         streamingText: "",
+        streamingReasoning: "",
         currentTools: [],
         phase: "input",
         statusHint: IDLE_HINT,
@@ -206,6 +213,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         completedTurns: turns,
         currentUserText: "",
         streamingText: "",
+        streamingReasoning: "",
         currentTools: [],
         phase: "input",
         statusHint: IDLE_HINT,
@@ -240,6 +248,9 @@ export function createSessionController(meta: SessionMeta): SessionController {
       switch (event.type) {
         case "text_delta":
           update({ streamingText: state.streamingText + event.text });
+          break;
+        case "reasoning_delta":
+          update({ streamingReasoning: state.streamingReasoning + event.text });
           break;
         case "assistant_message":
           break;

@@ -7,6 +7,24 @@ import type { Message } from "../types.js";
 import { messagesToTurns } from "./messages-to-turns.js";
 
 describe("messagesToTurns", () => {
+  it("rebuilds reasoning blocks separately from assistant text", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "explain" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "Need to check the file first." },
+          { type: "text", text: "Here is the answer." },
+        ],
+      },
+    ];
+
+    const turns = messagesToTurns(messages);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.reasoningText).toBe("Need to check the file first.");
+    expect(turns[0]?.assistantText).toBe("Here is the answer.");
+  });
+
   it("rebuilds a turn with tool call and result", () => {
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "read package.json" }] },

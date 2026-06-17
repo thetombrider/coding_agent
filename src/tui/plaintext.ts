@@ -10,6 +10,7 @@ export function toolEntryToPlainText(entry: ToolEntry): string {
 export function turnToPlainText(turn: Turn): string {
   const parts: string[] = [];
   if (turn.userText) parts.push(`you: ${turn.userText}`);
+  if (turn.reasoningText) parts.push(`thinking:\n${turn.reasoningText}`);
   for (const tool of turn.tools) {
     parts.push(toolEntryToPlainText(tool));
   }
@@ -18,12 +19,18 @@ export function turnToPlainText(turn: Turn): string {
 }
 
 export function liveTurnFromState(state: SessionState): Turn | null {
-  if (!state.currentUserText && !state.streamingText && state.currentTools.length === 0) {
+  if (
+    !state.currentUserText
+    && !state.streamingText
+    && !state.streamingReasoning
+    && state.currentTools.length === 0
+  ) {
     return null;
   }
   return {
     userText: state.currentUserText,
     assistantText: state.streamingText,
+    reasoningText: state.streamingReasoning || undefined,
     tools: state.currentTools,
   };
 }

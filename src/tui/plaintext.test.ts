@@ -12,6 +12,7 @@ const baseState = (): SessionState => ({
   completedTurns: [],
   currentUserText: "",
   streamingText: "",
+  streamingReasoning: "",
   currentTools: [],
   phase: "input",
   pendingApproval: null,
@@ -20,6 +21,17 @@ const baseState = (): SessionState => ({
 });
 
 describe("plaintext", () => {
+  it("includes reasoning text in turn plaintext", () => {
+    const text = turnToPlainText({
+      userText: "think",
+      reasoningText: "internal steps",
+      assistantText: "done",
+      tools: [],
+    });
+    expect(text).toContain("thinking:\ninternal steps");
+    expect(text).toContain("done");
+  });
+
   it("flattens a turn with tools and assistant text", () => {
     const text = turnToPlainText({
       userText: "read package.json",

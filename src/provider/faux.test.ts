@@ -22,6 +22,27 @@ describe("faux provider", () => {
     ).toBe("Hello, world!");
   });
 
+  it("streams reasoning chunks before visible text", async () => {
+    const provider = createFauxProvider({
+      reasoning: ["Let me ", "check deps."],
+      text: ["Two runtime deps."],
+    });
+    const { events, message } = await collectStreamEvents(
+      provider,
+      [{ role: "user", content: [{ type: "text", text: "what deps?" }] }],
+      { model: "faux:test" },
+    );
+
+    expect(events.filter((e) => e.type === "reasoning_delta").map((e) => e.text)).toEqual([
+      "Let me ",
+      "check deps.",
+    ]);
+    const reasoning = message.content.find((c) => c.type === "reasoning");
+    expect(reasoning).toMatchObject({ type: "reasoning", text: "Let me check deps." });
+    const text = message.content.find((c) => c.type === "text");
+    expect(text).toMatchObject({ type: "text", text: "Two runtime deps." });
+  });
+
   it("emits tool calls when scripted", async () => {
     const provider = createFauxProvider({
       text: ["Checking"],

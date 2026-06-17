@@ -77,6 +77,7 @@ export const streamAssistant: StreamAssistantFn = async (
   const provider = resolveActiveProvider();
   const content: AssistantMessage["content"] = [];
   let textBuffer = "";
+  let reasoningBuffer = "";
   const toolCalls = new Map<
     string,
     { id: string; name: string; arguments: string }
@@ -101,6 +102,11 @@ export const streamAssistant: StreamAssistantFn = async (
         emit({ type: "text_delta", text: part.text });
         break;
       }
+      case "reasoning-delta": {
+        reasoningBuffer += part.text;
+        emit({ type: "reasoning_delta", text: part.text });
+        break;
+      }
       case "tool-call": {
         const entry = {
           id: part.toolCallId,
@@ -119,6 +125,10 @@ export const streamAssistant: StreamAssistantFn = async (
       default:
         break;
     }
+  }
+
+  if (reasoningBuffer) {
+    content.push({ type: "reasoning", text: reasoningBuffer });
   }
 
   if (textBuffer) {

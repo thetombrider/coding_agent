@@ -11,18 +11,20 @@ function textFromMessage(msg: Message): string {
 interface TurnBuilder {
   userText: string;
   assistantText: string;
+  reasoningText: string;
   tools: ToolEntry[];
   toolById: Map<string, ToolEntry>;
 }
 
 function startTurn(userText: string): TurnBuilder {
-  return { userText, assistantText: "", tools: [], toolById: new Map() };
+  return { userText, assistantText: "", reasoningText: "", tools: [], toolById: new Map() };
 }
 
 function finishTurn(builder: TurnBuilder): Turn {
   return {
     userText: builder.userText,
     assistantText: builder.assistantText,
+    reasoningText: builder.reasoningText || undefined,
     tools: builder.tools,
   };
 }
@@ -49,7 +51,9 @@ export function messagesToTurns(messages: Message[]): Turn[] {
 
     if (msg.role === "assistant") {
       for (const block of msg.content) {
-        if (block.type === "text") {
+        if (block.type === "reasoning") {
+          current.reasoningText += block.text;
+        } else if (block.type === "text") {
           current.assistantText += block.text;
         } else if (block.type === "toolCall" && !current.toolById.has(block.id)) {
           const entry: ToolEntry = {

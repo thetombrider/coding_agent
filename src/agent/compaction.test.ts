@@ -5,6 +5,7 @@ import {
   estimateMessageTokens,
   evictStaleToolResults,
   shouldCompact,
+  stripReasoningBlocks,
   summariseOldTurns,
 } from "./compaction.js";
 
@@ -89,6 +90,22 @@ describe("compaction", () => {
     const compacted = evictStaleToolResults(messages, currentTurnCount(messages), 3);
     const first = compacted.find((m) => m.role === "tool")?.content[0];
     expect(first?.type === "toolResult" ? first.output : "").toBe("ok");
+  });
+
+  it("strips reasoning blocks from assistant messages", () => {
+    const messages: Message[] = [
+      user("go"),
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "long internal chain of thought" },
+          { type: "text", text: "visible reply" },
+        ],
+      },
+    ];
+
+    const stripped = stripReasoningBlocks(messages);
+    expect(stripped[1]?.content).toEqual([{ type: "text", text: "visible reply" }]);
   });
 
   it("summarises old turns and keeps recent turns verbatim", async () => {
