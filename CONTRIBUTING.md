@@ -129,7 +129,7 @@ prefixes — please follow suit:
 
 ```
 feat: configure LLM providers from the TUI via /providers configure
-fix: guard /sandbox against concurrent workspace switches
+fix: guard provider switches during active turns
 docs: add Cline & Kilo Code reference study
 ```
 

@@ -60,7 +60,7 @@ feedback/error handling.
 
 **Orin already does this** — `runLoop` is headless and emits to a sink (`src/agent/events.ts`),
 and the TUI is just one subscriber (§5). This is validation, not a change. **Action:** keep
-the discipline; resist letting TUI concerns (e.g. the `/sandbox` swap in #48) leak loop
+the discipline; resist letting TUI concerns (e.g. the removed mid-session sandbox toggle in #48) leak loop
 semantics. A thin programmatic entrypoint that drives `runLoop` without the TUI would make
 Orin embeddable the way the Cline SDK is — low-cost, high-leverage if headless/CI use is ever wanted.
 
@@ -170,8 +170,8 @@ repo** after each tool use, leaving the project's real git history untouched. Us
 and **restore to any checkpoint** within a task. Components: `CheckpointTracker` (git logic) +
 `TaskCheckpointManager` (task coordination).
 
-This is a strong, *currently-missing* Orin capability and it's directly relevant to the #48
-`/sandbox` discussion: shadow-git checkpoints give the **main agent** a safety net **on the
+This is a strong, *currently-missing* Orin capability and it's directly relevant to #48
+(mid-session sandbox toggle removed): shadow-git checkpoints give the **main agent** a safety net **on the
 local tree** — per-tool snapshots + instant restore — **without** E2B's clone-from-origin
 problems (lost uncommitted work, no edit flow-back). Sandbox isolation (Phase 9) and shadow
 checkpoints solve *different* halves of "let the agent do risky things safely": sandbox =
