@@ -59,9 +59,14 @@ function ToolLine(props: { entry: ToolEntry }) {
 
   onMount(() => {
     toolExpand?.registerToggle(entry().id, toggleExpanded);
+    toolExpand?.registerCopyTarget(entry().id, {
+      getOutput: () => entry().output,
+      isExpanded: () => expanded() || showDiff(),
+    });
   });
   onCleanup(() => {
     toolExpand?.registerToggle(entry().id, null);
+    toolExpand?.registerCopyTarget(entry().id, null);
   });
 
   createEffect(() => {
@@ -81,6 +86,7 @@ function ToolLine(props: { entry: ToolEntry }) {
         : theme.toolDone;
   const summary = () => toolSummary(entry().name, entry().args);
   const expandHint = () => (hasPlainOutput() && !expanded() ? outputExpandHint(entry().output!) : "");
+  const copyHint = () => ((expanded() || showDiff()) && entry().output ? "c copy" : "");
 
   // Two-tone line via sibling <text> nodes in a row. Each <text fg> reliably
   // colors its run, and plain-string children update on the in-place replaceText
@@ -99,6 +105,9 @@ function ToolLine(props: { entry: ToolEntry }) {
         </Show>
         <Show when={expandHint()}>
           <text fg={theme.muted}>  {expandHint()}</text>
+        </Show>
+        <Show when={copyHint()}>
+          <text fg={theme.muted}>  {copyHint()}</text>
         </Show>
       </box>
       <Show when={entry().status === "error" && entry().output && !expanded()}>

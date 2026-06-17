@@ -42,6 +42,9 @@ export type CommandResult =
   | { type: "error"; message: string };
 
 /** List of `/commands` shown by `/help`. */
+export const KEYBOARD_HINTS =
+  "Ctrl+Shift+C copy block · Ctrl+Shift+V paste · Ctrl+O copy · Ctrl+Y copy all · o expand · c copy tool";
+
 const HELP_LINES = [
   "/mode [normal|allow-all|plan]  cycle or set approval mode",
   "/model [id|number]            switch the model",
@@ -314,7 +317,7 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
     case "/sessions":
       return { type: "sessions" };
     case "/help":
-      return { type: "info", message: HELP_LINES.join("\n") };
+      return { type: "info", message: `${KEYBOARD_HINTS}\n${HELP_LINES.join("\n")}` };
     case "/mode":
       return handleMode(arg, ctx);
     case "/model":
