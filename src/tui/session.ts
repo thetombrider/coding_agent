@@ -17,7 +17,6 @@ import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
-import type { SandboxKind } from "../workspace/types.js";
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { messagesToTurns } from "./messages-to-turns.js";
@@ -160,38 +159,27 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     }
   };
 
-  let activeSandbox: SandboxKind = config.meta.sandbox === "e2b" ? "e2b" : "local";
-
-  const setSandbox = async (kind: SandboxKind) => {
-    controller.setStatusHint(`Switching to ${kind} sandbox…`);
+  const bootstrapE2BSandbox = async () => {
+    controller.setStatusHint("Starting E2B sandbox…");
     try {
       await config.ctx.workspace.dispose();
-      if (kind === "e2b") {
-        config.ctx.workspace = await createE2BWorkspace();
-        config.ctx.cwd = REMOTE_SANDBOX_ROOT;
-        const seedMessage = await seedRepoIntoWorkspace(config.ctx.workspace, config.meta.cwd);
-        controller.setStatusHint(seedMessage);
-      } else {
-        config.ctx.workspace = createLocalWorkspace();
-        config.ctx.cwd = config.meta.cwd;
-        controller.setStatusHint(`sandbox → ${kind}`);
-      }
-      activeSandbox = kind;
-      controller.updateMeta({ sandbox: kind, cwd: config.ctx.cwd });
-      saveConfig({ sandbox: { active: kind } });
+      config.ctx.workspace = await createE2BWorkspace();
+      config.ctx.cwd = REMOTE_SANDBOX_ROOT;
+      const seedMessage = await seedRepoIntoWorkspace(config.ctx.workspace, config.meta.cwd);
+      controller.updateMeta({ sandbox: "e2b", cwd: config.ctx.cwd });
+      controller.setStatusHint(seedMessage);
     } catch (err) {
       await config.ctx.workspace.dispose().catch(() => {});
       config.ctx.workspace = createLocalWorkspace();
       config.ctx.cwd = config.meta.cwd;
-      activeSandbox = "local";
       controller.updateMeta({ sandbox: "local", cwd: config.ctx.cwd });
       const message = err instanceof Error ? err.message : String(err);
-      controller.setStatusHint(`sandbox switch failed: ${message}`);
+      controller.setStatusHint(`sandbox bootstrap failed: ${message}`);
     }
   };
 
-  if (activeSandbox === "e2b") {
-    await setSandbox("e2b");
+  if (config.meta.sandbox === "e2b") {
+    await bootstrapE2BSandbox();
   }
 
 
@@ -247,8 +235,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetMode: setApprovalMode,
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
-          onSetSandbox: setSandbox,
-          getSandbox: () => activeSandbox,
           onClear: () => {
             config.ctx.messages = [];
             config.ctx.todos = [];
