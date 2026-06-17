@@ -5,16 +5,13 @@ import {
   nextApprovalMode,
   type ApprovalMode,
 } from "../approval/policy.js";
-import { hasE2BApiKey } from "../config/config.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import type { ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
-import type { SandboxKind } from "../workspace/types.js";
 
 export interface CommandContext {
   currentModel: string;
   currentMode: ApprovalMode;
-  currentSandbox: SandboxKind;
   knownModels: readonly string[];
   currentProvider?: string;
   providers?: ProviderSummary[];
@@ -38,7 +35,6 @@ export type CommandResult =
       activateOnComplete: boolean;
       message: string;
     }
-  | { type: "set-sandbox"; kind: SandboxKind; message: string }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
@@ -52,7 +48,6 @@ const HELP_LINES = [
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
-  "/sandbox [local|e2b]          run tools locally or in an E2B cloud sandbox",
   "/sessions                     browse and resume saved sessions",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
@@ -259,42 +254,6 @@ function handleProviders(arg: string, ctx: CommandContext): CommandResult {
   return handleProviderSwitch(arg, ctx);
 }
 
-const SANDBOX_KINDS: SandboxKind[] = ["local", "e2b"];
-
-function sandboxInfo(ctx: CommandContext): string {
-  const opts = SANDBOX_KINDS.map(
-    (k) => `${k}${k === ctx.currentSandbox ? " (current)" : ""}`,
-  ).join(" · ");
-  return `sandbox: ${opts} — /sandbox <kind> or /sandbox to cycle`;
-}
-
-function nextSandboxKind(current: SandboxKind): SandboxKind {
-  const idx = SANDBOX_KINDS.indexOf(current);
-  for (let step = 1; step <= SANDBOX_KINDS.length; step++) {
-    const next = SANDBOX_KINDS[(idx + step) % SANDBOX_KINDS.length] ?? "local";
-    if (next === "e2b" && !hasE2BApiKey()) continue;
-    return next;
-  }
-  return "local";
-}
-
-function handleSandbox(arg: string, ctx: CommandContext): CommandResult {
-  const kind = (arg || nextSandboxKind(ctx.currentSandbox)) as SandboxKind;
-  if (!SANDBOX_KINDS.includes(kind)) {
-    return { type: "error", message: `unknown sandbox "${arg}". ${sandboxInfo(ctx)}` };
-  }
-  if (kind === "e2b" && !hasE2BApiKey()) {
-    return {
-      type: "error",
-      message: "E2B_API_KEY is not set. Add it to your environment or ~/.orin/config.json (sandbox.e2b.apiKey).",
-    };
-  }
-  if (kind === ctx.currentSandbox) {
-    return { type: "info", message: `already using ${kind} sandbox` };
-  }
-  return { type: "set-sandbox", kind, message: `sandbox → ${kind}` };
-}
-
 /**
  * Parse and resolve a submitted line. Returns `not-command` for anything that
  * is not a recognized `/command`, so the caller can run it as a normal turn.
@@ -326,8 +285,6 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
     case "/providers":
     case "/provider":
       return handleProviders(arg, ctx);
-    case "/sandbox":
-      return handleSandbox(arg, ctx);
     default:
       return { type: "error", message: `unknown command ${name} — try /help` };
   }

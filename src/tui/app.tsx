@@ -36,7 +36,6 @@ const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
   { name: "mode",      label: "/mode",      description: "set approval mode" },
   { name: "providers", label: "/providers", description: "switch LLM provider" },
-  { name: "sandbox",   label: "/sandbox",   description: "local or E2B sandbox" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
   { name: "new",       label: "/new",       description: "archive & start new session" },
   { name: "clear",     label: "/clear",     description: "clear conversation" },
@@ -100,8 +99,6 @@ export function App(props: {
   onSetMode: (mode: ApprovalMode) => void;
   onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (provider: string, values: Record<string, string>, activate: boolean) => void;
-  onSetSandbox: (kind: "local" | "e2b") => void | Promise<void>;
-  getSandbox: () => "local" | "e2b";
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -281,8 +278,8 @@ export function App(props: {
     const p = palette();
     if (!p) return;
 
-    // Don't act on palette selections (model/mode/provider/sandbox/session
-    // switches) while a turn is running — close the palette instead.
+    // Don't act on palette selections (model/mode/provider/session switches)
+    // while a turn is running — close the palette instead.
     if (submitting() || state().phase !== "input") {
       setPalette(null);
       return;
@@ -331,12 +328,6 @@ export function App(props: {
           return;
         }
         setPalette({ phase: "sessions", index: 0, sessions });
-        return;
-      }
-
-      if (name === "sandbox") {
-        closePalette();
-        void handleSubmit("/sandbox");
         return;
       }
 
@@ -448,7 +439,6 @@ export function App(props: {
       const result = processCommand(text, {
         currentModel: meta.model,
         currentMode: coerceApprovalMode(meta.approval) ?? "normal",
-        currentSandbox: props.getSandbox(),
         knownModels: pickerModels(),
         currentProvider: meta.provider ?? activeProviderId(),
         providers: providerSummaries(),
@@ -497,14 +487,6 @@ export function App(props: {
             fields: result.fields,
             activateOnComplete: result.activateOnComplete,
           });
-          return;
-        case "set-sandbox":
-          setSubmitting(true);
-          try {
-            await props.onSetSandbox(result.kind);
-          } finally {
-            setSubmitting(false);
-          }
           return;
         case "info":
         case "error":
