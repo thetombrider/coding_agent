@@ -82,3 +82,22 @@ describe("enrichAssistantMessage", () => {
     expect(message).toBe(withCalls);
   });
 });
+
+describe("formatEditMismatchError", () => {
+  it("includes similarity, line, context, and matcher list", async () => {
+    const { formatEditMismatchError } = await import("./tool-call-parser.js");
+    const msg = formatEditMismatchError({
+      oldText: "const x = 1;",
+      similarity: 0.75,
+      closestCandidate: "const y = 1;",
+      closestLine: 5,
+      context: "    4 | const y = 0;\n>    5 | const y = 1;",
+      triedMatchers: ["exact match", "middle-out fuzzy match"],
+    });
+    expect(msg).toMatch(/75% similar/);
+    expect(msg).toMatch(/line 5/);
+    expect(msg).toMatch(/const y = 1/);
+    expect(msg).toMatch(/exact match/);
+    expect(msg).toMatch(/startLine hint/);
+  });
+});

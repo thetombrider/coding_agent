@@ -1,1 +1,5 @@
-Apply exact text replacements in a file. Each oldText must match exactly once in the original file.
+Apply text replacements in a file. Each oldText must match exactly once in the file, unless a startLine hint disambiguates a non-unique match.
+
+Optional startLine (1-indexed) or a :start_line:N prefix on oldText pinpoints which occurrence to replace when the same text appears multiple times.
+
+On mismatch, returns the closest candidate with similarity score and surrounding context so you can self-correct.
