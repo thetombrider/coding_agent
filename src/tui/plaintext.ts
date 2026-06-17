@@ -57,10 +57,12 @@ export function pickFocusedCopyText(
 
   const live = liveTurnFromState(state);
   if (live?.assistantText) return live.assistantText;
+  if (live?.reasoningText) return live.reasoningText;
 
   for (let t = state.completedTurns.length - 1; t >= 0; t--) {
-    const text = state.completedTurns[t]?.assistantText;
-    if (text) return text;
+    const turn = state.completedTurns[t]!;
+    if (turn.assistantText) return turn.assistantText;
+    if (turn.reasoningText) return turn.reasoningText;
   }
 
   const turns = allTurnsFromState(state);

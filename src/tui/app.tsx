@@ -1,6 +1,6 @@
 import type { InputRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { createTextAttributes } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { SessionController, SessionState, Turn } from "./controller.js";
 import { theme } from "./theme.js";
@@ -10,7 +10,8 @@ import { ApprovalBar, Header, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
-import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut } from "./shortcuts.js";
+import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut, isSelectionHintShortcut } from "./shortcuts.js";
+import { readRendererSelection } from "./selection.js";
 import { KEYBOARD_HINTS, processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { pickerModelsForProvider } from "../config/models.js";
@@ -102,6 +103,7 @@ export function App(props: {
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
   const toolExpand = createToolExpandState();
+  const renderer = useRenderer();
   onCleanup(props.controller.subscribe(setState));
   useSpinnerClock();
 
@@ -125,8 +127,11 @@ export function App(props: {
     props.controller.setStatusHint(formatCopyStatus(result));
   };
 
-  const copyFocusedBlock = () =>
-    performCopy(pickFocusedCopyText(state(), toolExpand.getHoveredOutput()));
+  const copyFocusedBlock = () => {
+    const selected = readRendererSelection(renderer);
+    if (selected) return performCopy(selected);
+    return performCopy(pickFocusedCopyText(state(), toolExpand.getHoveredOutput()));
+  };
 
   const copyConversation = () => performCopy(sessionToPlainText(state()));
 
@@ -593,6 +598,19 @@ export function App(props: {
       return;
     }
     if (copyShortcutsEnabled()) {
+      if (key.name === "escape" && renderer.hasSelection) {
+        renderer.clearSelection();
+        props.controller.setStatusHint("Selection cleared");
+        return;
+      }
+      if (isSelectionHintShortcut(key)) {
+        props.controller.setStatusHint(
+          process.platform === "darwin"
+            ? "Drag to select text, then ⌘C to copy. Esc clears selection."
+            : "Drag to select text, then Ctrl+Shift+C to copy. Esc clears selection.",
+        );
+        return;
+      }
       if (isCopyBlockShortcut(key)) {
         void copyFocusedBlock();
         return;
@@ -602,6 +620,11 @@ export function App(props: {
         return;
       }
       if (key.name === "c" && !key.ctrl && !key.meta && !key.shift) {
+        const selected = readRendererSelection(renderer);
+        if (selected) {
+          void performCopy(selected);
+          return;
+        }
         const expanded = toolExpand.getHoveredExpandedOutput();
         if (expanded) {
           void performCopy(expanded);

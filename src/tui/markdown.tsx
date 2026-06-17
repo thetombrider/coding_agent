@@ -80,11 +80,11 @@ function TableBlock(props: { headers: string[]; rows: string[][] }) {
 
   return (
     <box flexDirection="column" marginTop={1} marginBottom={1}>
-      <text fg={theme.border}>{top()}</text>
-      <text>{styled(rowText(props.headers, widths(), true))}</text>
-      <text fg={theme.border}>{divider()}</text>
-      <For each={props.rows}>{(row) => <text>{styled(rowText(row, widths(), false))}</text>}</For>
-      <text fg={theme.border}>{bottom()}</text>
+      <text selectable fg={theme.border}>{top()}</text>
+      <text selectable>{styled(rowText(props.headers, widths(), true))}</text>
+      <text selectable fg={theme.border}>{divider()}</text>
+      <For each={props.rows}>{(row) => <text selectable>{styled(rowText(row, widths(), false))}</text>}</For>
+      <text selectable fg={theme.border}>{bottom()}</text>
     </box>
   );
 }
@@ -96,6 +96,7 @@ function BlockView(props: { block: Block; first: boolean }) {
       return (
         <box marginTop={props.first ? 0 : 1}>
           <text
+            selectable
             fg={theme.heading}
             attributes={createTextAttributes({ bold: true, underline: block.level === 1 })}
           >
@@ -107,7 +108,7 @@ function BlockView(props: { block: Block; first: boolean }) {
       return (
         <box flexDirection="column" marginTop={1} marginBottom={1} paddingLeft={1} paddingRight={1} backgroundColor={theme.codeBg}>
           <For each={block.body.split("\n")}>
-            {(line) => <text fg={theme.codeFg} attributes={BOLD}>{line || " "}</text>}
+            {(line) => <text selectable fg={theme.codeFg} attributes={BOLD}>{line || " "}</text>}
           </For>
         </box>
       );
@@ -116,7 +117,7 @@ function BlockView(props: { block: Block; first: boolean }) {
         <box flexDirection="column">
           <For each={block.items}>
             {(item, i) => (
-              <text wrapMode="word">
+              <text selectable wrapMode="word">
                 {styled(new StyledText([
                   fg(theme.muted)(bold(block.ordered ? `${i() + 1}. ` : "· ")),
                   ...inlineChunks(item),
@@ -129,7 +130,7 @@ function BlockView(props: { block: Block; first: boolean }) {
     case "blockquote":
       return (
         <box flexDirection="column" marginTop={1} marginBottom={1} paddingLeft={1} border={["left"]} borderColor={theme.border}>
-          <For each={block.lines}>{(line) => <text wrapMode="word">{styled(inlineText(line))}</text>}</For>
+          <For each={block.lines}>{(line) => <text selectable wrapMode="word">{styled(inlineText(line))}</text>}</For>
         </box>
       );
     case "rule":
@@ -143,7 +144,7 @@ function BlockView(props: { block: Block; first: boolean }) {
     case "paragraph":
       return (
         <box flexDirection="column">
-          <For each={block.lines}>{(line) => <text wrapMode="word">{styled(inlineText(line))}</text>}</For>
+          <For each={block.lines}>{(line) => <text selectable wrapMode="word">{styled(inlineText(line))}</text>}</For>
         </box>
       );
   }

@@ -164,7 +164,7 @@ function ToolLine(props: { entry: ToolEntry }) {
         </Show>
       </box>
       <Show when={entry().status === "error" && entry().output && !expanded()}>
-        <text fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
+        <text selectable fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
       </Show>
       <Show when={showDiff()}>
         <DiffView patch={entry().output!} />
@@ -191,7 +191,7 @@ export function TurnView(props: { turn: Turn; first?: boolean; reasoningId?: str
       <Show when={turn().userText}>
         <box flexDirection="row" marginBottom={1}>
           <text fg={theme.muted} attributes={BOLD}>you  </text>
-          <text fg={theme.user} attributes={BOLD} flexGrow={1} wrapMode="word">{turn().userText}</text>
+          <text selectable fg={theme.user} attributes={BOLD} flexGrow={1} wrapMode="word">{turn().userText}</text>
         </box>
       </Show>
       <Show when={showReasoning()}>
