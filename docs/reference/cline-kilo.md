@@ -47,6 +47,7 @@ source is cited because it's the shared implementation.
 | 8 | Rules files injected into the system prompt (`.clinerules`) | Phase 10 | `src/hooks/*` `before_prompt` | ✅ hook already supports it |
 | 9 | MCP tool group governance | Phase 11 | `src/mcp/*` (#10) | 🔜 informs governance |
 | 10 | System-prompt assembly + `AGENTS.md` + env block + per-model variants | Phase 10 | `src/config/config.ts`, `src/hooks/*` | ⚠️ most minimal of six → #51 |
+| 11 | Todo / task-list tool (`todowrite`), re-injected per turn | cross-cutting | not yet built | 💡 missing → #52 |
 
 ---
 
@@ -301,6 +302,59 @@ escape hatch (`--system`, `SYSTEM.md`, replace-mode) — Orin's config string co
 Tracked in **#51**; coordinate with #36 (per-preset prompts apply to child loops?) and #41–#46
 (per-model/provider variants).
 
+## 11. Todo / task-list tools and their relationship to version control (→ #52)
+
+> Broadens to all references plus **Claude Code**, since the todo/task-list tool is one of the
+> most universal agent primitives and the question "how does it relate to version control?" only
+> resolves by comparing the field.
+
+Every serious agent ships a **todo tool** — a structured, multi-step task list the model writes
+and updates to anchor long work. It's the cheapest, highest-leverage planning primitive.
+
+| Agent | Tool | Storage | In version control? |
+|-------|------|---------|---------------------|
+| **Claude Code** | `TodoWrite` | session memory, injected into the prompt after each tool call | ❌ ephemeral (dies on `/clear`) |
+| **opencode** | `todowrite` / `todoread` | session state | ❌ |
+| **Roo/Kilo** | `update_todo_list` | session/task state → **REMINDERS table in `environment_details`** each turn | ❌ |
+| **Cline** | Focus Chain | **markdown file** in app globalStorage (not the repo); badge `3/8`; human-editable | ❌ (not in repo) |
+| **nanocoder** | `/tasks` + tools | session task store | ❌ |
+| **pi** | extensions only (`write_todos`/…) | varies (some add session persistence) | ❌ |
+
+**The consistent contract.** A single **whole-list-replace** tool (not append); statuses
+`pending | in_progress | completed | cancelled`; **exactly one `in_progress`** at a time; used only
+for **3+ distinct steps** ("when in doubt, use it" — opencode); and **re-injected into context every
+turn** so the model always sees its own plan. Several skip a separate `todoread` entirely because
+the list is always present.
+
+**The version-control relationship — the deliberate finding.** All of them keep the todo **out of
+version control.** It's treated as *session-scoped working memory*, not project state — putting it in
+the repo creates diff churn and merge conflicts. Even Cline, which stores the focus chain as a *file*,
+puts it in **app storage, not the repo**, and keeps its real VC story in separate artifacts
+(`.clinerules` = version-controlled rules; **shadow-git checkpoints** = workspace snapshots, see §6).
+Todo and git stay in different lanes.
+
+What the todo needs instead of git is **durability**, via three VC-adjacent seams:
+1. **Survives compaction** — re-injected from a side store, so it's independent of the compacted
+   history (Cline's focus chain "persists through summarizations"; Claude Code's list "survives even
+   context compression").
+2. **Survives resume** — rebuilt from the persisted session transcript.
+3. **(Optional) checkpoint tie-in** — *only if* the list is materialized as a tree file would a
+   workspace snapshot capture it, letting a restore also roll back plan state. Most agents don't do
+   this; it's the one place a real VC tie-in exists.
+
+**Design for Orin (#52).** Orin has no todo tool, but the substrate is in place. Recommended:
+- A `todowrite` tool (`src/tools/todowrite.ts` + `.txt`), opencode-style contract, enforcing ≤1
+  `in_progress`. No `todoread`.
+- **Ephemeral session state by default** (a `todos` field on the session store / `AgentContext`),
+  persisted to the session JSONL — *not* a repo file.
+- **Per-turn re-injection via a built-in `before_prompt` handler** — the hook is already shipped
+  (`src/hooks/registry.ts`, `src/agent/loop.ts:210`); register alongside the #51 AGENTS.md/env handler.
+- **VC stance:** out of git by default, with an **optional `.orin/todo.md` export** for a
+  human-editable, committable plan — the single real VC tie-in, and the one todo artifact a #50
+  shadow-git checkpoint would capture.
+- **Durability:** survive compaction (#5) and rebuild on resume (#32); **exclude from subagent
+  presets** by default (#36, following opencode); render as a TUI progress widget (#33).
+
 ---
 
 ## Recommended follow-ups (concrete)
@@ -318,6 +372,10 @@ Tracked in **#51**; coordinate with #36 (per-preset prompts apply to child loops
 5. **Phase 10 (#51)** — ship a built-in `before_prompt` handler that injects `AGENTS.md` +
    an environment block (cwd/date/model/platform); the hook is already shipped, so this is a
    handler + registration, not new infrastructure. See §10 for the six-agent comparison.
+6. **Todo tool (#52)** — `todowrite` (session-scoped, ≤1 `in_progress`), re-injected each turn
+   via the same `before_prompt` seam; kept out of git by default with an optional `.orin/todo.md`
+   export as the one VC tie-in (captured by #50 checkpoints). Survive compaction (#5) / resume
+   (#32); exclude from subagent presets (#36). See §11.
 
 ## Sources
 
@@ -331,3 +389,4 @@ Tracked in **#51**; coordinate with #36 (per-preset prompts apply to child loops
 - `RooCodeInc/Roo-Code` `src/core/condense/` (CONDENSE prompt, `condenseParent`, `getEffectiveApiHistory`)
 - [Kilo Code — Context Engineering explained](https://medium.com/@jasonyang.algo/context-engineering-explained-how-kilo-code-manages-context-a3126d97d44f)
 - System prompts (§10): [opencode system prompts](https://github.com/bgauryy/open-docs/blob/main/docs/opencode/05-system-prompts.md) · [opencode prompt-assembly gist](https://gist.github.com/rmk40/cde7a98c1c90614a27478216cc01551f) · [Roo system-prompt generation (DeepWiki)](https://deepwiki.com/RooVetGit/Roo-Code/2.5-system-prompt-generation) · [pi `system-prompt.ts`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/system-prompt.ts) · [nanocoder features](https://github.com/Nano-Collective/nanocoder/blob/main/docs/features/index.md)
+- Todo tools (§11): [opencode `todowrite.txt`](https://github.com/sst/opencode/blob/dev/packages/opencode/src/tool/todowrite.txt) · [opencode tools docs](https://opencode.ai/docs/tools/) · [Roo `update_todo_list`](https://docs.roocode.com/advanced-usage/available-tools/update-todo-list) · [Roo Task Todo List](https://docs.roocode.com/features/task-todo-list) · [Cline Focus Chain](https://docs.cline.bot/features/focus-chain) · [Claude Code Tasks vs TodoWrite (DeepWiki)](https://deepwiki.com/FlorianBruniaux/claude-code-ultimate-guide/7.1-tasks-api-vs-todowrite)
