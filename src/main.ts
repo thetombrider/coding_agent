@@ -79,9 +79,13 @@ function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model
     return {
       provider: createStatefulFauxProvider([
         {
+          reasoning: ["I'll read package.json to see the dependencies."],
           toolCalls: [{ id: "tc1", name: "read", arguments: { path: "package.json" } }],
         },
-        { text: ["package.json lists 2 runtime dependencies (ai, zod)."] },
+        {
+          reasoning: ["Two runtime deps — ai and zod."],
+          text: ["package.json lists 2 runtime dependencies (ai, zod)."],
+        },
         { text: ["How can I help with the codebase?"] },
       ]),
       model: "faux:test",

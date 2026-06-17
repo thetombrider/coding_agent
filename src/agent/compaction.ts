@@ -105,11 +105,21 @@ export function evictStaleToolResults(
   });
 }
 
+export function stripReasoningBlocks(messages: Message[]): Message[] {
+  return messages.map((msg) => {
+    if (msg.role !== "assistant") return msg;
+    const content = msg.content.filter((block) => block.type !== "reasoning");
+    if (content.length === msg.content.length) return msg;
+    return { ...msg, content };
+  });
+}
+
 function formatMessagesForSummary(messages: Message[]): string {
   return messages
     .map((m) => {
       const parts = m.content.map((block) => {
         if (block.type === "text") return block.text;
+        if (block.type === "reasoning") return "";
         if (block.type === "toolCall") {
           return `[tool_call ${block.name} ${JSON.stringify(block.arguments)}]`;
         }
@@ -142,7 +152,7 @@ export async function summariseOldTurns(
   if (prefixTurns <= 0) return messages;
 
   const splitAt = turns[prefixTurns - 1]!.end;
-  const oldMessages = messages.slice(0, splitAt);
+  const oldMessages = stripReasoningBlocks(messages.slice(0, splitAt));
   const recentMessages = messages.slice(splitAt);
   if (oldMessages.length === 0) return messages;
 

@@ -5,6 +5,8 @@ import type { AssistantMessage, StreamAssistantFn } from "./types.js";
 export interface FauxScript {
   /** Text chunks emitted in order before optional tool calls. */
   text?: string[];
+  /** Reasoning chunks emitted before visible assistant text. */
+  reasoning?: string[];
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -17,6 +19,16 @@ export function createFauxProvider(script: FauxScript): StreamAssistantFn {
   return async (_messages, options, emit) => {
     const model = script.model ?? options.model;
     const content: AssistantMessage["content"] = [];
+
+    for (const chunk of script.reasoning ?? []) {
+      emit({ type: "reasoning_delta", text: chunk });
+      const last = content.at(-1);
+      if (last?.type === "reasoning") {
+        last.text += chunk;
+      } else {
+        content.push({ type: "reasoning", text: chunk });
+      }
+    }
 
     for (const chunk of script.text ?? []) {
       emit({ type: "text_delta", text: chunk });

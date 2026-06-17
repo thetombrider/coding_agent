@@ -4,6 +4,7 @@ import type { Message } from "../types.js";
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
+  | { type: "reasoning_delta"; text: string }
   | { type: "tool_call_delta"; id: string; name: string; argumentsDelta: string }
   | { type: "done"; message: AssistantMessage };
 

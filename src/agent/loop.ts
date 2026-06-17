@@ -227,6 +227,9 @@ export async function runLoop(
       },
       (event) => {
         if (event.type === "text_delta") hooks.emit({ type: "text_delta", text: event.text });
+        if (event.type === "reasoning_delta") {
+          hooks.emit({ type: "reasoning_delta", text: event.text });
+        }
       },
     );
 

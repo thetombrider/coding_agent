@@ -2,7 +2,7 @@ import { createTextAttributes } from "@opentui/core";
 import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
 import type { ToolEntry, Turn } from "./controller.js";
 import { DiffView } from "./diff.js";
-import { ToolOutputView } from "./expandable.js";
+import { ToolOutputView, ReasoningOutputView } from "./expandable.js";
 import { Markdown } from "./markdown.js";
 import { spinnerFrame } from "./spinner.js";
 import { theme } from "./theme.js";
@@ -32,6 +32,59 @@ export function toolSummary(_name: string, args: unknown): string {
   }
   const json = JSON.stringify(args);
   return json.length > 56 ? `${json.slice(0, 53)}…` : json;
+}
+
+function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }) {
+  const text = () => props.text;
+  const toolExpand = useToolExpand();
+  const hasText = () => text().length > 0;
+  const [expanded, setExpanded] = createSignal(false);
+
+  const toggleExpanded = () => {
+    if (!hasText()) return;
+    setExpanded((value) => !value);
+  };
+
+  onMount(() => {
+    toolExpand?.registerToggle(props.id, toggleExpanded);
+    toolExpand?.registerCopyTarget(props.id, {
+      getOutput: () => text(),
+      isExpanded: () => expanded(),
+    });
+  });
+  onCleanup(() => {
+    toolExpand?.registerToggle(props.id, null);
+    toolExpand?.registerCopyTarget(props.id, null);
+  });
+
+  const hint = () => {
+    if (props.streaming && !hasText()) return "Thinking…";
+    if (!hasText()) return "";
+    return expanded() ? "" : outputExpandHint(text());
+  };
+
+  return (
+    <box flexDirection="column" marginLeft={1} marginBottom={1}>
+      <box
+        flexDirection="row"
+        onMouseDown={() => toggleExpanded()}
+        onMouseOver={() => toolExpand?.setHovered(props.id)}
+      >
+        <text fg={theme.reasoning} attributes={props.streaming ? BOLD : 0}>
+          {props.streaming && !hasText() ? "◌" : "▸"} thinking
+        </text>
+        <Show when={hint()}>
+          <text fg={theme.muted}>  {hint()}</text>
+        </Show>
+        <Show when={expanded() && hasText()}>
+          <text fg={theme.muted}>  c copy</text>
+        </Show>
+      </box>
+      <Show when={hasText() && expanded()}>
+        <ReasoningOutputView text={text()} />
+      </Show>
+    </box>
+  );
 }
 
 function ToolLine(props: { entry: ToolEntry }) {
@@ -123,9 +176,10 @@ function ToolLine(props: { entry: ToolEntry }) {
   );
 }
 
-export function TurnView(props: { turn: Turn; first?: boolean }) {
+export function TurnView(props: { turn: Turn; first?: boolean; reasoningId?: string; reasoningStreaming?: boolean }) {
   const turn = () => props.turn;
   const hasTools = () => turn().tools.length > 0;
+  const showReasoning = () => !!turn().reasoningText || props.reasoningStreaming;
 
   return (
     <box flexDirection="column" marginBottom={1}>
@@ -139,6 +193,13 @@ export function TurnView(props: { turn: Turn; first?: boolean }) {
           <text fg={theme.muted} attributes={BOLD}>you  </text>
           <text fg={theme.user} attributes={BOLD} flexGrow={1} wrapMode="word">{turn().userText}</text>
         </box>
+      </Show>
+      <Show when={showReasoning()}>
+        <ReasoningBlock
+          id={props.reasoningId ?? "reasoning"}
+          text={turn().reasoningText ?? ""}
+          streaming={props.reasoningStreaming}
+        />
       </Show>
       <For each={turn().tools}>{(entry) => <ToolLine entry={entry} />}</For>
       <Show when={turn().assistantText}>

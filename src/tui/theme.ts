@@ -24,9 +24,8 @@ export const theme = {
   logoDeep: "#9A9288",
   /** Box-drawing edges and extrusion on filled logo glyphs. */
   logoShadow: "#6B6560",
+  reasoning: "#6B6560",
 } as const;
-
-/** RGB for terminal-wide ANSI foreground (matches theme.fg). */
 export const terminalFg = { r: 23, g: 20, b: 18 } as const;
 
 /** RGB for terminal-wide ANSI background (matches theme.bg). */

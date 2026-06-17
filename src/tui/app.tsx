@@ -64,12 +64,18 @@ function formatSessionDate(ts: string): string {
 }
 
 function currentTurn(state: SessionState): Turn | null {
-  if (!state.currentUserText && !state.streamingText && state.currentTools.length === 0) {
+  if (
+    !state.currentUserText
+    && !state.streamingText
+    && !state.streamingReasoning
+    && state.currentTools.length === 0
+  ) {
     return null;
   }
   return {
     userText: state.currentUserText,
     assistantText: state.streamingText,
+    reasoningText: state.streamingReasoning || undefined,
     tools: state.currentTools,
   };
 }
@@ -639,8 +645,19 @@ export function App(props: {
             </box>
           }
         >
-          <For each={completed()}>{(turn, i) => <TurnView turn={turn} first={i() === 0} />}</For>
-          <Show when={live()}>{(turn) => <TurnView turn={turn()} first={completed().length === 0} />}</Show>
+          <For each={completed()}>
+            {(turn, i) => <TurnView turn={turn} first={i() === 0} reasoningId={`reasoning-${i()}`} />}
+          </For>
+          <Show when={live()}>
+            {(turn) => (
+              <TurnView
+                turn={turn()}
+                first={completed().length === 0}
+                reasoningId="reasoning-live"
+                reasoningStreaming={state().phase === "running" && !turn().assistantText}
+              />
+            )}
+          </Show>
         </Show>
       </scrollbox>
 
