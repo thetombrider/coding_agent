@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut, isSelectionHintShortcut } from "./shortcuts.js";
+import {
+  isCopyAllShortcut,
+  isCopyBlockShortcut,
+  isPasteShortcut,
+  isSelectionCopyShortcut,
+  isSelectionHintShortcut,
+} from "./shortcuts.js";
 
 const key = (name: string, mods: Partial<{ ctrl: boolean; meta: boolean; shift: boolean }> = {}) => ({
   name,
@@ -9,11 +15,17 @@ const key = (name: string, mods: Partial<{ ctrl: boolean; meta: boolean; shift: 
 });
 
 describe("shortcuts", () => {
+  it("detects selection copy shortcuts", () => {
+    expect(isSelectionCopyShortcut(key("c", { ctrl: true, shift: true }))).toBe(true);
+    expect(isSelectionCopyShortcut(key("c", { meta: true }))).toBe(true);
+    expect(isSelectionCopyShortcut(key("c", { meta: true, shift: true }))).toBe(false);
+    expect(isSelectionCopyShortcut(key("c"))).toBe(false);
+  });
+
   it("detects copy-block shortcuts", () => {
-    expect(isCopyBlockShortcut(key("c", { ctrl: true, shift: true }))).toBe(true);
-    expect(isCopyBlockShortcut(key("c", { meta: true }))).toBe(true);
     expect(isCopyBlockShortcut(key("o", { ctrl: true }))).toBe(true);
-    expect(isCopyBlockShortcut(key("c", { meta: true, shift: true }))).toBe(false);
+    expect(isCopyBlockShortcut(key("c", { meta: true }))).toBe(false);
+    expect(isCopyBlockShortcut(key("o", { meta: true }))).toBe(false);
   });
 
   it("detects copy-all shortcuts", () => {

@@ -2,11 +2,15 @@ import type { KeyEvent } from "@opentui/core";
 
 type ShortcutKey = Pick<KeyEvent, "name" | "ctrl" | "meta" | "shift">;
 
-/** Copy the focused conversation block. */
-export function isCopyBlockShortcut(key: ShortcutKey): boolean {
-  if (key.name === "o") return key.ctrl && !key.meta && !key.shift;
+/** Standard copy shortcut — copies the current drag selection only. */
+export function isSelectionCopyShortcut(key: ShortcutKey): boolean {
   if (key.name !== "c") return false;
   return (key.ctrl && key.shift && !key.meta) || (key.meta && !key.shift);
+}
+
+/** Copy the focused conversation block (Ctrl+O). */
+export function isCopyBlockShortcut(key: ShortcutKey): boolean {
+  return key.name === "o" && key.ctrl && !key.meta && !key.shift;
 }
 
 /** Copy the full visible conversation. */
@@ -29,7 +33,7 @@ export function isSelectionHintShortcut(key: ShortcutKey): boolean {
 
 export function clipboardHintText(): string {
   if (process.platform === "darwin") {
-    return "⌘C copy · ⌘⇧C all · ⌘V paste · drag select · v hint · o expand · c copy expanded";
+    return "select · ⌘C · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand · c expanded";
   }
-  return "Ctrl+Shift+C copy · Ctrl+Y all · Ctrl+Shift+V paste · drag select · v hint · o expand · c copy expanded";
+  return "select · Ctrl+Shift+C · Ctrl+Y all · Ctrl+Shift+V paste · Ctrl+O block · o expand · c expanded";
 }
