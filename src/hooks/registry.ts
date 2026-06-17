@@ -117,7 +117,11 @@ export function createHookRegistry(): HookRegistryImpl {
   ): Promise<HookMap["before_prompt"]["out"] | void> {
     let currentMessages = input.messages;
     for (const handler of handlers.before_prompt) {
-      const result = await handler({ messages: currentMessages }, ctx, signal);
+      const result = await handler(
+        { messages: currentMessages, model: input.model },
+        ctx,
+        signal,
+      );
       if (hasMessages(result)) currentMessages = result.messages;
     }
     if (currentMessages !== input.messages) return { messages: currentMessages };

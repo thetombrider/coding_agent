@@ -208,7 +208,7 @@ export async function runLoop(
     let promptMessages = ctx.messages;
     const promptHook = await hooks.fireHook(
       "before_prompt",
-      { messages: promptMessages },
+      { messages: promptMessages, model: options.model },
       ctx,
       options.signal,
     );

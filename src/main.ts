@@ -6,6 +6,7 @@ import type { ApprovalGateRef } from "./hooks/approval-gate.js";
 import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
 import { loadConfig, ensureConfigFile } from "./config/config.js";
+import { resolveSystemPrompt } from "./prompt/system.js";
 import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { resolveActiveProvider } from "./provider/registry.js";
@@ -18,7 +19,9 @@ import type { AgentContext } from "./types.js";
 import { createLocalWorkspace } from "./workspace/local.js";
 import { hasE2BApiKey } from "./config/config.js";
 
-const SYSTEM = loadConfig().system.prompt;
+function sessionSystem(cwd: string): string {
+  return resolveSystemPrompt(cwd, loadConfig().system.prompt);
+}
 
 function createSessionHooks(): ReturnType<typeof createHookRegistry> {
   return createHookRegistry();
@@ -142,7 +145,7 @@ async function runInteractive(opts: {
     provider,
     tools: getCoreTools(),
     model,
-    system: SYSTEM,
+    system: sessionSystem(localCwd),
     approvalMode: opts.approvalMode,
     autoAcceptCli: opts.autoAcceptCli,
     initialMessage: opts.initialMessage,
@@ -242,7 +245,7 @@ async function runHeadless(opts: {
       provider,
       tools: getCoreTools(),
       model,
-      system: SYSTEM,
+      system: sessionSystem(cwd),
       sessionId,
     });
   } finally {
