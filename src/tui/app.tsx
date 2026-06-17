@@ -7,6 +7,7 @@ import { theme } from "./theme.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
 import { ApprovalBar, Header, TurnView } from "./views.js";
+import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { KNOWN_MAIN_MODELS } from "../config/models.js";
@@ -90,6 +91,7 @@ export function App(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
+  const toolExpand = createToolExpandState();
   onCleanup(props.controller.subscribe(setState));
   useSpinnerClock();
 
@@ -514,6 +516,16 @@ export function App(props: {
     }
 
     if (!scrollRef) return;
+    if (
+      key.name === "o"
+      && phase === "input"
+      && palette() === null
+      && configPrompt() === null
+      && !submitting()
+    ) {
+      toolExpand.toggleHovered();
+      return;
+    }
     const page = Math.max(3, Math.floor(scrollRef.viewport.height / 2));
     switch (key.name) {
       case "up":
@@ -535,6 +547,7 @@ export function App(props: {
   });
 
   return (
+    <ToolExpandProvider value={toolExpand}>
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.bg} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <box flexShrink={0}>
         <Header
@@ -747,5 +760,6 @@ export function App(props: {
         <text fg={theme.secondary}>{state().statusHint}</text>
       </box>
     </box>
+    </ToolExpandProvider>
   );
 }

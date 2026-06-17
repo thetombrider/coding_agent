@@ -1,10 +1,13 @@
 import { createTextAttributes } from "@opentui/core";
-import { For, Show } from "solid-js";
+import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
 import type { ToolEntry, Turn } from "./controller.js";
 import { DiffView } from "./diff.js";
+import { ToolOutputView } from "./expandable.js";
 import { Markdown } from "./markdown.js";
 import { spinnerFrame } from "./spinner.js";
 import { theme } from "./theme.js";
+import { useToolExpand } from "./tool-expand.js";
+import { outputExpandHint } from "./tool-output.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -33,11 +36,39 @@ export function toolSummary(_name: string, args: unknown): string {
 
 function ToolLine(props: { entry: ToolEntry }) {
   const entry = () => props.entry;
+  const toolExpand = useToolExpand();
   const showDiff = () =>
     entry().name === "edit"
     && entry().status === "done"
     && !!entry().output
     && entry().output!.includes("@@");
+
+  const hasPlainOutput = () =>
+    !!entry().output
+    && entry().status !== "running"
+    && !showDiff();
+
+  const [expanded, setExpanded] = createSignal(
+    entry().status === "error" && hasPlainOutput(),
+  );
+
+  const toggleExpanded = () => {
+    if (!hasPlainOutput()) return;
+    setExpanded((value) => !value);
+  };
+
+  onMount(() => {
+    toolExpand?.registerToggle(entry().id, toggleExpanded);
+  });
+  onCleanup(() => {
+    toolExpand?.registerToggle(entry().id, null);
+  });
+
+  createEffect(() => {
+    if (entry().status === "error" && hasPlainOutput()) {
+      setExpanded(true);
+    }
+  });
 
   const running = () => entry().status === "running";
   const glyph = () =>
@@ -49,6 +80,7 @@ function ToolLine(props: { entry: ToolEntry }) {
         ? theme.toolError
         : theme.toolDone;
   const summary = () => toolSummary(entry().name, entry().args);
+  const expandHint = () => (hasPlainOutput() && !expanded() ? outputExpandHint(entry().output!) : "");
 
   // Two-tone line via sibling <text> nodes in a row. Each <text fg> reliably
   // colors its run, and plain-string children update on the in-place replaceText
@@ -56,17 +88,27 @@ function ToolLine(props: { entry: ToolEntry }) {
   // re-render of the live turn; <span fg> doesn't apply color at all).
   return (
     <box flexDirection="column" marginLeft={1}>
-      <box flexDirection="row">
+      <box
+        flexDirection="row"
+        onMouseDown={() => toggleExpanded()}
+        onMouseOver={() => toolExpand?.setHovered(entry().id)}
+      >
         <text fg={accent()} attributes={running() ? BOLD : 0}>{glyph()} {entry().name}</text>
         <Show when={summary()}>
           <text fg={theme.secondary}>  {summary()}</text>
         </Show>
+        <Show when={expandHint()}>
+          <text fg={theme.muted}>  {expandHint()}</text>
+        </Show>
       </box>
-      <Show when={entry().status === "error" && entry().output}>
+      <Show when={entry().status === "error" && entry().output && !expanded()}>
         <text fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
       </Show>
       <Show when={showDiff()}>
         <DiffView patch={entry().output!} />
+      </Show>
+      <Show when={hasPlainOutput() && expanded()}>
+        <ToolOutputView output={entry().output!} />
       </Show>
     </box>
   );
