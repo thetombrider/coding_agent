@@ -52,7 +52,7 @@ type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]>
 const DEFAULT_CONFIG: Config = {
   provider: { active: "openrouter" },
   models: {
-    main: "anthropic/claude-sonnet-4",
+    main: "anthropic/claude-sonnet-4.6",
     cheap: "deepseek/deepseek-v4-flash",
     picker: {},
     lastUsed: {},

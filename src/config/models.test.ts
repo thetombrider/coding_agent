@@ -36,7 +36,7 @@ describe("loadModelConfig", () => {
     delete process.env.ORIN_CHEAP_MODEL;
     const { loadModelConfig } = await import("./models.js");
     expect(loadModelConfig()).toEqual({
-      main: "anthropic/claude-sonnet-4",
+      main: "anthropic/claude-sonnet-4.6",
       cheap: "deepseek/deepseek-v4-flash",
     });
   });

@@ -342,12 +342,16 @@ export const OPENROUTER_PICKER_MODELS = [
   "google/gemini-3.5-flash",
   "google/gemini-3.1-flash-lite",
   "deepseek/deepseek-v4-pro",
+  "deepseek/deepseek-v4-flash",
   "minimax/minimax-m3",
   "z-ai/glm-5.1",
   "inception/mercury-2",
   "arcee-ai/trinity-large-thinking",
   "mistralai/mistral-large-2512",
 ] as const;
+
+export const OPENROUTER_DEFAULT_MAIN = "anthropic/claude-sonnet-4.6";
+export const OPENROUTER_DEFAULT_CHEAP = "deepseek/deepseek-v4-flash";
 
 const metadata: ModelMetadataProvider = {
   id: "openrouter",
@@ -392,7 +396,7 @@ export const openRouterProvider: Provider = {
   metadata,
   pickerModels: OPENROUTER_PICKER_MODELS,
   defaultModels: {
-    main: "anthropic/claude-sonnet-4",
-    cheap: "deepseek/deepseek-v4-flash",
+    main: OPENROUTER_DEFAULT_MAIN,
+    cheap: OPENROUTER_DEFAULT_CHEAP,
   },
 };
