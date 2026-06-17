@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export type CopyMethod = "osc52" | "pbcopy" | "wl-copy" | "xclip" | "clip.exe" | "file";
+export type PasteMethod = "pbpaste" | "wl-paste" | "xclip" | "powershell" | "file";
 
 export interface CopyResult {
   ok: boolean;
@@ -11,6 +12,13 @@ export interface CopyResult {
   path?: string;
   error?: string;
   lineCount?: number;
+}
+
+export interface ReadResult {
+  ok: boolean;
+  text?: string;
+  method?: PasteMethod;
+  error?: string;
 }
 
 export interface CopyCommand {
@@ -37,6 +45,8 @@ export interface ClipboardDeps {
   writeTempFile?: (text: string) => string;
   /** When set, skip OSC 52 and use platform/file fallbacks only. */
   skipOsc52?: boolean;
+  /** Test hook: override clipboard read from the resolved paste command. */
+  readText?: (command: CopyCommand) => Promise<string | null>;
 }
 
 export function encodeOsc52Payload(text: string): string {
@@ -56,6 +66,24 @@ export function resolveCopyCommand(
   if (platform === "linux") {
     if (env.WAYLAND_DISPLAY) return { bin: "wl-copy", args: [] };
     return { bin: "xclip", args: ["-selection", "clipboard"] };
+  }
+  return null;
+}
+
+export function resolvePasteCommand(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): CopyCommand | null {
+  if (platform === "darwin") return { bin: "pbpaste", args: [] };
+  if (platform === "win32") {
+    return {
+      bin: "powershell",
+      args: ["-NoProfile", "-Command", "Get-Clipboard -Raw"],
+    };
+  }
+  if (platform === "linux") {
+    if (env.WAYLAND_DISPLAY) return { bin: "wl-paste", args: ["-n"] };
+    return { bin: "xclip", args: ["-selection", "clipboard", "-o"] };
   }
   return null;
 }
@@ -100,6 +128,32 @@ async function spawnCopyWithFn(
   } catch {
     return false;
   }
+}
+
+async function spawnRead(command: CopyCommand): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const proc = nodeSpawn(command.bin, command.args, {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const chunks: Buffer[] = [];
+      proc.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+      proc.once("error", () => resolve(null));
+      proc.once("close", (code) => {
+        if (code !== 0) resolve(null);
+        else resolve(Buffer.concat(chunks).toString("utf8"));
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function pasteMethodFor(command: CopyCommand): PasteMethod {
+  if (command.bin === "pbpaste") return "pbpaste";
+  if (command.bin === "wl-paste") return "wl-paste";
+  if (command.bin === "powershell") return "powershell";
+  return "xclip";
 }
 
 export async function copyToClipboard(
@@ -157,4 +211,28 @@ export function formatCopyStatus(result: CopyResult): string {
     return `Copied to clipboard (${result.lineCount ?? 0} lines)`;
   }
   return "Clipboard unavailable in this terminal — see ~/.orin/sessions/*.jsonl";
+}
+
+export async function readFromClipboard(
+  deps: Pick<ClipboardDeps, "platform" | "env" | "readText"> = {},
+): Promise<ReadResult> {
+  const command = resolvePasteCommand(deps.platform, deps.env);
+  if (!command) {
+    return { ok: false, error: "clipboard read unavailable on this platform" };
+  }
+
+  const text = deps.readText ? await deps.readText(command) : await spawnRead(command);
+  if (text === null) {
+    return { ok: false, error: "clipboard read failed" };
+  }
+  if (!text) {
+    return { ok: false, error: "clipboard is empty" };
+  }
+
+  return { ok: true, text, method: pasteMethodFor(command) };
+}
+
+export function formatPasteStatus(result: ReadResult, pastedChars: number): string {
+  if (result.ok) return `Pasted from clipboard (${pastedChars} chars)`;
+  return result.error ?? "Clipboard unavailable in this terminal";
 }

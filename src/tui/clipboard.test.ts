@@ -4,7 +4,10 @@ import {
   copyToClipboard,
   encodeOsc52Payload,
   formatCopyStatus,
+  formatPasteStatus,
+  readFromClipboard,
   resolveCopyCommand,
+  resolvePasteCommand,
   type SpawnFn,
 } from "./clipboard.js";
 
@@ -23,6 +26,18 @@ describe("clipboard", () => {
     expect(resolveCopyCommand("linux", {})).toEqual({
       bin: "xclip",
       args: ["-selection", "clipboard"],
+    });
+  });
+
+  it("resolves platform paste commands", () => {
+    expect(resolvePasteCommand("darwin", {})).toEqual({ bin: "pbpaste", args: [] });
+    expect(resolvePasteCommand("linux", { WAYLAND_DISPLAY: "1" })).toEqual({
+      bin: "wl-paste",
+      args: ["-n"],
+    });
+    expect(resolvePasteCommand("linux", {})).toEqual({
+      bin: "xclip",
+      args: ["-selection", "clipboard", "-o"],
     });
   });
 
@@ -74,5 +89,22 @@ describe("clipboard", () => {
     const result = await copyToClipboard("", { isTty: true, writeStdout: () => {} });
     expect(result.ok).toBe(false);
     expect(formatCopyStatus(result)).toContain("Clipboard unavailable");
+  });
+
+  it("reads clipboard text via platform helper", async () => {
+    const result = await readFromClipboard({
+      platform: "darwin",
+      readText: async () => "hello clipboard",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.method).toBe("pbpaste");
+    expect(result.text).toBe("hello clipboard");
+  });
+
+  it("formats paste failures", () => {
+    expect(formatPasteStatus({ ok: false, error: "clipboard is empty" }, 0)).toBe(
+      "clipboard is empty",
+    );
+    expect(formatPasteStatus({ ok: true, text: "hi" }, 2)).toBe("Pasted from clipboard (2 chars)");
   });
 });

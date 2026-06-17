@@ -8,7 +8,7 @@ import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
 import { ApprovalBar, Header, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
-import { copyToClipboard, formatCopyStatus } from "./clipboard.js";
+import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
 import { KEYBOARD_HINTS, processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
@@ -103,6 +103,11 @@ export function App(props: {
     && configPrompt() === null
     && !submitting();
 
+  const pasteShortcutEnabled = () =>
+    state().phase !== "approval"
+    && palette() === null
+    && !submitting();
+
   const performCopy = async (text: string | null | undefined) => {
     if (!text) {
       props.controller.setStatusHint("Nothing to copy — see ~/.orin/sessions/*.jsonl");
@@ -110,6 +115,27 @@ export function App(props: {
     }
     const result = await copyToClipboard(text);
     props.controller.setStatusHint(formatCopyStatus(result));
+  };
+
+  const copyFocusedBlock = () =>
+    performCopy(pickFocusedCopyText(state(), toolExpand.getHoveredOutput()));
+
+  const copyConversation = () => performCopy(sessionToPlainText(state()));
+
+  const performPaste = async () => {
+    const result = await readFromClipboard();
+    if (!result.ok || !result.text) {
+      props.controller.setStatusHint(formatPasteStatus(result, 0));
+      return;
+    }
+    const text = result.text.replace(/\r?\n/g, " ");
+    if (inputRef) {
+      inputRef.insertText(text);
+      handleInput(inputRef.value);
+    } else {
+      props.controller.setInput(state().input + text);
+    }
+    props.controller.setStatusHint(formatPasteStatus(result, text.length));
   };
 
   let scrollRef: ScrollBoxRenderable | undefined;
@@ -533,13 +559,17 @@ export function App(props: {
     }
 
     if (!scrollRef) return;
+    if (pasteShortcutEnabled() && key.ctrl && key.shift && key.name === "v") {
+      void performPaste();
+      return;
+    }
     if (copyShortcutsEnabled()) {
-      if (key.ctrl && key.name === "o") {
-        void performCopy(pickFocusedCopyText(state(), toolExpand.getHoveredOutput()));
+      if ((key.ctrl && key.name === "o") || (key.ctrl && key.shift && key.name === "c")) {
+        void copyFocusedBlock();
         return;
       }
       if (key.ctrl && key.name === "y") {
-        void performCopy(sessionToPlainText(state()));
+        void copyConversation();
         return;
       }
       if (key.name === "c") {

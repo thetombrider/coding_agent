@@ -43,7 +43,7 @@ export type CommandResult =
 
 /** List of `/commands` shown by `/help`. */
 export const KEYBOARD_HINTS =
-  "Ctrl+O copy block · Ctrl+Y copy conversation · o expand tool · c copy expanded tool";
+  "Ctrl+Shift+C copy block · Ctrl+Shift+V paste · Ctrl+O copy · Ctrl+Y copy all · o expand · c copy tool";
 
 const HELP_LINES = [
   "/mode [normal|allow-all|plan]  cycle or set approval mode",
