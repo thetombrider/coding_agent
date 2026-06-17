@@ -1,0 +1,5 @@
+Replace the session task list (whole-list update). Use only for multi-step work with 3+ distinct steps; skip for trivial or informational requests.
+
+Statuses: pending, in_progress, completed, cancelled. At most one item may be in_progress at a time — the tool rejects multiple in_progress entries.
+
+The current list is re-injected into your context each turn; you do not need a separate read tool.

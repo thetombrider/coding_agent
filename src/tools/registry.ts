@@ -5,6 +5,7 @@ import { findTool } from "./find.js";
 import { grepTool } from "./grep.js";
 import { lsTool } from "./ls.js";
 import { readTool } from "./read.js";
+import { todowriteTool } from "./todowrite.js";
 import { writeTool } from "./write.js";
 import type { Tool } from "./types.js";
 
@@ -19,10 +20,19 @@ const ALL_TOOLS: AnyTool[] = [
   findTool,
   lsTool,
   delegateReadTool,
+  todowriteTool,
 ];
+
+/** Tools excluded from subagent child loops — parent owns the plan. */
+const CHILD_EXCLUDED = new Set(["todowrite"]);
 
 export function getCoreTools(): AnyTool[] {
   return [...ALL_TOOLS];
+}
+
+/** Tool preset for subagent child loops (excludes planning tools). */
+export function getChildTools(): AnyTool[] {
+  return ALL_TOOLS.filter((t) => !CHILD_EXCLUDED.has(t.name));
 }
 
 export function pickTools(names: string[]): AnyTool[] {

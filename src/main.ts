@@ -12,6 +12,7 @@ import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/
 import { resolveActiveProvider } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
 import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, resolveStartupSessionId, sessionPath } from "./session/log.js";
+import { rebuildTodosFromMessages } from "./todos/store.js";
 import { getCoreTools } from "./tools/registry.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
@@ -137,7 +138,7 @@ async function runInteractive(opts: {
 
   const sandboxPref = loadConfig().sandbox?.active;
   const workspace = createLocalWorkspace();
-  const ctx: AgentContext = { cwd: localCwd, messages, workspace };
+  const ctx: AgentContext = { cwd: localCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
   const hooks = createSessionHooks();
 
   await runTuiSession({

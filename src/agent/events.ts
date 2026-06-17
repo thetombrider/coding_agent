@@ -1,4 +1,5 @@
 import type { AssistantMessage } from "../provider/types.js";
+import type { TodoItem } from "../todos/types.js";
 
 export type AgentEvent =
   | { type: "text_delta"; text: string }
@@ -7,6 +8,7 @@ export type AgentEvent =
   | { type: "tool_start"; id: string; name: string; args: unknown }
   | { type: "tool_end"; id: string; name: string; output: string; isError?: boolean }
   | { type: "approval_required"; id: string; name: string; args: unknown }
+  | { type: "todo_update"; todos: TodoItem[] }
   | { type: "loop_end"; reason: "complete" | "terminate" | "error" };
 
 export type AgentEventSink = (event: AgentEvent) => void;

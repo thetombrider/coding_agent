@@ -1,6 +1,9 @@
 import { createTextAttributes } from "@opentui/core";
 import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
 import type { ToolEntry, Turn } from "./controller.js";
+import type { TodoItem, TodoStatus } from "../todos/types.js";
+import { countCompletedTodos, hasActiveTodos } from "../todos/store.js";
+import type { SessionPhase } from "./controller.js";
 import { DiffView } from "./diff.js";
 import { ToolOutputView, ReasoningOutputView } from "./expandable.js";
 import { Markdown } from "./markdown.js";
@@ -10,6 +13,93 @@ import { useToolExpand } from "./tool-expand.js";
 import { outputExpandHint } from "./tool-output.js";
 
 const BOLD = createTextAttributes({ bold: true });
+
+export const TODO_SIDEBAR_WIDTH = 30;
+
+function todoCheckbox(status: TodoStatus, running: boolean): string {
+  switch (status) {
+    case "completed":
+      return "✓";
+    case "cancelled":
+      return "–";
+    case "in_progress":
+      return running ? spinnerFrame() : "→";
+    default:
+      return " ";
+  }
+}
+
+function todoStatusColor(status: TodoStatus): string {
+  switch (status) {
+    case "in_progress":
+      return theme.toolRunning;
+    case "completed":
+      return theme.toolDone;
+    case "cancelled":
+      return theme.muted;
+    default:
+      return theme.secondary;
+  }
+}
+
+/** True when the sidebar should be visible (active work or finishing the current turn). */
+export function showTodoSidebar(todos: TodoItem[], phase: SessionPhase): boolean {
+  if (!todos.length) return false;
+  if (hasActiveTodos(todos)) return true;
+  return phase === "running";
+}
+
+export function TodoSidebar(props: { todos: TodoItem[]; phase: SessionPhase }) {
+  const todos = () => props.todos;
+  const visible = () => showTodoSidebar(todos(), props.phase);
+  const completed = () => countCompletedTodos(todos());
+  const running = () => props.phase === "running";
+
+  return (
+    <Show when={visible()}>
+      <box
+        flexShrink={0}
+        width={TODO_SIDEBAR_WIDTH}
+        flexDirection="column"
+        marginLeft={1}
+        paddingLeft={1}
+        border={["left"]}
+        borderColor={theme.border}
+        backgroundColor={theme.codeBg}
+      >
+        <text selectable={false} fg={theme.muted} attributes={BOLD}>
+          tasks {completed()}/{todos().length}
+        </text>
+        <For each={todos()}>
+          {(item) => {
+            const checked = () => item.status === "completed";
+            const active = () => item.status === "in_progress" && running();
+            return (
+              <box flexDirection="row" marginTop={0}>
+                <text
+                  selectable={false}
+                  fg={todoStatusColor(item.status)}
+                  attributes={active() ? BOLD : 0}
+                >
+                  [{todoCheckbox(item.status, running())}]
+                </text>
+                <text
+                  selectable={false}
+                  fg={checked() ? theme.muted : todoStatusColor(item.status)}
+                  attributes={active() ? BOLD : 0}
+                  wrapMode="word"
+                  flexGrow={1}
+                >
+                  {" "}{item.content}
+                </text>
+              </box>
+            );
+          }}
+        </For>
+      </box>
+    </Show>
+  );
+}
 
 export function shortModel(model: string): string {
   const slash = model.lastIndexOf("/");

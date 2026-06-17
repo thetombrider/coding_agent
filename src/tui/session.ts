@@ -10,6 +10,7 @@ import { defaultCheapModel } from "../config/models.js";
 import { getProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
+import { rebuildTodosFromMessages } from "../todos/store.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
@@ -46,6 +47,8 @@ export interface TuiSessionConfig {
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
+  config.ctx.todos = rebuildTodosFromMessages(config.ctx.messages);
+  controller.setTodos(config.ctx.todos);
   if (config.ctx.messages.length > 0) {
     controller.loadHistory(messagesToTurns(config.ctx.messages));
   }
@@ -69,10 +72,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     void log.close();
     const messages = replayLog(sessionPath(resumeSessionId));
     config.ctx.messages = messages;
+    config.ctx.todos = rebuildTodosFromMessages(messages);
     activeSessionId = resumeSessionId;
     log = openLog(sessionPath(activeSessionId));
     const turns = messagesToTurns(messages);
     controller.loadHistory(turns);
+    controller.setTodos(config.ctx.todos);
     controller.setStatusHint(
       `Resumed session ${resumeSessionId} — ${turns.length} turn${turns.length !== 1 ? "s" : ""}`,
     );
@@ -84,10 +89,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     const previousId = activeSessionId;
     void log.close();
     config.ctx.messages = [];
+    config.ctx.todos = [];
     activeSessionId = generateSessionId();
     log = openLog(sessionPath(activeSessionId));
     writeMeta();
     controller.clearHistory();
+    controller.setTodos([]);
     controller.setStatusHint(
       `New session ${activeSessionId} — archived ${previousId} (browse via /sessions)`,
     );
@@ -244,6 +251,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           getSandbox: () => activeSandbox,
           onClear: () => {
             config.ctx.messages = [];
+            config.ctx.todos = [];
             log.write({ type: "session_clear", ts: new Date().toISOString() });
           },
           onNew,

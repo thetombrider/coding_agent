@@ -1,5 +1,7 @@
 import type { AgentEvent } from "../agent/events.js";
 import type { SandboxKind } from "../workspace/types.js";
+import type { TodoItem } from "../todos/types.js";
+import { todowriteSchema } from "../tools/todowrite.js";
 import { clipboardHintText } from "./shortcuts.js";
 
 export type ToolStatus = "running" | "done" | "error";
@@ -41,6 +43,7 @@ export interface SessionState {
   streamingText: string;
   streamingReasoning: string;
   currentTools: ToolEntry[];
+  todos: TodoItem[];
   phase: SessionPhase;
   pendingApproval: PendingApproval | null;
   input: string;
@@ -64,6 +67,7 @@ export interface SessionController {
   setStatusHint: (hint: string) => void;
   clearHistory: () => void;
   loadHistory: (turns: Turn[]) => void;
+  setTodos: (todos: TodoItem[]) => void;
   updateMeta: (patch: Partial<SessionMeta>) => void;
 }
 
@@ -78,7 +82,13 @@ const TOOL_VERBS: Record<string, string> = {
   find: "Finding",
   ls: "Listing",
   delegate_read: "Delegating read of",
+  todowrite: "Updating tasks",
 };
+
+function todosFromToolArgs(args: unknown): TodoItem[] | undefined {
+  const parsed = todowriteSchema.safeParse(args);
+  return parsed.success ? parsed.data.todos : undefined;
+}
 
 /** Build a descriptive status hint for a running tool, e.g. "Reading src/foo.ts…". */
 function toolStatusHint(name: string, args: unknown): string {
@@ -105,6 +115,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     streamingText: "",
     streamingReasoning: "",
     currentTools: [],
+    todos: [],
     phase: "input",
     pendingApproval: null,
     input: "",
@@ -203,6 +214,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingText: "",
         streamingReasoning: "",
         currentTools: [],
+        todos: [],
         phase: "input",
         statusHint: IDLE_HINT,
       });
@@ -218,6 +230,10 @@ export function createSessionController(meta: SessionMeta): SessionController {
         phase: "input",
         statusHint: IDLE_HINT,
       });
+    },
+
+    setTodos(todos) {
+      update({ todos });
     },
 
     setInput(value) {
@@ -261,18 +277,22 @@ export function createSessionController(meta: SessionMeta): SessionController {
             statusHint: `Approve ${event.name}?  y / n`,
           });
           break;
-        case "tool_start":
+        case "tool_start": {
           upsertTool(event.id, {
             name: event.name,
             args: event.args,
             status: "running",
           });
+          const previewTodos =
+            event.name === "todowrite" ? todosFromToolArgs(event.args) : undefined;
           update({
             pendingApproval: null,
             phase: "running",
             statusHint: toolStatusHint(event.name, event.args),
+            ...(previewTodos ? { todos: previewTodos } : {}),
           });
           break;
+        }
         case "tool_end":
           upsertTool(event.id, {
             name: event.name,
@@ -280,6 +300,9 @@ export function createSessionController(meta: SessionMeta): SessionController {
             status: event.isError ? "error" : "done",
             output: event.output,
           });
+          break;
+        case "todo_update":
+          update({ todos: event.todos });
           break;
         case "loop_end":
           break;

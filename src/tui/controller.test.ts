@@ -118,4 +118,26 @@ describe("createSessionController", () => {
     expect(notifyCount).toBe(1);
     expect(controller.getState().input).toBe("abc");
   });
+
+  it("previews todo sidebar updates when todowrite starts", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("plan");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "tc1",
+      name: "todowrite",
+      args: {
+        todos: [
+          { id: "1", content: "Ship feature", status: "completed" },
+          { id: "2", content: "Add tests", status: "in_progress" },
+        ],
+      },
+    });
+
+    expect(controller.getState().todos).toEqual([
+      { id: "1", content: "Ship feature", status: "completed" },
+      { id: "2", content: "Add tests", status: "in_progress" },
+    ]);
+  });
 });

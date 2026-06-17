@@ -6,7 +6,7 @@ import type { SessionController, SessionState, Turn } from "./controller.js";
 import { theme } from "./theme.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
-import { ApprovalBar, Header, TurnView } from "./views.js";
+import { ApprovalBar, Header, TodoSidebar, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
@@ -345,6 +345,7 @@ export function App(props: {
       if (name === "clear") {
         props.onClear();
         props.controller.clearHistory();
+        props.controller.setTodos([]);
       } else if (name === "new") {
         props.onNew();
       } else if (name === "exit") {
@@ -462,6 +463,7 @@ export function App(props: {
         case "clear":
           props.onClear();
           props.controller.clearHistory();
+          props.controller.setTodos([]);
           return;
         case "new":
           props.onNew();
@@ -698,45 +700,49 @@ export function App(props: {
         />
       </box>
 
-      <scrollbox
-        ref={scrollRef}
-        flexGrow={1}
-        stickyScroll
-        stickyStart="bottom"
-        contentOptions={{ flexDirection: "column" }}
-      >
-        <Show
-          when={hasContent()}
-          fallback={
-            <box flexDirection="column">
-              <StartupLogo />
-              <text fg={theme.secondary}>Ask anything about this codebase.</text>
-            </box>
-          }
+      <box flexDirection="row" flexGrow={1}>
+        <scrollbox
+          ref={scrollRef}
+          flexGrow={1}
+          stickyScroll
+          stickyStart="bottom"
+          contentOptions={{ flexDirection: "column" }}
         >
-          <For each={completed()}>
-            {(turn, i) => (
-              <TurnView
-                turn={turn}
-                turnKey={`turn-${i()}`}
-                first={i() === 0}
-                reasoningId={`reasoning-${i()}`}
-              />
-            )}
-          </For>
-          <Show when={live()}>
-            {(turn) => (
-              <TurnView
-                turn={turn()}
-                turnKey="turn-live"
-                first={completed().length === 0}
-                reasoningId="reasoning-live"
-                reasoningStreaming={state().phase === "running" && !turn().assistantText}
-              />
-            )}
+          <Show
+            when={hasContent()}
+            fallback={
+              <box flexDirection="column">
+                <StartupLogo />
+                <text fg={theme.secondary}>Ask anything about this codebase.</text>
+              </box>
+            }
+          >
+            <For each={completed()}>
+              {(turn, i) => (
+                <TurnView
+                  turn={turn}
+                  turnKey={`turn-${i()}`}
+                  first={i() === 0}
+                  reasoningId={`reasoning-${i()}`}
+                />
+              )}
+            </For>
+            <Show when={live()}>
+              {(turn) => (
+                <TurnView
+                  turn={turn()}
+                  turnKey="turn-live"
+                  first={completed().length === 0}
+                  reasoningId="reasoning-live"
+                  reasoningStreaming={state().phase === "running" && !turn().assistantText}
+                />
+              )}
+            </Show>
           </Show>
-        </Show>
-      </scrollbox>
+        </scrollbox>
+
+        <TodoSidebar todos={state().todos} phase={state().phase} />
+      </box>
 
       <Show when={state().pendingApproval}>
         {(pending) => (
