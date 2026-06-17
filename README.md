@@ -31,8 +31,9 @@ build plan live in [`SPEC.md`](./SPEC.md).
 - **Interactive TUI** — streaming markdown, live diffs, a slash-command palette,
   and a session browser.
 - **Pluggable LLM providers** — a provider registry behind a single interface.
-  OpenRouter ships today; the interface anticipates Anthropic, OpenAI, Regolo,
-  LiteLLM, and gateway backends. Switch at runtime with `/providers`.
+  OpenRouter and Regolo AI (EU-hosted, OpenAI-compatible) ship today; the
+  interface anticipates Anthropic, OpenAI, LiteLLM, and gateway backends. Switch
+  at runtime with `/providers`, or store keys with `/providers configure`.
 - **Two model tiers** — a capable **main** model for reasoning and a cheap model
   for offloaded work. The `delegate_read` tool hands read-heavy tasks (scan a
   big file, summarize logs) to the cheap model so the bulk never enters the main
@@ -94,7 +95,8 @@ file directly.
 
 | Setting | Env var | Notes |
 | --- | --- | --- |
-| OpenRouter API key | `OPENROUTER_API_KEY` | Required for real use. Also `provider.openrouter.apiKey` in config. |
+| OpenRouter API key | `OPENROUTER_API_KEY` | Required for the default backend. Also `provider.openrouter.apiKey` in config. |
+| Regolo API key | `REGOLO_API_KEY` | Optional EU-hosted backend (`/providers regolo`). Also `provider.regolo.apiKey` in config. |
 | Main model | `ORIN_MODEL` | Default agent model (OpenRouter `provider/model` id). |
 | Cheap model | `ORIN_CHEAP_MODEL` | Used by `delegate_read` and compaction. |
 | Approval mode | `ORIN_APPROVAL_MODE` | `normal` \| `auto-accept` \| `plan`. |
@@ -179,7 +181,7 @@ src/
   main.ts         # arg parsing + entrypoints (interactive / headless / one-shot)
   types.ts        # message + content-block data model
   agent/          # the loop, compaction, mutation queue
-  provider/       # streamAssistant, registry, faux provider, providers/
+  provider/       # streamAssistant, registry, faux + OpenAI-compatible base, providers/ (openrouter, regolo)
   tools/          # read, write, edit, bash, grep, find, ls, delegate_read (+ .txt descriptions)
   approval/       # approval modes + policy
   edit/           # fuzzy replacer chain for the edit tool
