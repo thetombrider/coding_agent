@@ -10,13 +10,14 @@ import { getProvider } from "../provider/registry.js";
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
-import type { AgentContext, Message } from "../types.js";
+import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
 import type { SandboxKind } from "../workspace/types.js";
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
+import { messagesToTurns } from "./messages-to-turns.js";
 import { restoreTerminal } from "./terminal.js";
 import { terminalBg, terminalFg, theme } from "./theme.js";
 
@@ -42,6 +43,9 @@ export interface TuiSessionConfig {
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
+  if (config.ctx.messages.length > 0) {
+    controller.loadHistory(messagesToTurns(config.ctx.messages));
+  }
   config.hooks.observe(controller.handleEvent);
   await config.hooks.fireHook("session_start", { cwd: config.ctx.cwd }, config.ctx);
 
@@ -260,30 +264,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   }
 
   return config.ctx;
-}
-
-/** Convert a flat message list into displayable turns for the controller. */
-function messagesToTurns(messages: Message[]) {
-  const turns: { userText: string; assistantText: string; tools: [] }[] = [];
-  let current: { userText: string; assistantText: string } | null = null;
-  for (const msg of messages) {
-    if (msg.role === "user") {
-      if (current) turns.push({ ...current, tools: [] });
-      const text = msg.content
-        .filter((c): c is { type: "text"; text: string } => c.type === "text")
-        .map((c) => c.text)
-        .join("");
-      current = { userText: text, assistantText: "" };
-    } else if (msg.role === "assistant" && current) {
-      const text = msg.content
-        .filter((c): c is { type: "text"; text: string } => c.type === "text")
-        .map((c) => c.text)
-        .join("");
-      current.assistantText += text;
-    }
-  }
-  if (current) turns.push({ ...current, tools: [] });
-  return turns;
 }
 
 /** @deprecated use runTuiSession */
