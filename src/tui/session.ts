@@ -74,6 +74,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     config.ctx.todos = rebuildTodosFromMessages(messages);
     activeSessionId = resumeSessionId;
     log = openLog(sessionPath(activeSessionId));
+    if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
     const turns = messagesToTurns(messages);
     controller.loadHistory(turns);
     controller.setTodos(config.ctx.todos);
@@ -91,6 +92,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     config.ctx.todos = [];
     activeSessionId = generateSessionId();
     log = openLog(sessionPath(activeSessionId));
+    if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
     writeMeta();
     controller.clearHistory();
     controller.setTodos([]);
@@ -111,6 +113,16 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   };
   installCoreHooks(config.hooks, approvalRef);
 
+  config.ctx.loopHost = {
+    provider: config.provider,
+    model: activeModel,
+    cheapModel: defaultCheapModel(),
+    sessionId: activeSessionId,
+    onEvent: (event) => log.write(event),
+    hooks: config.hooks,
+    approval: approvalRef,
+  };
+
   let resolveExit!: () => void;
   const exitPromise = new Promise<void>((resolve) => {
     resolveExit = resolve;
@@ -118,6 +130,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
   const setModel = (model: string) => {
     activeModel = model;
+    if (config.ctx.loopHost) config.ctx.loopHost.model = model;
     controller.updateMeta({ model });
     saveConfig({ models: { main: model } });
   };

@@ -1,3 +1,6 @@
+import type { ApprovalGateRef } from "./hooks/approval-gate.js";
+import type { HookRegistryImpl } from "./hooks/registry.js";
+import type { StreamAssistantFn } from "./provider/types.js";
 import type { TodoItem } from "./todos/types.js";
 import type { Workspace } from "./workspace/types.js";
 
@@ -14,12 +17,27 @@ export interface Message {
   content: ContentBlock[];
 }
 
+/** Session wiring for tools that spawn nested agent loops (e.g. `task`). */
+export interface LoopHost {
+  provider: StreamAssistantFn;
+  model: string;
+  cheapModel?: string;
+  sessionId?: string;
+  onEvent?: SessionEventCallback;
+  hooks: HookRegistryImpl;
+  approval: ApprovalGateRef;
+}
+
 export interface AgentContext {
   messages: Message[];
   cwd: string;
   workspace: Workspace;
   /** Ephemeral session task list — survives compaction, rebuilt on resume. */
   todos?: TodoItem[];
+  /** Nesting depth for subagent loops — 0 on the primary agent. */
+  depth?: number;
+  /** Host loop wiring — set by the session for nested-loop tools. */
+  loopHost?: LoopHost;
 }
 
 export type SessionEvent =

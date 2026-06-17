@@ -1,0 +1,11 @@
+Spawn a subagent to handle a multi-step unit of work in an isolated child loop.
+The subagent runs with a filtered tool set and returns only a summary to the parent.
+
+Presets:
+- explore: read-only investigation (shared workspace)
+- review: read-only code review (shared workspace)
+- general: full tool access in an E2B sandbox (mutating work)
+
+Use for tasks that benefit from isolated context — scanning the codebase, reviewing
+changes, or doing risky edits in a contained sandbox — rather than bloating the main
+conversation with intermediate steps.

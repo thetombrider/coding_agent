@@ -7,7 +7,7 @@ import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
 import { loadConfig, ensureConfigFile } from "./config/config.js";
 import { resolveSystemPrompt } from "./prompt/system.js";
-import { defaultMainModel, loadModelConfig } from "./config/models.js";
+import { defaultCheapModel, defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { resolveActiveProvider } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
@@ -229,6 +229,15 @@ async function runHeadless(opts: {
     tools: getCoreTools(),
   };
   installCoreHooks(hooks, approvalRef);
+
+  ctx.loopHost = {
+    provider,
+    model,
+    cheapModel: defaultCheapModel(),
+    sessionId,
+    hooks,
+    approval: approvalRef,
+  };
 
   hooks.observe((event) => {
     if (event.type === "text_delta") process.stdout.write(event.text);
