@@ -1,3 +1,6 @@
+import type { TodoItem } from "./todos/types.js";
+import type { Workspace } from "./workspace/types.js";
+
 export type Role = "system" | "user" | "assistant" | "tool";
 
 export type ContentBlock =
@@ -11,12 +14,12 @@ export interface Message {
   content: ContentBlock[];
 }
 
-import type { Workspace } from "./workspace/types.js";
-
 export interface AgentContext {
   messages: Message[];
   cwd: string;
   workspace: Workspace;
+  /** Ephemeral session task list — survives compaction, rebuilt on resume. */
+  todos?: TodoItem[];
 }
 
 export type SessionEvent =

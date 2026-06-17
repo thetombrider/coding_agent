@@ -403,4 +403,73 @@ describe("runLoop", () => {
     expect(text).toContain("model: faux:test-model");
     expect(text).toContain("Always run tests after edits.");
   });
+
+  it("re-injects session todos each turn via before_prompt", async () => {
+    let providerMessages: AgentContext["messages"] | undefined;
+    const provider = createStatefulFauxProvider([{ text: ["done"] }]);
+    const wrappedProvider: typeof provider = (messages, options, emit) => {
+      providerMessages = messages;
+      return provider(messages, options, emit);
+    };
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      workspace: createLocalWorkspace(),
+      todos: [
+        { id: "1", content: "Ship feature", status: "in_progress" },
+        { id: "2", content: "Write tests", status: "pending" },
+      ],
+    };
+
+    await runLoop(ctx, hooks(), {
+      provider: wrappedProvider,
+      tools: [],
+      model: "faux:test",
+    });
+
+    const injected = providerMessages?.find(
+      (m) =>
+        m.role === "user"
+        && m.content.some((c) => c.type === "text" && c.text.includes("REMINDERS")),
+    );
+    const text = injected?.content.find((c) => c.type === "text")?.text ?? "";
+    expect(text).toContain("Ship feature");
+    expect(text).toContain("Task progress: 0/2");
+  });
+
+  it("todowrite rejects multiple in_progress via the loop", async () => {
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [{
+          id: "tc1",
+          name: "todowrite",
+          arguments: {
+            todos: [
+              { id: "1", content: "A", status: "in_progress" },
+              { id: "2", content: "B", status: "in_progress" },
+            ],
+          },
+        }],
+      },
+      { text: ["ok"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "plan" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const todowriteTools = getCoreTools().filter((t) => t.name === "todowrite");
+    await runLoop(ctx, hooks(todowriteTools), {
+      provider,
+      tools: todowriteTools,
+      model: "faux:test",
+    });
+
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
+    expect(output).toContain("at most one todo");
+  });
 });

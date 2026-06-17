@@ -45,6 +45,10 @@ export interface Config {
     active?: "local" | "e2b";
     e2b?: { apiKey?: string };
   };
+  todo?: {
+    /** Write `.orin/todo.md` on each todowrite call for human-editable, committable plans. */
+    export?: boolean;
+  };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
