@@ -25,6 +25,8 @@ export interface Config {
     cheap: string;
     /** Per-provider overrides for the `/model` picker; falls back to each provider's bundled list. */
     picker: Record<string, string[]>;
+    /** Last main model used per provider — restored when switching back. */
+    lastUsed: Record<string, { main: string; cheap?: string }>;
     contextWindows: Record<string, number>;
     pricing: Record<string, ModelPricing>;
   };
@@ -53,6 +55,7 @@ const DEFAULT_CONFIG: Config = {
     main: "anthropic/claude-sonnet-4",
     cheap: "deepseek/deepseek-v4-flash",
     picker: {},
+    lastUsed: {},
     contextWindows: {
       "anthropic/claude-opus-4.8": 200000,
       "anthropic/claude-sonnet-4.6": 200000,

@@ -20,4 +20,8 @@ export const regoloProvider = createOpenAiCompatibleProvider({
   baseURL: "https://api.regolo.ai/v1",
   idPrefix: "regolo:",
   pickerModels: REGOLO_PICKER_MODELS,
+  defaultModels: {
+    main: "Llama-3.3-70B-Instruct",
+    cheap: "qwen3.5-9b",
+  },
 });

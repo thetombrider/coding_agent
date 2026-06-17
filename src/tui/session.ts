@@ -6,7 +6,9 @@ import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
 import { saveConfig, saveProviderConfig } from "../config/config.js";
+import { defaultCheapModel } from "../config/models.js";
 import { getProvider } from "../provider/registry.js";
+import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
@@ -123,16 +125,27 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   // Persist the active provider. The provider call paths (stream/delegate/
   // compaction) resolve the active provider from config on each turn, so the
   // switch takes effect on the next turn without rewiring the loop.
-  const setProvider = (provider: string) => {
+  const setProvider = (provider: string, model?: string) => {
+    const fromProvider = config.meta.provider ?? "openrouter";
+    const patch = lastUsedPatchForProviderSwitch(fromProvider, activeModel, defaultCheapModel(fromProvider));
     controller.updateMeta({ provider });
-    saveConfig({ provider: { active: provider } });
+    saveConfig({
+      provider: { active: provider },
+      models: { lastUsed: patch },
+    });
+    config.meta.provider = provider;
+    if (model && model !== activeModel) {
+      setModel(model);
+    }
   };
 
   const configureProvider = (providerId: string, values: Record<string, string>, activate: boolean) => {
     saveProviderConfig(providerId, values);
     const display = getProvider(providerId)?.displayName ?? providerId;
     if (activate) {
-      setProvider(providerId);
+      const fromProvider = config.meta.provider ?? "openrouter";
+      const { model } = resolveModelOnProviderSwitch(fromProvider, providerId, activeModel);
+      setProvider(providerId, model);
       controller.setStatusHint(`${display} configured and active`);
     } else {
       controller.setStatusHint(`${display} configured — saved to ~/.orin/config.json`);

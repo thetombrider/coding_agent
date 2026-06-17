@@ -58,4 +58,14 @@ describe("loadModelConfig", () => {
     const { REGOLO_PICKER_MODELS } = await import("../provider/providers/regolo.js");
     expect(pickerModelsForProvider()).toEqual(REGOLO_PICKER_MODELS);
   });
+
+  it("uses provider defaults when the global main model is incompatible", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({
+      provider: { active: "regolo" },
+      models: { main: "anthropic/claude-sonnet-4" },
+    });
+    const { defaultMainModel } = await import("./models.js");
+    expect(defaultMainModel()).toBe("Llama-3.3-70B-Instruct");
+  });
 });

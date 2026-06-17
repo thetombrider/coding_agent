@@ -6,6 +6,7 @@ import {
   type ApprovalMode,
 } from "../approval/policy.js";
 import { hasE2BApiKey } from "../config/config.js";
+import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import type { ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SandboxKind } from "../workspace/types.js";
@@ -29,7 +30,7 @@ export type CommandResult =
   | { type: "sessions" }
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
-  | { type: "set-provider"; provider: string; message: string }
+  | { type: "set-provider"; provider: string; model?: string; message: string }
   | {
       type: "configure-provider";
       provider: string;
@@ -239,11 +240,10 @@ function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
       ? " (not configured — complete its OAuth setup)"
       : " (not configured — run /providers configure " + match.id + ")";
   let message = `provider → ${match.id}${warn}`;
-  if (match.id === "regolo" && ctx.currentModel.includes("/")) {
-    message +=
-      " — switch model with /model (Regolo uses native ids like Llama-3.3-70B-Instruct)";
-  }
-  return { type: "set-provider", provider: match.id, message };
+  const fromProvider = ctx.currentProvider ?? "openrouter";
+  const { model, note } = resolveModelOnProviderSwitch(fromProvider, match.id, ctx.currentModel);
+  message += note;
+  return { type: "set-provider", provider: match.id, model, message };
 }
 
 function handleProviders(arg: string, ctx: CommandContext): CommandResult {

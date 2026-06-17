@@ -11,6 +11,7 @@ import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { pickerModelsForProvider } from "../config/models.js";
+import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
@@ -78,7 +79,7 @@ export function App(props: {
   onExit: () => void;
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
-  onSetProvider: (provider: string) => void;
+  onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (provider: string, values: Record<string, string>, activate: boolean) => void;
   onSetSandbox: (kind: "local" | "e2b") => void | Promise<void>;
   getSandbox: () => "local" | "e2b";
@@ -114,8 +115,21 @@ export function App(props: {
   const completed = () => state().completedTurns;
   const hasContent = () => completed().length > 0 || live() !== null;
 
-  const pickerModels = () =>
-    pickerModelsForProvider(state().meta.provider ?? activeProviderId());
+  const [pickerModelList, setPickerModelList] = createSignal<string[]>([
+    ...pickerModelsForProvider(activeProviderId()),
+  ]);
+
+  createEffect(() => {
+    const providerId = state().meta.provider ?? activeProviderId();
+    setPickerModelList([...pickerModelsForProvider(providerId)]);
+    void loadPickerModels(providerId).then((models) => {
+      if ((state().meta.provider ?? activeProviderId()) === providerId) {
+        setPickerModelList(models);
+      }
+    });
+  });
+
+  const pickerModels = () => pickerModelList();
 
   const filteredCommands = () => {
     const input = state().input;
@@ -311,9 +325,14 @@ export function App(props: {
             return;
           }
         }
-        props.onSetProvider(provider.id);
+        const { model, note } = resolveModelOnProviderSwitch(
+          state().meta.provider ?? activeProviderId(),
+          provider.id,
+          state().meta.model,
+        );
+        props.onSetProvider(provider.id, model);
         const warn = provider.configured ? "" : " (needs setup — /providers configure " + provider.id + ")";
-        props.controller.setStatusHint(`provider → ${provider.id}${warn}`);
+        props.controller.setStatusHint(`provider → ${provider.id}${warn}${note}`);
       } else {
         setPalette(null);
       }
@@ -397,7 +416,7 @@ export function App(props: {
           props.controller.setStatusHint(result.message);
           return;
         case "set-provider":
-          props.onSetProvider(result.provider);
+          props.onSetProvider(result.provider, result.model);
           props.controller.setStatusHint(result.message);
           return;
         case "configure-provider":

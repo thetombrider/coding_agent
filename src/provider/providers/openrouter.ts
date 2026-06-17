@@ -68,6 +68,7 @@ export type FetchModelsCatalog = typeof fetch;
 
 let lookupCache = new Map<string, { value: number | undefined; fetchedAt: number }>();
 let catalogCache: Map<string, number> | null = null;
+let catalogIdsCache: string[] | null = null;
 let catalogFetchedAt = 0;
 
 function resolveContextLength(model: OpenRouterModelRecord): number | undefined {
@@ -108,6 +109,7 @@ function openRouterRequestInit(apiKey?: string): RequestInit {
 export function resetOpenRouterModelsCache(): void {
   lookupCache.clear();
   catalogCache = null;
+  catalogIdsCache = null;
   catalogFetchedAt = 0;
 }
 
@@ -165,8 +167,10 @@ export async function loadOpenRouterModelsCatalog(
 
   const body = (await response.json()) as OpenRouterModelsResponse;
   const next = new Map<string, number>();
+  const ids: string[] = [];
 
   for (const model of body.data) {
+    ids.push(model.id);
     const contextWindow = resolveContextLength(model);
     if (contextWindow === undefined) continue;
     next.set(model.id, contextWindow);
@@ -174,8 +178,21 @@ export async function loadOpenRouterModelsCatalog(
   }
 
   catalogCache = next;
+  catalogIdsCache = ids;
   catalogFetchedAt = Date.now();
   return next;
+}
+
+/** Model ids from the OpenRouter catalog (reuses the catalog cache). */
+export async function listOpenRouterModelIds(
+  fetchImpl: FetchModelsCatalog = fetch,
+  apiKey?: string,
+): Promise<string[]> {
+  if (catalogIdsCache && Date.now() - catalogFetchedAt < CATALOG_TTL_MS) {
+    return catalogIdsCache;
+  }
+  await loadOpenRouterModelsCatalog(fetchImpl, apiKey);
+  return catalogIdsCache ?? [];
 }
 
 /**
@@ -335,10 +352,14 @@ export const OPENROUTER_PICKER_MODELS = [
 const metadata: ModelMetadataProvider = {
   id: "openrouter",
   supportsModel(modelId) {
-    return !modelId.startsWith("faux:");
+    if (modelId.startsWith("faux:")) return false;
+    return resolveOpenRouterModelId(modelId).includes("/");
   },
   getContextWindow(modelId) {
     return lookupOpenRouterContextWindow(modelId);
+  },
+  listModelIds() {
+    return listOpenRouterModelIds();
   },
 };
 
@@ -370,4 +391,8 @@ export const openRouterProvider: Provider = {
   },
   metadata,
   pickerModels: OPENROUTER_PICKER_MODELS,
+  defaultModels: {
+    main: "anthropic/claude-sonnet-4",
+    cheap: "deepseek/deepseek-v4-flash",
+  },
 };

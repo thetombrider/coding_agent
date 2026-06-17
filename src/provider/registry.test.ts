@@ -19,8 +19,10 @@ function makeFakeProvider(overrides: Partial<Provider> = {}): Provider {
       id: "fake",
       supportsModel: () => true,
       getContextWindow: async () => 4242,
+      listModelIds: async () => ["fake/model-a", "fake/model-b"],
     },
     pickerModels: ["fake/model-a", "fake/model-b"],
+    defaultModels: { main: "fake/model-a", cheap: "fake/model-b" },
     ...overrides,
   };
 }

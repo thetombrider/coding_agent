@@ -24,6 +24,7 @@ const testCfg = {
   baseURL: "https://api.regolo.ai/v1",
   idPrefix: "regolo:",
   pickerModels: ["Llama-3.3-70B-Instruct", "Llama-3.1-8B-Instruct"],
+  defaultModels: { main: "Llama-3.3-70B-Instruct", cheap: "Llama-3.1-8B-Instruct" },
 };
 
 function mockFetch(handlers: Record<string, { ok?: boolean; status?: number; body: unknown }>) {
@@ -104,6 +105,21 @@ describe("openai-compatible", () => {
     expect(calls[0]?.[1]).toMatchObject({
       headers: { Authorization: "Bearer sk-test" },
     });
+  });
+
+  it("lists model ids even when context windows are absent", async () => {
+    const fetchImpl = mockFetch({
+      "/v1/models": {
+        body: {
+          data: [{ id: "no-context-model" }, { id: "Llama-3.3-70B-Instruct", context_length: 131072 }],
+        },
+      },
+    });
+    const { listOpenAiCompatibleModelIds } = await import("./openai-compatible.js");
+    await expect(listOpenAiCompatibleModelIds(testCfg, fetchImpl, "sk-test")).resolves.toEqual([
+      "no-context-model",
+      "Llama-3.3-70B-Instruct",
+    ]);
   });
 
   it("looks up context windows from the catalog", async () => {
