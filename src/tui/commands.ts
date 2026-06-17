@@ -41,9 +41,10 @@ export type CommandResult =
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
+import { clipboardHintText } from "./shortcuts.js";
+
 /** List of `/commands` shown by `/help`. */
-export const KEYBOARD_HINTS =
-  "Ctrl+Shift+C copy block · Ctrl+Shift+V paste · Ctrl+O copy · Ctrl+Y copy all · o expand · c copy tool";
+export const KEYBOARD_HINTS = clipboardHintText();
 
 const HELP_LINES = [
   "/mode [normal|allow-all|plan]  cycle or set approval mode",
