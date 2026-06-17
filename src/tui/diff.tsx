@@ -24,6 +24,7 @@ export function DiffView(props: { patch: string }) {
       <For each={lines()}>
         {(line) => (
           <text
+            selectable
             fg={diffColor(line)}
             attributes={line.startsWith("+") || line.startsWith("-") ? BOLD : 0}
           >

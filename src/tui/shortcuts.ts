@@ -22,9 +22,14 @@ export function isPasteShortcut(key: ShortcutKey): boolean {
   return (key.ctrl && key.shift && !key.meta) || (key.meta && !key.shift);
 }
 
+/** Show drag-to-select hint. */
+export function isSelectionHintShortcut(key: ShortcutKey): boolean {
+  return key.name === "v" && !key.ctrl && !key.meta && !key.shift;
+}
+
 export function clipboardHintText(): string {
   if (process.platform === "darwin") {
-    return "⌘C copy · ⌘⇧C copy all · ⌘V paste · o expand · c copy expanded/diff tool";
+    return "⌘C copy · ⌘⇧C all · ⌘V paste · drag select · v hint · o expand · c copy expanded";
   }
-  return "Ctrl+Shift+C copy · Ctrl+Y all · Ctrl+Shift+V paste · o expand · c copy expanded/diff tool";
+  return "Ctrl+Shift+C copy · Ctrl+Y all · Ctrl+Shift+V paste · drag select · v hint · o expand · c copy expanded";
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut } from "./shortcuts.js";
+import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut, isSelectionHintShortcut } from "./shortcuts.js";
 
 const key = (name: string, mods: Partial<{ ctrl: boolean; meta: boolean; shift: boolean }> = {}) => ({
   name,
@@ -26,5 +26,11 @@ describe("shortcuts", () => {
     expect(isPasteShortcut(key("v", { ctrl: true, shift: true }))).toBe(true);
     expect(isPasteShortcut(key("v", { meta: true }))).toBe(true);
     expect(isPasteShortcut(key("v", { ctrl: true }))).toBe(false);
+  });
+
+  it("detects selection hint shortcut", () => {
+    expect(isSelectionHintShortcut(key("v"))).toBe(true);
+    expect(isSelectionHintShortcut(key("v", { ctrl: true }))).toBe(false);
+    expect(isSelectionHintShortcut(key("v", { meta: true }))).toBe(false);
   });
 });

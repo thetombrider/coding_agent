@@ -10,13 +10,13 @@ export function ToolOutputView(props: { output: string; fg?: string }) {
     <box flexDirection="column" marginLeft={2} paddingLeft={1} paddingRight={1} backgroundColor={theme.codeBg}>
       <For each={formatted().lines}>
         {(line) => (
-          <text fg={fg()} wrapMode="none">
+          <text selectable fg={fg()} wrapMode="none">
             {line || " "}
           </text>
         )}
       </For>
       <Show when={formatted().truncated}>
-        <text fg={theme.secondary}>
+        <text selectable={false} fg={theme.secondary}>
           … {formatted().omittedLines} more lines — see session log
         </text>
       </Show>
