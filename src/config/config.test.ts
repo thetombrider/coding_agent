@@ -63,15 +63,18 @@ describe("API key onboarding", () => {
   let home: string;
   let prevHome: string | undefined;
   let prevKey: string | undefined;
+  let prevRegoloKey: string | undefined;
   let prevE2BKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
     prevKey = process.env.OPENROUTER_API_KEY;
+    prevRegoloKey = process.env.REGOLO_API_KEY;
     prevE2BKey = process.env.E2B_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-config-key-"));
     process.env.HOME = home;
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.REGOLO_API_KEY;
     delete process.env.E2B_API_KEY;
     vi.resetModules();
   });
@@ -81,6 +84,8 @@ describe("API key onboarding", () => {
     else process.env.HOME = prevHome;
     if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = prevKey;
+    if (prevRegoloKey === undefined) delete process.env.REGOLO_API_KEY;
+    else process.env.REGOLO_API_KEY = prevRegoloKey;
     if (prevE2BKey === undefined) delete process.env.E2B_API_KEY;
     else process.env.E2B_API_KEY = prevE2BKey;
     rmSync(home, { recursive: true, force: true });
@@ -106,6 +111,19 @@ describe("API key onboarding", () => {
 
     const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
     expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-saved");
+  });
+
+  it("detects a Regolo key from the env var", async () => {
+    process.env.REGOLO_API_KEY = "sk-regolo";
+    const { hasRegoloApiKey } = await import("./config.js");
+    expect(hasRegoloApiKey()).toBe(true);
+  });
+
+  it("env var overrides Regolo config file api key", async () => {
+    const { saveConfig, loadConfig } = await import("./config.js");
+    saveConfig({ provider: { regolo: { apiKey: "sk-config" } } });
+    process.env.REGOLO_API_KEY = "sk-env";
+    expect(loadConfig().provider.regolo?.apiKey).toBe("sk-env");
   });
 
   it("saveProviderConfig writes provider-specific fields", async () => {

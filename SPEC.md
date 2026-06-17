@@ -112,7 +112,11 @@ The streaming/generation transport is shared; LLM backends plug in behind a `Pro
 - The active backend is `loadConfig().provider.active`; resolution falls back to the default (`openrouter`) when the configured id is unknown.
 - `/providers` lists and switches the active provider at runtime, persisting `provider.active` to `~/.orin/config.json`. Because models resolve through the registry on each turn, a switch takes effect on the next turn with no rewiring.
 
-**Currently implemented:** OpenRouter (`api-key`), the default, as a single self-contained module at `src/provider/providers/openrouter.ts` (credentials/client, model-id normalization, model-metadata lookups, and prompt-cache strategy all in one file). The interface anticipates additional backends (Anthropic/OpenAI API key + OAuth, Regolo, LiteLLM, Vercel/Cloudflare gateways) — each one self-contained file under `src/provider/providers/` that calls `registerProvider()`. OAuth backends store tokens in `~/.orin/tokens.json` (0600), not the config file.
+**Currently implemented:** OpenRouter (`api-key`), the default, as a single self-contained module at `src/provider/providers/openrouter.ts` (credentials/client, model-id normalization, model-metadata lookups, and prompt-cache strategy all in one file). **Regolo AI** (`api-key`) uses the shared OpenAI-compatible helper at `src/provider/openai-compatible.ts` with `@ai-sdk/openai` and `baseURL: https://api.regolo.ai/v1` — not OpenRouter's SDK. A future native **OpenAI** provider will reuse the same helper with the default `api.openai.com` base URL.
+
+**Provider families:** OpenRouter uses `@openrouter/ai-sdk-provider` (routing, session stickiness, prompt-cache hooks). OpenAI-compatible backends (Regolo, future OpenAI) use `@ai-sdk/openai` via `openai-compatible.ts`. Native Anthropic will use `@ai-sdk/anthropic` (Messages API) — a separate family.
+
+The interface anticipates additional backends (Anthropic/OpenAI API key + OAuth, LiteLLM, Vercel/Cloudflare gateways) — each one self-contained file under `src/provider/providers/` that calls `registerProvider()`. OAuth backends store tokens in `~/.orin/tokens.json` (0600), not the config file.
 
 ## 7. Edit tool — the hard part (in `src/tools/edit.ts`)
 Build in two stages across phases:
