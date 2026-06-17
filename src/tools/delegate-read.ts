@@ -8,7 +8,10 @@ const schema = z.object({
   paths: z
     .array(z.string())
     .optional()
-    .describe("Files or globs to read into the cheap model."),
+    .describe(
+      "Files or globs to read into the cheap model. Prefer this tool over task when "
+      + "paths are known and you only need a one-shot summary.",
+    ),
 });
 
 export type DelegateReadArgs = z.infer<typeof schema>;

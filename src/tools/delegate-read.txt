@@ -1,1 +1,7 @@
-Delegate read-heavy work to a cheap model. Provide paths and a question; returns a distilled answer without loading raw file bodies into your context.
+Delegate read-heavy work to the cheap model in a single shot. Provide paths and a
+question; returns a distilled answer without loading raw file bodies into your context.
+
+Prefer this over task when you already know which files to read and the job is a
+straightforward read/summarize/extract — it is faster and uses the cheap model.
+Use task (agent: explore) when the scope is open-ended and you need a multi-step
+search across the codebase instead.

@@ -6,8 +6,13 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "todowrite")).toBe(true);
   });
 
-  it("excludes todowrite from child tool presets", () => {
+  it("includes task in core tools", () => {
+    expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
+  });
+
+  it("excludes todowrite and task from child tool presets", () => {
     expect(getChildTools().some((t) => t.name === "todowrite")).toBe(false);
-    expect(getChildTools().length).toBe(getCoreTools().length - 1);
+    expect(getChildTools().some((t) => t.name === "task")).toBe(false);
+    expect(getChildTools().length).toBe(getCoreTools().length - 2);
   });
 });

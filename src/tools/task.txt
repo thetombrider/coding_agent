@@ -1,0 +1,12 @@
+Spawn a subagent for multi-step work in an isolated child loop. The child runs its
+own tool loop and returns only a summary — intermediate steps stay out of your context.
+
+Presets:
+- explore: read-only investigation (shared workspace) — grep/find/read across the tree
+- review: read-only code review (shared workspace)
+- general: full tool access in an E2B sandbox (mutating/risky work)
+
+Prefer delegate_read instead when you already know which files to read and only need
+a one-shot cheap-model summary — it is faster and lower cost. Use task when the scope
+is open-ended (you must search or follow leads), you need a structured review pass, or
+the work is mutating and should run in a sandbox.

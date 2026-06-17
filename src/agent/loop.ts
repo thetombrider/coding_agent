@@ -26,6 +26,8 @@ export interface RunLoopOptions {
   /** OpenRouter session id for sticky routing across turns and tool rounds. */
   sessionId?: string;
   onEvent?: SessionEventCallback;
+  /** Cap assistant turns — used by subagent child loops. */
+  maxTurns?: number;
 }
 
 interface ToolCallBlock {
@@ -193,8 +195,14 @@ export async function runLoop(
   const registry = toolMap(options.tools);
   const knownTools = new Set(options.tools.map((t) => t.name));
   let parseCorrectionRetries = 0;
+  let assistantTurns = 0;
 
   while (true) {
+    if (options.maxTurns !== undefined && assistantTurns >= options.maxTurns) {
+      hooks.emit({ type: "loop_end", reason: "terminate" });
+      break;
+    }
+
     const turnIndex = currentTurnCount(ctx.messages);
     const contextWindow = await getContextWindow(options.model);
 
@@ -263,6 +271,7 @@ export async function runLoop(
     }
 
     parseCorrectionRetries = 0;
+    assistantTurns += 1;
     ctx.messages.push(message);
     options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
     hooks.emit({ type: "assistant_message", message });

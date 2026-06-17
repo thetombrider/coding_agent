@@ -1,0 +1,230 @@
+import { describe, expect, it, vi } from "vitest";
+import { createHookRegistry } from "../hooks/registry.js";
+import { installCoreHooks } from "../hooks/install.js";
+import type { ApprovalGateRef } from "../hooks/approval-gate.js";
+import { createStatefulFauxProvider } from "../provider/faux.js";
+import { getChildTools, getCoreTools } from "./registry.js";
+import { runSubagentTask, taskTool } from "./task.js";
+import type { AgentContext } from "../types.js";
+import { createLocalWorkspace } from "../workspace/local.js";
+import { runLoop } from "../agent/loop.js";
+
+function loopHost(provider: ReturnType<typeof createStatefulFauxProvider>, tools = getCoreTools()) {
+  const hooks = createHookRegistry();
+  const approval: ApprovalGateRef = {
+    mode: "auto-accept",
+    autoAcceptCli: true,
+    tools,
+  };
+  installCoreHooks(hooks, approval);
+  return {
+    provider,
+    model: "faux:test",
+    hooks,
+    approval,
+  };
+}
+
+function baseCtx(overrides: Partial<AgentContext> = {}): AgentContext {
+  return {
+    cwd: process.cwd(),
+    messages: [],
+    workspace: createLocalWorkspace(),
+    depth: 0,
+    ...overrides,
+  };
+}
+
+describe("runSubagentTask", () => {
+  it("runs an explore subagent on the shared workspace and returns a summary", async () => {
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "ls1", name: "ls", arguments: { path: "." } }] },
+      { text: ["Found package.json and src/."] },
+    ]);
+
+    const ctx = baseCtx({
+      loopHost: loopHost(provider, getChildTools()),
+    });
+
+    const result = await runSubagentTask(
+      { description: "scan repo", prompt: "what files exist?", agent: "explore" },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain("Subagent (explore) finished");
+    expect(result.output).toContain("package.json");
+  });
+
+  it("rejects mutating work with shared isolation when E2B is unavailable", async () => {
+    vi.stubEnv("E2B_API_KEY", "");
+    const provider = createStatefulFauxProvider([{ text: ["unused"] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider) });
+
+    const result = await runSubagentTask(
+      {
+        description: "edit",
+        prompt: "change foo",
+        agent: "general",
+        isolation: "shared",
+      },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("Destructive subagent work requires sandbox isolation");
+    vi.unstubAllEnvs();
+  });
+
+  it("runs general subagent in a sandbox and disposes the workspace", async () => {
+    vi.stubEnv("E2B_API_KEY", "test-key");
+    const dispose = vi.fn(async () => {});
+    const exec = vi.fn(async () => ({ exitCode: 0 }));
+    const sandbox = {
+      kind: "e2b" as const,
+      exec,
+      readFile: async () => "",
+      writeFile: async () => {},
+      list: async () => [],
+      dispose,
+    };
+
+    const provider = createStatefulFauxProvider([{ text: ["Edited README in sandbox."] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider) });
+
+    const result = await runSubagentTask(
+      { description: "fix readme", prompt: "update readme", agent: "general" },
+      ctx,
+      new AbortController().signal,
+      {
+        createSandbox: async () => sandbox,
+        seedRepo: async () => "Cloned repo into sandbox",
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain("Subagent (general) finished");
+    expect(result.output).toContain("README");
+    expect(dispose).toHaveBeenCalledOnce();
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects sandbox isolation without an E2B API key", async () => {
+    vi.stubEnv("E2B_API_KEY", "");
+    const provider = createStatefulFauxProvider([{ text: ["unused"] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider) });
+
+    const result = await runSubagentTask(
+      {
+        description: "review",
+        prompt: "check code",
+        agent: "general",
+        isolation: "sandbox",
+      },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("E2B_API_KEY is not set");
+    vi.unstubAllEnvs();
+  });
+
+  it("blocks recursion beyond max depth", async () => {
+    const provider = createStatefulFauxProvider([{ text: ["unused"] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider), depth: 1 });
+
+    const result = await runSubagentTask(
+      { description: "nested", prompt: "go deeper" },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("recursion limit");
+  });
+
+  it("forwards child tool events to the parent hooks with subagentId", async () => {
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "read1", name: "read", arguments: { path: "package.json" } }] },
+      { text: ["done"] },
+    ]);
+
+    const parentHooks = createHookRegistry();
+    const approval: ApprovalGateRef = {
+      mode: "auto-accept",
+      autoAcceptCli: true,
+      tools: getChildTools(),
+    };
+    installCoreHooks(parentHooks, approval);
+
+    const childEvents: Array<{ type: string; subagentId?: string }> = [];
+    parentHooks.observe((event) => {
+      if (event.type === "tool_start" || event.type === "tool_end") {
+        childEvents.push({ type: event.type, subagentId: event.subagentId });
+      }
+    });
+
+    const ctx = baseCtx({
+      loopHost: {
+        provider,
+        model: "faux:test",
+        hooks: parentHooks,
+        approval,
+      },
+    });
+
+    await runSubagentTask(
+      { description: "read pkg", prompt: "read package.json", agent: "explore" },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(childEvents.some((e) => e.type === "tool_start" && e.subagentId)).toBe(true);
+    expect(childEvents.some((e) => e.type === "tool_end" && e.subagentId)).toBe(true);
+  });
+});
+
+describe("task tool via runLoop", () => {
+  it("parent agent can invoke task and receive the child summary", async () => {
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [{
+          id: "task1",
+          name: "task",
+          arguments: {
+            description: "explore tree",
+            prompt: "list top-level files",
+            agent: "explore",
+          },
+        }],
+      },
+      { toolCalls: [{ id: "ls1", name: "ls", arguments: { path: "." } }] },
+      { text: ["Found package.json"] },
+      { text: ["The subagent found package.json."] },
+    ]);
+
+    const hooks = createHookRegistry();
+    const tools = getCoreTools();
+    installCoreHooks(hooks, { mode: "auto-accept", autoAcceptCli: true, tools });
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "explore the repo" }] }],
+      workspace: createLocalWorkspace(),
+      depth: 0,
+      loopHost: {
+        provider,
+        model: "faux:test",
+        hooks,
+        approval: { mode: "auto-accept", autoAcceptCli: true, tools },
+      },
+    };
+
+    await runLoop(ctx, hooks, { provider, tools, model: "faux:test" });
+    expect(ctx.messages.some((m) => m.role === "tool")).toBe(true);
+    expect(taskTool.name).toBe("task");
+  });
+});

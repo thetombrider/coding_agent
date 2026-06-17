@@ -82,6 +82,7 @@ const TOOL_VERBS: Record<string, string> = {
   find: "Finding",
   ls: "Listing",
   delegate_read: "Delegating read of",
+  task: "Subagent",
   todowrite: "Updating tasks",
 };
 
@@ -96,7 +97,7 @@ function toolStatusHint(name: string, args: unknown): string {
   let detail = "";
   if (args && typeof args === "object") {
     const r = args as Record<string, unknown>;
-    for (const key of ["path", "command", "pattern", "task"] as const) {
+    for (const key of ["path", "command", "pattern", "task", "description"] as const) {
       if (typeof r[key] === "string") {
         detail = r[key] as string;
         break;
@@ -303,6 +304,16 @@ export function createSessionController(meta: SessionMeta): SessionController {
           break;
         case "todo_update":
           update({ todos: event.todos });
+          break;
+        case "subagent_start":
+          update({
+            statusHint: `Subagent (${event.agent}): ${event.description}…`,
+          });
+          break;
+        case "subagent_end":
+          update({
+            statusHint: `Subagent (${event.agent}) finished — ${event.turns} turn${event.turns === 1 ? "" : "s"}`,
+          });
           break;
         case "loop_end":
           break;
