@@ -7,7 +7,13 @@ import {
   indentationFlexibleMatch,
   escapeNormalizedMatch,
   levenshteinMatch,
+  anchorMatch,
+  middleOutFuzzyMatch,
+  parseStartLineHint,
   findMatch,
+  findClosestCandidate,
+  EditMismatchError,
+  normalizedSimilarity,
 } from "./replacers.js";
 
 // Helper: apply a match result to perform the actual substitution
@@ -219,10 +225,19 @@ describe("findMatch chain", () => {
     expect(file.slice(0, r.start) + "REPLACED" + file.slice(r.end)).toBe("REPLACED\n");
   });
 
-  it("throws descriptive error when all matchers fail", () => {
-    expect(() => findMatch("abc\n", "xyz")).toThrow(/edit failed/);
-    expect(() => findMatch("abc\n", "xyz")).toThrow(/exact match/);
-    expect(() => findMatch("abc\n", "xyz")).toThrow(/grep/);
+  it("throws EditMismatchError with diagnostics when all matchers fail", () => {
+    expect(() => findMatch("abc\n", "xyz")).toThrow(EditMismatchError);
+    try {
+      findMatch("abc\n", "xyz");
+    } catch (err) {
+      expect(err).toBeInstanceOf(EditMismatchError);
+      const e = err as EditMismatchError;
+      expect(e.details.similarity).toBeGreaterThanOrEqual(0);
+      expect(e.details.closestLine).toBeGreaterThan(0);
+      expect(e.details.context).toMatch(/\d+ \|/);
+      expect(e.details.triedMatchers).toContain("exact match");
+      expect(e.details.triedMatchers).toContain("middle-out fuzzy match");
+    }
   });
 
   it("simpleMatch wins for exact input", () => {
@@ -238,5 +253,103 @@ describe("findMatch chain", () => {
     expect(r).toBeDefined();
     const result = file.slice(0, r.start) + "REPLACED" + file.slice(r.end);
     expect(result).toContain("REPLACED");
+  });
+});
+
+describe("parseStartLineHint", () => {
+  it("strips :start_line:N prefix", () => {
+    expect(parseStartLineHint(":start_line:42\nfoo bar")).toEqual({
+      text: "foo bar",
+      startLine: 42,
+    });
+  });
+
+  it("returns text unchanged when no hint", () => {
+    expect(parseStartLineHint("foo bar")).toEqual({ text: "foo bar" });
+  });
+});
+
+describe("anchorMatch", () => {
+  it("disambiguates non-unique oldText at the hinted line", () => {
+    const file = "line one\nfoo bar\nline three\nfoo bar\nline five\n";
+    const old = "foo bar";
+    // Globally ambiguous — simpleMatch returns null
+    expect(simpleMatch(file, old)).toBeNull();
+    // Anchor at line 2 selects the first occurrence
+    const r = anchorMatch(file, old, 2);
+    expect(r).not.toBeNull();
+    const result = file.slice(0, r!.start) + "FIRST" + file.slice(r!.end);
+    expect(result).toContain("line one\nFIRST\nline three");
+    expect(result).toContain("line three\nfoo bar\n");
+  });
+
+  it("selects second occurrence when hinted at line 4", () => {
+    const file = "line one\nfoo bar\nline three\nfoo bar\nline five\n";
+    const r = anchorMatch(file, "foo bar", 4);
+    expect(r).not.toBeNull();
+    const result = file.slice(0, r!.start) + "SECOND" + file.slice(r!.end);
+    expect(result).toContain("line three\nSECOND\nline five");
+    expect(result).toContain("line one\nfoo bar\n");
+  });
+
+  it("findMatch uses startLine option to disambiguate", () => {
+    const file = "aaa\nbbb\naaa\nbbb\n";
+    const r = findMatch(file, "aaa", { startLine: 3 });
+    expect(r).not.toBeNull();
+    const result = file.slice(0, r.start) + "XXX" + file.slice(r.end);
+    expect(result).toBe("aaa\nbbb\nXXX\nbbb\n");
+  });
+
+  it("findMatch uses :start_line: prefix from oldText", () => {
+    const file = "aaa\nbbb\naaa\nbbb\n";
+    const r = findMatch(file, ":start_line:1\naaa");
+    expect(r).not.toBeNull();
+    const result = file.slice(0, r.start) + "XXX" + file.slice(r.end);
+    expect(result).toBe("XXX\nbbb\naaa\nbbb\n");
+  });
+});
+
+describe("middleOutFuzzyMatch", () => {
+  it("matches near-miss oldText beyond whitespace drift", () => {
+    const file = "function greet() {\n  return 'hello';\n}\n";
+    const old = "function greet() {\n  return 'helo';\n}"; // typo: helo
+    const r = middleOutFuzzyMatch(file, old, 0.85);
+    expect(r).not.toBeNull();
+    const result = file.slice(0, r!.start) + "REPLACED" + file.slice(r!.end);
+    expect(result).toBe("REPLACED\n");
+  });
+
+  it("returns null when similarity is below threshold", () => {
+    const file = "function greet() {\n  return 'hello';\n}\n";
+    const old = "completely different text";
+    expect(middleOutFuzzyMatch(file, old, 0.95)).toBeNull();
+  });
+
+  it("findMatch falls through to middle-out for near-miss", () => {
+    const file = "const value = 42;\nconst other = 99;\n";
+    const old = "const value = 43;\n"; // off by one digit
+    const r = findMatch(file, old, { similarityThreshold: 0.7 });
+    expect(r).toBeDefined();
+  });
+});
+
+describe("findClosestCandidate", () => {
+  it("returns similarity score and surrounding context", () => {
+    const file = "alpha\nbeta\ngamma\ndelta\n";
+    const closest = findClosestCandidate(file, "betta");
+    expect(closest.similarity).toBeGreaterThan(0);
+    expect(closest.line).toBe(2);
+    expect(closest.context).toMatch(/beta/);
+    expect(closest.context).toMatch(/^\s*\d+ \|/m);
+  });
+});
+
+describe("normalizedSimilarity", () => {
+  it("returns 1 for identical strings", () => {
+    expect(normalizedSimilarity("hello", "hello")).toBe(1);
+  });
+
+  it("returns 0 for completely different equal-length strings", () => {
+    expect(normalizedSimilarity("aaaa", "bbbb")).toBe(0);
   });
 });

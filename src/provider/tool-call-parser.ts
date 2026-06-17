@@ -209,3 +209,32 @@ export function formatToolValidationErrors(
     "Please fix the arguments and try again using valid XML or JSON tool call format.",
   ].join("\n");
 }
+
+export function formatEditMismatchError(details: {
+  oldText: string;
+  similarity: number;
+  closestCandidate: string;
+  closestLine: number;
+  context: string;
+  triedMatchers: string[];
+}): string {
+  const pct = Math.round(details.similarity * 100);
+  const preview =
+    details.oldText.length > 120
+      ? `${details.oldText.slice(0, 120)}…`
+      : details.oldText;
+
+  return [
+    "The edit could not be applied — oldText did not match the file.",
+    "",
+    `Your oldText (preview): ${JSON.stringify(preview)}`,
+    "",
+    `Closest match (${pct}% similar) at line ${details.closestLine}:`,
+    details.context,
+    "",
+    `Matchers tried: ${details.triedMatchers.join(", ")}.`,
+    "",
+    "Fix oldText to match the file exactly, or add a startLine hint to disambiguate non-unique text.",
+    "Use grep or read to verify the current file content before retrying.",
+  ].join("\n");
+}

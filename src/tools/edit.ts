@@ -2,12 +2,19 @@ import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { loadToolDescription } from "../util/load-txt.js";
-import { findMatch } from "../edit/replacers.js";
+import { EditMismatchError, findMatch } from "../edit/replacers.js";
+import { formatEditMismatchError } from "../provider/tool-call-parser.js";
 import type { Tool } from "./types.js";
 
 const editItemSchema = z.object({
-  oldText: z.string().describe("Text to find (must be unique in file)"),
+  oldText: z.string().describe("Text to find (must be unique in file, or use startLine to disambiguate)"),
   newText: z.string().describe("Replacement text"),
+  startLine: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("1-indexed line hint — disambiguates non-unique oldText (also accepts :start_line:N prefix)"),
 });
 
 const schema = z.object({
@@ -17,6 +24,8 @@ const schema = z.object({
 
 export type EditArgs = z.infer<typeof schema>;
 
+type PlannedEdit = { start: number; end: number; newText: string };
+
 export function applyExactEdits(original: string, edits: EditArgs["edits"]): string {
   return applyFuzzyEdits(original, edits);
 }
@@ -24,8 +33,8 @@ export function applyExactEdits(original: string, edits: EditArgs["edits"]): str
 export function applyFuzzyEdits(original: string, edits: EditArgs["edits"]): string {
   if (edits.some((e) => !e.oldText)) throw new Error("oldText must be non-empty");
 
-  const planned = edits.map(({ oldText, newText }) => ({
-    ...findMatch(original, oldText),
+  const planned: PlannedEdit[] = edits.map(({ oldText, newText, startLine }) => ({
+    ...findMatch(original, oldText, { startLine }),
     newText,
   }));
 
@@ -37,10 +46,15 @@ export function applyFuzzyEdits(original: string, edits: EditArgs["edits"]): str
     }
   }
 
-  planned.sort((a, b) => b.start - a.start);
+  // Sort ascending and apply with a running delta so out-of-order blocks land correctly.
+  planned.sort((a, b) => a.start - b.start);
   let content = original;
+  let delta = 0;
   for (const { start, end, newText } of planned) {
-    content = content.slice(0, start) + newText + content.slice(end);
+    const adjStart = start + delta;
+    const adjEnd = end + delta;
+    content = content.slice(0, adjStart) + newText + content.slice(adjEnd);
+    delta += newText.length - (end - start);
   }
   return content;
 }
@@ -53,9 +67,16 @@ export const editTool: Tool<EditArgs> = {
   async execute({ path, edits }, ctx) {
     const fullPath = resolvePath(ctx.cwd, path);
     const original = await ctx.workspace.readFile(fullPath);
-    const updated = applyExactEdits(original, edits);
-    const patch = createTwoFilesPatch(path, path, original, updated, "", "");
-    await ctx.workspace.writeFile(fullPath, updated);
-    return { output: patch || `Updated ${path} (${edits.length} edit(s))` };
+    try {
+      const updated = applyExactEdits(original, edits);
+      const patch = createTwoFilesPatch(path, path, original, updated, "", "");
+      await ctx.workspace.writeFile(fullPath, updated);
+      return { output: patch || `Updated ${path} (${edits.length} edit(s))` };
+    } catch (err) {
+      if (err instanceof EditMismatchError) {
+        return { output: formatEditMismatchError(err.details), isError: true };
+      }
+      throw err;
+    }
   },
 };
