@@ -23,7 +23,10 @@ const schema = z.object({
   agent: z
     .enum(["explore", "review", "general"])
     .optional()
-    .describe("Subagent preset; default general."),
+    .describe(
+      "Subagent preset; default general. Use explore/review for open-ended read-only "
+      + "investigation — not for known-path summaries (use delegate_read instead).",
+    ),
   isolation: z
     .enum(["shared", "sandbox"])
     .optional()
