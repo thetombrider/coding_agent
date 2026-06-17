@@ -64,7 +64,7 @@ export interface SessionController {
   updateMeta: (patch: Partial<SessionMeta>) => void;
 }
 
-const IDLE_HINT = "scroll wheel / PgUp · End jumps to latest · /exit to quit";
+const IDLE_HINT = "scroll · End latest · click/o expand tool · /exit to quit";
 
 const TOOL_VERBS: Record<string, string> = {
   read: "Reading",
