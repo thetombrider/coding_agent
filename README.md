@@ -10,6 +10,12 @@ and a [SolidJS](https://www.solidjs.com)-powered terminal UI
 ([`@opentui/solid`](https://github.com/anomalyco/opentui)). The design and phased
 build plan live in [`SPEC.md`](./SPEC.md).
 
+<p align="center">
+  <img src="docs/media/welcome.png" alt="Orin's interactive terminal UI welcome screen" width="760">
+  <br>
+  <em>The interactive TUI, shown in offline <code>--faux</code> demo mode.</em>
+</p>
+
 ---
 
 ## Features
@@ -131,6 +137,12 @@ Type these inside the TUI:
 | `/help` | Show the command list |
 | `/exit` | Quit |
 
+Type `/` to open the command palette; `/model` and `/providers` open pickers:
+
+| Command palette (`/`) | Model picker (`/model`) |
+| :---: | :---: |
+| ![Orin command palette](docs/media/command-palette.png) | ![Orin model picker](docs/media/model-picker.png) |
+
 ## How it works
 
 The agent loop is small and headless — it never touches the terminal directly,
@@ -147,6 +159,12 @@ runLoop(ctx, emit):
     ctx.messages.push(...results)
     if any result terminates: break
 ```
+
+<p align="center">
+  <img src="docs/media/session.png" alt="Orin handling a task: a read tool call followed by the answer" width="760">
+  <br>
+  <em>One turn of the loop: Orin calls the <code>read</code> tool, then answers — streamed live.</em>
+</p>
 
 Everything is **messages of typed content blocks** (`text`, `toolCall`,
 `toolResult`). The provider layer wraps the AI SDK's `streamText` behind one
