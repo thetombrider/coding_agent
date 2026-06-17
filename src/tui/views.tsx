@@ -64,11 +64,15 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
   };
 
   return (
-    <box flexDirection="column" marginLeft={1} marginBottom={1}>
+    <box
+      flexDirection="column"
+      marginLeft={1}
+      marginBottom={1}
+      onMouseOver={() => toolExpand?.setHovered(props.id)}
+    >
       <box
         flexDirection="row"
         onMouseDown={() => toggleExpanded()}
-        onMouseOver={() => toolExpand?.setHovered(props.id)}
       >
         <text selectable={false} fg={theme.reasoning} attributes={props.streaming ? BOLD : 0}>
           {props.streaming && !hasText() ? "◌" : "▸"} thinking
@@ -87,8 +91,9 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
   );
 }
 
-function ToolLine(props: { entry: ToolEntry }) {
+function ToolLine(props: { entry: ToolEntry; expandKey: string }) {
   const entry = () => props.entry;
+  const expandKey = () => props.expandKey;
   const toolExpand = useToolExpand();
   const showDiff = () =>
     entry().name === "edit"
@@ -111,15 +116,15 @@ function ToolLine(props: { entry: ToolEntry }) {
   };
 
   onMount(() => {
-    toolExpand?.registerToggle(entry().id, toggleExpanded);
-    toolExpand?.registerCopyTarget(entry().id, {
+    toolExpand?.registerToggle(expandKey(), toggleExpanded);
+    toolExpand?.registerCopyTarget(expandKey(), {
       getOutput: () => entry().output,
       isExpanded: () => expanded() || showDiff(),
     });
   });
   onCleanup(() => {
-    toolExpand?.registerToggle(entry().id, null);
-    toolExpand?.registerCopyTarget(entry().id, null);
+    toolExpand?.registerToggle(expandKey(), null);
+    toolExpand?.registerCopyTarget(expandKey(), null);
   });
 
   createEffect(() => {
@@ -146,11 +151,14 @@ function ToolLine(props: { entry: ToolEntry }) {
   // path (a reactive StyledText child instead appends a duplicate on every
   // re-render of the live turn; <span fg> doesn't apply color at all).
   return (
-    <box flexDirection="column" marginLeft={1}>
+    <box
+      flexDirection="column"
+      marginLeft={1}
+      onMouseOver={() => toolExpand?.setHovered(expandKey())}
+    >
       <box
         flexDirection="row"
         onMouseDown={() => toggleExpanded()}
-        onMouseOver={() => toolExpand?.setHovered(entry().id)}
       >
         <text selectable={false} fg={accent()} attributes={running() ? BOLD : 0}>{glyph()} {entry().name}</text>
         <Show when={summary()}>
@@ -176,7 +184,13 @@ function ToolLine(props: { entry: ToolEntry }) {
   );
 }
 
-export function TurnView(props: { turn: Turn; first?: boolean; reasoningId?: string; reasoningStreaming?: boolean }) {
+export function TurnView(props: {
+  turn: Turn;
+  turnKey: string;
+  first?: boolean;
+  reasoningId?: string;
+  reasoningStreaming?: boolean;
+}) {
   const turn = () => props.turn;
   const hasTools = () => turn().tools.length > 0;
   const showReasoning = () => !!turn().reasoningText || props.reasoningStreaming;
@@ -201,7 +215,9 @@ export function TurnView(props: { turn: Turn; first?: boolean; reasoningId?: str
           streaming={props.reasoningStreaming}
         />
       </Show>
-      <For each={turn().tools}>{(entry) => <ToolLine entry={entry} />}</For>
+      <For each={turn().tools}>
+        {(entry) => <ToolLine entry={entry} expandKey={`${props.turnKey}/${entry.id}`} />}
+      </For>
       <Show when={turn().assistantText}>
         <box flexDirection="column" marginTop={hasTools() ? 1 : 0}>
           <Markdown content={turn().assistantText} />

@@ -10,7 +10,13 @@ import { ApprovalBar, Header, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
-import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut, isSelectionHintShortcut } from "./shortcuts.js";
+import {
+  isCopyAllShortcut,
+  isCopyBlockShortcut,
+  isPasteShortcut,
+  isSelectionCopyShortcut,
+  isSelectionHintShortcut,
+} from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
 import { KEYBOARD_HINTS, processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
@@ -535,12 +541,6 @@ export function App(props: {
   useKeyboard((key) => {
     const phase = state().phase;
 
-    if (phase === "approval") {
-      if (key.name === "y") props.controller.respondApproval(true);
-      if (key.name === "n" || key.name === "escape") props.controller.respondApproval(false);
-      return;
-    }
-
     if (key.ctrl && key.name === "c") {
       if (configPrompt() !== null) {
         closeConfigPrompt();
@@ -548,6 +548,21 @@ export function App(props: {
         return;
       }
       props.onExit();
+      return;
+    }
+
+    // Standard select-then-copy — always active, including while the agent runs.
+    if (isSelectionCopyShortcut(key)) {
+      const selected = readRendererSelection(renderer);
+      if (selected) void performCopy(selected);
+      else props.controller.setStatusHint("Select text to copy");
+      return;
+    }
+
+    if (phase === "approval") {
+      if (key.name === "y") props.controller.respondApproval(true);
+      if (key.name === "n") props.controller.respondApproval(false);
+      if (key.name === "escape" && !renderer.hasSelection) props.controller.respondApproval(false);
       return;
     }
 
@@ -593,21 +608,23 @@ export function App(props: {
     }
 
     if (!scrollRef) return;
+
+    if (key.name === "escape" && renderer.hasSelection) {
+      renderer.clearSelection();
+      props.controller.setStatusHint("Selection cleared");
+      return;
+    }
+
     if (pasteShortcutEnabled() && isPasteShortcut(key)) {
       void performPaste();
       return;
     }
     if (copyShortcutsEnabled()) {
-      if (key.name === "escape" && renderer.hasSelection) {
-        renderer.clearSelection();
-        props.controller.setStatusHint("Selection cleared");
-        return;
-      }
       if (isSelectionHintShortcut(key)) {
         props.controller.setStatusHint(
           process.platform === "darwin"
-            ? "Drag to select text, then ⌘C to copy. Esc clears selection."
-            : "Drag to select text, then Ctrl+Shift+C to copy. Esc clears selection.",
+            ? "Drag to select text, then ⌘C to copy."
+            : "Drag to select text, then Ctrl+Shift+C to copy.",
         );
         return;
       }
@@ -692,12 +709,20 @@ export function App(props: {
           }
         >
           <For each={completed()}>
-            {(turn, i) => <TurnView turn={turn} first={i() === 0} reasoningId={`reasoning-${i()}`} />}
+            {(turn, i) => (
+              <TurnView
+                turn={turn}
+                turnKey={`turn-${i()}`}
+                first={i() === 0}
+                reasoningId={`reasoning-${i()}`}
+              />
+            )}
           </For>
           <Show when={live()}>
             {(turn) => (
               <TurnView
                 turn={turn()}
+                turnKey="turn-live"
                 first={completed().length === 0}
                 reasoningId="reasoning-live"
                 reasoningStreaming={state().phase === "running" && !turn().assistantText}
