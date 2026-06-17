@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  clipboardHintText,
   isCopyAllShortcut,
   isCopyBlockShortcut,
+  isInterruptShortcut,
   isPasteShortcut,
+  isPlainSelectionCopyShortcut,
   isSelectionCopyShortcut,
   isSelectionHintShortcut,
 } from "./shortcuts.js";
@@ -20,6 +23,14 @@ describe("shortcuts", () => {
     expect(isSelectionCopyShortcut(key("c", { meta: true }))).toBe(true);
     expect(isSelectionCopyShortcut(key("c", { meta: true, shift: true }))).toBe(false);
     expect(isSelectionCopyShortcut(key("c"))).toBe(false);
+  });
+
+  it("detects plain selection copy and interrupt shortcuts", () => {
+    expect(isPlainSelectionCopyShortcut(key("c"))).toBe(true);
+    expect(isPlainSelectionCopyShortcut(key("c", { ctrl: true }))).toBe(false);
+    expect(isInterruptShortcut(key("c", { ctrl: true }))).toBe(true);
+    expect(isInterruptShortcut(key("c", { ctrl: true, shift: true }))).toBe(false);
+    expect(isInterruptShortcut(key("c", { meta: true }))).toBe(false);
   });
 
   it("detects copy-block shortcuts", () => {
@@ -44,5 +55,10 @@ describe("shortcuts", () => {
     expect(isSelectionHintShortcut(key("v"))).toBe(true);
     expect(isSelectionHintShortcut(key("v", { ctrl: true }))).toBe(false);
     expect(isSelectionHintShortcut(key("v", { meta: true }))).toBe(false);
+  });
+
+  it("shows Terminal.app-specific clipboard hints", () => {
+    expect(clipboardHintText({ TERM_PROGRAM: "Apple_Terminal" })).toContain("c copy");
+    expect(clipboardHintText({ TERM_PROGRAM: "vscode" })).toContain("⌘C");
   });
 });

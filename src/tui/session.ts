@@ -21,6 +21,7 @@ import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { messagesToTurns } from "./messages-to-turns.js";
 import { restoreTerminal } from "./terminal.js";
+import { terminalStartupCopyHint } from "./terminal-env.js";
 import { terminalBg, terminalFg, theme } from "./theme.js";
 
 const hex2 = (n: number) => n.toString(16).padStart(2, "0");
@@ -225,6 +226,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       exitOnCtrlC: false,
       backgroundColor: theme.bg,
     });
+
+    const startupCopyHint = terminalStartupCopyHint();
+    if (startupCopyHint) controller.setStatusHint(startupCopyHint);
 
     await render(
       () =>
