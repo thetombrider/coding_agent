@@ -70,14 +70,14 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
         onMouseDown={() => toggleExpanded()}
         onMouseOver={() => toolExpand?.setHovered(props.id)}
       >
-        <text fg={theme.reasoning} attributes={props.streaming ? BOLD : 0}>
+        <text selectable={false} fg={theme.reasoning} attributes={props.streaming ? BOLD : 0}>
           {props.streaming && !hasText() ? "◌" : "▸"} thinking
         </text>
         <Show when={hint()}>
-          <text fg={theme.muted}>  {hint()}</text>
+          <text selectable={false} fg={theme.muted}>  {hint()}</text>
         </Show>
         <Show when={expanded() && hasText()}>
-          <text fg={theme.muted}>  c copy</text>
+          <text selectable={false} fg={theme.muted}>  c copy</text>
         </Show>
       </box>
       <Show when={hasText() && expanded()}>
@@ -152,15 +152,15 @@ function ToolLine(props: { entry: ToolEntry }) {
         onMouseDown={() => toggleExpanded()}
         onMouseOver={() => toolExpand?.setHovered(entry().id)}
       >
-        <text fg={accent()} attributes={running() ? BOLD : 0}>{glyph()} {entry().name}</text>
+        <text selectable={false} fg={accent()} attributes={running() ? BOLD : 0}>{glyph()} {entry().name}</text>
         <Show when={summary()}>
-          <text fg={theme.secondary}>  {summary()}</text>
+          <text selectable={false} fg={theme.secondary}>  {summary()}</text>
         </Show>
         <Show when={expandHint()}>
-          <text fg={theme.muted}>  {expandHint()}</text>
+          <text selectable={false} fg={theme.muted}>  {expandHint()}</text>
         </Show>
         <Show when={copyHint()}>
-          <text fg={theme.muted}>  {copyHint()}</text>
+          <text selectable={false} fg={theme.muted}>  {copyHint()}</text>
         </Show>
       </box>
       <Show when={entry().status === "error" && entry().output && !expanded()}>
