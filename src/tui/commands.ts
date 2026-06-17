@@ -238,7 +238,12 @@ function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
     : match.authStrategy === "oauth"
       ? " (not configured — complete its OAuth setup)"
       : " (not configured — run /providers configure " + match.id + ")";
-  return { type: "set-provider", provider: match.id, message: `provider → ${match.id}${warn}` };
+  let message = `provider → ${match.id}${warn}`;
+  if (match.id === "regolo" && ctx.currentModel.includes("/")) {
+    message +=
+      " — switch model with /model (Regolo uses native ids like Llama-3.3-70B-Instruct)";
+  }
+  return { type: "set-provider", provider: match.id, message };
 }
 
 function handleProviders(arg: string, ctx: CommandContext): CommandResult {

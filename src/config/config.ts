@@ -154,6 +154,9 @@ export function loadConfig(): Config {
   if (process.env.OPENROUTER_API_KEY?.trim()) {
     merged.provider.openrouter = { ...merged.provider.openrouter, apiKey: process.env.OPENROUTER_API_KEY.trim() };
   }
+  if (process.env.REGOLO_API_KEY?.trim()) {
+    merged.provider.regolo = { ...merged.provider.regolo, apiKey: process.env.REGOLO_API_KEY.trim() };
+  }
   if (process.env.E2B_API_KEY?.trim()) {
     merged.sandbox = { ...merged.sandbox, e2b: { ...merged.sandbox?.e2b, apiKey: process.env.E2B_API_KEY.trim() } };
   }
@@ -168,6 +171,11 @@ export function loadConfig(): Config {
 /** True when an OpenRouter API key is available from the env var or config file. */
 export function hasOpenRouterApiKey(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey);
+}
+
+/** True when a Regolo API key is available from the env var or config file. */
+export function hasRegoloApiKey(): boolean {
+  return Boolean(process.env.REGOLO_API_KEY?.trim() || loadConfig().provider.regolo?.apiKey);
 }
 
 /** True when an E2B API key is available from the env var or config file. */

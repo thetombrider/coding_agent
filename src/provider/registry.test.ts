@@ -46,13 +46,15 @@ describe("provider registry", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("registers OpenRouter as the default provider", async () => {
+  it("registers OpenRouter and Regolo providers", async () => {
     const { getProvider, listProviders, metadataProviders } = await import("./registry.js");
     const openrouter = getProvider("openrouter");
     expect(openrouter?.id).toBe("openrouter");
     expect(openrouter?.authStrategy).toBe("api-key");
     expect(listProviders().some((p) => p.id === "openrouter")).toBe(true);
+    expect(listProviders().some((p) => p.id === "regolo")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openrouter")).toBe(true);
+    expect(metadataProviders().some((m) => m.id === "regolo")).toBe(true);
   });
 
   it("resolves the active provider from config", async () => {
@@ -93,6 +95,12 @@ describe("provider registry", () => {
     process.env.OPENROUTER_API_KEY = "sk-or-test";
     const { getProvider } = await import("./registry.js");
     expect(getProvider("openrouter")?.isConfigured()).toBe(true);
+  });
+
+  it("reports Regolo configured when the env key is set", async () => {
+    process.env.REGOLO_API_KEY = "sk-regolo-test";
+    const { getProvider } = await import("./registry.js");
+    expect(getProvider("regolo")?.isConfigured()).toBe(true);
   });
 
   it("exposes config fields for api-key providers", async () => {

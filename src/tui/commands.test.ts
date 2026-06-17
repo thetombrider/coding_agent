@@ -19,7 +19,12 @@ const provCtx: CommandContext = {
   ...ctx,
   currentProvider: "openrouter",
   providers,
-  providerConfigFields: (id) => (id === "openrouter" ? [{ key: "apiKey", label: "OpenRouter API key", secret: true }] : []),
+  providerConfigFields: (id) =>
+    id === "openrouter"
+      ? [{ key: "apiKey", label: "OpenRouter API key", secret: true }]
+      : id === "regolo"
+        ? [{ key: "apiKey", label: "Regolo AI API key", secret: true, envVar: "REGOLO_API_KEY" }]
+        : [],
 };
 
 describe("processCommand", () => {
@@ -187,6 +192,25 @@ describe("processCommand", () => {
     it("points unconfigured api-key switches at /providers configure", () => {
       const r = processCommand("/providers regolo", provCtx);
       if (r.type === "set-provider") expect(r.message).toMatch(/\/providers configure regolo/);
+    });
+
+    it("starts configure flow for regolo", () => {
+      expect(processCommand("/providers configure regolo", provCtx)).toMatchObject({
+        type: "configure-provider",
+        provider: "regolo",
+        activateOnComplete: false,
+      });
+    });
+
+    it("hints to switch model when moving to regolo with an OpenRouter-style model id", () => {
+      const r = processCommand("/providers regolo", {
+        ...provCtx,
+        providers: [{ ...providers[2]!, configured: true }],
+      });
+      if (r.type === "set-provider") {
+        expect(r.message).toMatch(/\/model/);
+        expect(r.message).toMatch(/Llama-3\.3-70B-Instruct/);
+      }
     });
   });
 

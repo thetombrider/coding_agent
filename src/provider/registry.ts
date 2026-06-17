@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 import { loadConfig } from "../config/config.js";
 import { openRouterProvider } from "./providers/openrouter.js";
+import { regoloProvider } from "./providers/regolo.js";
 import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
 
 /** Provider id used as the fallback when config selects an unknown provider. */
@@ -78,6 +79,7 @@ export function providerSummaries(): ProviderSummary[] {
   }));
 }
 
-// Built-in providers. Additional backends (Anthropic, OpenAI, LiteLLM, Regolo,
+// Built-in providers. Additional backends (Anthropic, OpenAI, LiteLLM,
 // Vercel/Cloudflare gateways, OAuth) register here in follow-up PRs.
 registerProvider(openRouterProvider);
+registerProvider(regoloProvider);
