@@ -60,4 +60,23 @@ describe("createToolExpandState", () => {
     expand.toggleHovered();
     expect(fallback).toBe(1);
   });
+
+  it("returns hovered and expanded tool output for copy", async () => {
+    const { createToolExpandState } = await import("./tool-expand.js");
+    const expand = createToolExpandState();
+    expand.registerCopyTarget("a", {
+      getOutput: () => "full output",
+      isExpanded: () => true,
+    });
+    expand.registerCopyTarget("b", {
+      getOutput: () => "collapsed",
+      isExpanded: () => false,
+    });
+    expand.setHovered("a");
+    expect(expand.getHoveredOutput()).toBe("full output");
+    expect(expand.getHoveredExpandedOutput()).toBe("full output");
+    expand.setHovered("b");
+    expect(expand.getHoveredOutput()).toBe("collapsed");
+    expect(expand.getHoveredExpandedOutput()).toBeUndefined();
+  });
 });

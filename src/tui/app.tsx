@@ -8,7 +8,9 @@ import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
 import { ApprovalBar, Header, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
-import { processCommand } from "./commands.js";
+import { copyToClipboard, formatCopyStatus } from "./clipboard.js";
+import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
+import { KEYBOARD_HINTS, processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { KNOWN_MAIN_MODELS } from "../config/models.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
@@ -94,6 +96,21 @@ export function App(props: {
   const toolExpand = createToolExpandState();
   onCleanup(props.controller.subscribe(setState));
   useSpinnerClock();
+
+  const copyShortcutsEnabled = () =>
+    state().phase === "input"
+    && palette() === null
+    && configPrompt() === null
+    && !submitting();
+
+  const performCopy = async (text: string | null | undefined) => {
+    if (!text) {
+      props.controller.setStatusHint("Nothing to copy — see ~/.orin/sessions/*.jsonl");
+      return;
+    }
+    const result = await copyToClipboard(text);
+    props.controller.setStatusHint(formatCopyStatus(result));
+  };
 
   let scrollRef: ScrollBoxRenderable | undefined;
   let sessionListScrollRef: ScrollBoxRenderable | undefined;
@@ -266,7 +283,7 @@ export function App(props: {
         props.onExit();
       } else if (name === "help") {
         props.controller.setStatusHint(
-          SLASH_COMMANDS.map((c) => `${c.label}: ${c.description}`).join("  ·  "),
+          `${KEYBOARD_HINTS}  ·  ${SLASH_COMMANDS.map((c) => `${c.label}: ${c.description}`).join("  ·  ")}`,
         );
       }
       return;
@@ -516,6 +533,23 @@ export function App(props: {
     }
 
     if (!scrollRef) return;
+    if (copyShortcutsEnabled()) {
+      if (key.ctrl && key.name === "o") {
+        void performCopy(pickFocusedCopyText(state(), toolExpand.getHoveredOutput()));
+        return;
+      }
+      if (key.ctrl && key.name === "y") {
+        void performCopy(sessionToPlainText(state()));
+        return;
+      }
+      if (key.name === "c") {
+        const expanded = toolExpand.getHoveredExpandedOutput();
+        if (expanded) {
+          void performCopy(expanded);
+          return;
+        }
+      }
+    }
     if (
       key.name === "o"
       && phase === "input"
