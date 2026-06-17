@@ -43,7 +43,8 @@ build plan live in [`SPEC.md`](./SPEC.md).
 - **Persistent sessions** — every session is an append-only JSONL log under
   `~/.orin/sessions/`. Browse and resume them with `/sessions` or `--resume`.
 - **Local or remote execution** — run tools on your machine or in an
-  [E2B](https://e2b.dev) cloud sandbox (`/sandbox e2b`).
+  [E2B](https://e2b.dev) cloud sandbox by setting `sandbox.active` to `"e2b"` in
+  `~/.orin/config.json` (requires `E2B_API_KEY`).
 - **Lifecycle hooks** — `before_tool` / `after_tool` / `before_prompt` /
   `before_compact` / `session_start` / `session_end` interception points (used,
   for example, to transparently route `bash` through [RTK](https://github.com/rtk-ai/rtk)
@@ -100,7 +101,7 @@ file directly.
 | Main model | `ORIN_MODEL` | Default agent model (OpenRouter `provider/model` id). |
 | Cheap model | `ORIN_CHEAP_MODEL` | Used by `delegate_read` and compaction. |
 | Approval mode | `ORIN_APPROVAL_MODE` | `normal` \| `auto-accept` \| `plan`. |
-| E2B API key | `E2B_API_KEY` | Optional — for `/sandbox e2b`. Also `sandbox.e2b.apiKey` in config. |
+| E2B API key | `E2B_API_KEY` | Optional — for whole-session E2B (`sandbox.active: "e2b"`). Also `sandbox.e2b.apiKey` in config. |
 
 Your config, sessions, and keys all live under `~/.orin/` and are untouched by
 upgrades. OAuth-based providers (when implemented) store tokens in
@@ -132,7 +133,6 @@ Type these inside the TUI:
 | `/model [id\|number]` | Switch the active model |
 | `/providers [id\|number]` | List or switch the active LLM provider |
 | `/providers configure [id]` | Set API keys / provider settings in `~/.orin/config.json` |
-| `/sandbox [local\|e2b]` | Run tools locally or in an E2B cloud sandbox |
 | `/sessions` | Browse and resume saved sessions |
 | `/new` | Archive this session and start a new one |
 | `/clear` | Clear the conversation |

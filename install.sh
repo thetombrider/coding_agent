@@ -54,7 +54,7 @@ echo "  orin"
 echo
 echo "API keys live in ~/.orin/config.json:"
 echo "  provider.openrouter.apiKey  (required for real agent use)"
-echo "  sandbox.e2b.apiKey          (optional — for /sandbox e2b)"
+echo "  sandbox.e2b.apiKey          (optional — set sandbox.active to e2b for whole-session E2B)"
 echo "Edit that file to change them, or override per-shell with OPENROUTER_API_KEY / E2B_API_KEY."
 echo
 echo "Offline demo (no API key):"

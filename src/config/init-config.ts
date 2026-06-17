@@ -36,7 +36,7 @@ async function promptForE2BApiKey(): Promise<void> {
 
   if (!process.stdin.isTTY) {
     console.log(
-      "No E2B_API_KEY found. Add it to ~/.orin/config.json (sandbox.e2b.apiKey) or set the env var to use /sandbox e2b.",
+      "No E2B_API_KEY found. Add it to ~/.orin/config.json (sandbox.e2b.apiKey) or set the env var for whole-session E2B (sandbox.active: \"e2b\").",
     );
     return;
   }
@@ -44,7 +44,7 @@ async function promptForE2BApiKey(): Promise<void> {
   try {
     const answer = (
       await promptSecret(
-        "E2B API key (optional — for /sandbox e2b, get one at https://e2b.dev/docs/api-key, blank to skip): ",
+        "E2B API key (optional — for whole-session E2B sandbox, get one at https://e2b.dev/docs/api-key, blank to skip): ",
       )
     ).trim();
     if (answer) {
