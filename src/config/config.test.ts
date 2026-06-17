@@ -57,6 +57,22 @@ describe("ensureConfigFile", () => {
     const raw = readFileSync(configPath, "utf8");
     expect(JSON.parse(raw).models.main).toBe("custom/model");
   });
+
+  it("migrates a legacy flat picker array to openrouter-scoped overrides", async () => {
+    const configDir = join(home, ".orin");
+    mkdirSync(configDir, { recursive: true });
+    const configPath = join(configDir, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ models: { picker: ["legacy/model-a", "legacy/model-b"] } }) + "\n",
+      "utf8",
+    );
+
+    const { loadConfig } = await import("./config.js");
+    expect(loadConfig().models.picker).toEqual({
+      openrouter: ["legacy/model-a", "legacy/model-b"],
+    });
+  });
 });
 
 describe("API key onboarding", () => {

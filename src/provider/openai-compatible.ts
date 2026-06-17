@@ -16,6 +16,8 @@ export interface OpenAiCompatibleProviderConfig {
   idPrefix?: string;
   /** Defaults to `${baseURL}/models` when baseURL is set. */
   modelsListUrl?: string;
+  /** Curated ids for the `/model` picker when this provider is active. */
+  pickerModels: readonly string[];
 }
 
 const CATALOG_TTL_MS = 60 * 60 * 1000;
@@ -208,5 +210,6 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
       return getClient().chat(normalizeModelId(modelId, cfg.idPrefix));
     },
     metadata,
+    pickerModels: cfg.pickerModels,
   };
 }

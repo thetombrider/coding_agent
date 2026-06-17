@@ -1,3 +1,4 @@
+import { resolvePickerModels } from "../provider/registry.js";
 import { loadConfig } from "./config.js";
 
 export interface ModelConfig {
@@ -7,12 +8,10 @@ export interface ModelConfig {
   cheap: string;
 }
 
-/**
- * Curated main-model ids offered by the `/model` picker. Populated from
- * ~/.orin/config.json (models.picker) at startup; falls back to
- * the built-in default list when no config file exists.
- */
-export const KNOWN_MAIN_MODELS: readonly string[] = loadConfig().models.picker;
+/** Curated model ids for the `/model` picker for the given (or active) provider. */
+export function pickerModelsForProvider(providerId?: string): readonly string[] {
+  return resolvePickerModels(providerId);
+}
 
 /** Load model defaults — config file first, then env var overrides. */
 export function loadModelConfig(): ModelConfig {

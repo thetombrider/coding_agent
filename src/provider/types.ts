@@ -115,4 +115,9 @@ export interface Provider {
   markCacheBreakpoints?(aiMessages: ModelMessage[], modelId: string): void;
   /** Context-window / metadata lookups for this backend. */
   readonly metadata: ModelMetadataProvider;
+  /**
+   * Curated model ids shown in the `/model` picker when this provider is active.
+   * Users can override per provider via `models.picker.<id>` in config.
+   */
+  readonly pickerModels: readonly string[];
 }

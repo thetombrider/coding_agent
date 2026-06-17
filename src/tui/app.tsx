@@ -10,7 +10,7 @@ import { ApprovalBar, Header, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
-import { KNOWN_MAIN_MODELS } from "../config/models.js";
+import { pickerModelsForProvider } from "../config/models.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
@@ -114,6 +114,9 @@ export function App(props: {
   const completed = () => state().completedTurns;
   const hasContent = () => completed().length > 0 || live() !== null;
 
+  const pickerModels = () =>
+    pickerModelsForProvider(state().meta.provider ?? activeProviderId());
+
   const filteredCommands = () => {
     const input = state().input;
     if (!input.startsWith("/")) return [...SLASH_COMMANDS];
@@ -211,7 +214,7 @@ export function App(props: {
       const name = cmd.name as CommandName;
 
       if (name === "model") {
-        const currentIdx = KNOWN_MAIN_MODELS.indexOf(state().meta.model);
+        const currentIdx = pickerModels().indexOf(state().meta.model);
         if (inputRef) inputRef.value = "";
         props.controller.clearInput();
         setPalette({ phase: "model", index: Math.max(0, currentIdx) });
@@ -273,7 +276,7 @@ export function App(props: {
     }
 
     if (p.phase === "model") {
-      const model = KNOWN_MAIN_MODELS[p.index];
+      const model = pickerModels()[p.index];
       if (model) {
         setPalette(null);
         props.onSetModel(model);
@@ -358,7 +361,7 @@ export function App(props: {
         currentModel: meta.model,
         currentMode: coerceApprovalMode(meta.approval) ?? "normal",
         currentSandbox: props.getSandbox(),
-        knownModels: KNOWN_MAIN_MODELS,
+        knownModels: pickerModels(),
         currentProvider: meta.provider ?? activeProviderId(),
         providers: providerSummaries(),
         providerConfigFields,
@@ -493,7 +496,7 @@ export function App(props: {
           p.phase === "commands"
             ? Math.max(0, filteredCommands().length - 1)
             : p.phase === "model"
-              ? KNOWN_MAIN_MODELS.length - 1
+              ? Math.max(0, pickerModels().length - 1)
               : p.phase === "providers"
                 ? Math.max(0, p.providers.length - 1)
                 : p.phase === "sessions"
@@ -646,7 +649,7 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "model"}>
-                <For each={KNOWN_MAIN_MODELS}>
+                <For each={[...pickerModels()]}>
                   {(model, i) => {
                     const selected = () => (p() as { phase: "model"; index: number }).index === i();
                     const isCurrent = () => model === state().meta.model;

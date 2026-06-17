@@ -50,4 +50,12 @@ describe("loadModelConfig", () => {
       cheap: "meta-llama/llama-3.1-8b-instruct",
     });
   });
+
+  it("scopes picker models to the active provider", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({ provider: { active: "regolo" } });
+    const { pickerModelsForProvider } = await import("./models.js");
+    const { REGOLO_PICKER_MODELS } = await import("../provider/providers/regolo.js");
+    expect(pickerModelsForProvider()).toEqual(REGOLO_PICKER_MODELS);
+  });
 });

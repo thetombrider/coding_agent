@@ -3,8 +3,6 @@ import { loadConfig } from "../config/config.js";
 import { openRouterProvider } from "./providers/openrouter.js";
 import { regoloProvider } from "./providers/regolo.js";
 import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
-
-/** Provider id used as the fallback when config selects an unknown provider. */
 export const DEFAULT_PROVIDER_ID = "openrouter";
 
 /** Display info for the `/providers` command and TUI palette. */
@@ -65,6 +63,17 @@ export function resolveLanguageModel(modelId: string): LanguageModel {
 /** Metadata providers for every registered backend (the registry owns this list). */
 export function metadataProviders(): ModelMetadataProvider[] {
   return listProviders().map((provider) => provider.metadata);
+}
+
+/**
+ * Curated model ids for the `/model` picker. Uses `models.picker.<providerId>`
+ * from config when set, otherwise each provider's bundled `pickerModels`.
+ */
+export function resolvePickerModels(providerId?: string): readonly string[] {
+  const provider = getProvider(providerId ?? activeProviderId()) ?? resolveActiveProvider();
+  const override = loadConfig().models.picker[provider.id];
+  if (override && override.length > 0) return override;
+  return provider.pickerModels;
 }
 
 /** Snapshot of every provider's status for `/providers` listing and switching. */

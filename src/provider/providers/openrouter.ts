@@ -318,6 +318,20 @@ export function buildStreamProviderOptions(
 
 // ── Provider implementation ──────────────────────────────────────────────────
 
+/** Curated OpenRouter models for the `/model` picker. */
+export const OPENROUTER_PICKER_MODELS = [
+  "anthropic/claude-opus-4.8",
+  "anthropic/claude-sonnet-4.6",
+  "google/gemini-3.5-flash",
+  "google/gemini-3.1-flash-lite",
+  "deepseek/deepseek-v4-pro",
+  "minimax/minimax-m3",
+  "z-ai/glm-5.1",
+  "inception/mercury-2",
+  "arcee-ai/trinity-large-thinking",
+  "mistralai/mistral-large-2512",
+] as const;
+
 const metadata: ModelMetadataProvider = {
   id: "openrouter",
   supportsModel(modelId) {
@@ -355,4 +369,5 @@ export const openRouterProvider: Provider = {
     markPromptCacheBreakpoints(aiMessages, modelId);
   },
   metadata,
+  pickerModels: OPENROUTER_PICKER_MODELS,
 };
