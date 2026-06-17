@@ -8,6 +8,7 @@ import {
   listSessions,
   openLog,
   replayLog,
+  resolveStartupSessionId,
 } from "./log.js";
 
 let tmpDir: string;
@@ -240,5 +241,63 @@ describe("listSessions", () => {
     await log.close();
 
     expect(listSessions(sessionsPath)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveStartupSessionId
+// ---------------------------------------------------------------------------
+describe("resolveStartupSessionId", () => {
+  it("reuses the newest zero-turn session for the same cwd", async () => {
+    const sessionsPath = join(tmpDir, "sessions");
+    const log = openLog(join(sessionsPath, "empty123.jsonl"));
+    log.write({
+      type: "session_meta",
+      ts: "2026-01-01T00:00:00.000Z",
+      sessionId: "empty123",
+      cwd: "/projects/foo",
+      model: "m",
+    });
+    await log.close();
+
+    expect(resolveStartupSessionId("/projects/foo", sessionsPath)).toBe("empty123");
+  });
+
+  it("allocates a new id when the latest session already has turns", async () => {
+    const sessionsPath = join(tmpDir, "sessions");
+    const log = openLog(join(sessionsPath, "active123.jsonl"));
+    log.write({
+      type: "session_meta",
+      ts: "2026-01-01T00:00:00.000Z",
+      sessionId: "active123",
+      cwd: "/projects/foo",
+      model: "m",
+    });
+    log.write({ type: "user_message", ts: "2026-01-01T00:01:00.000Z", content: [] });
+    await log.close();
+
+    const id = resolveStartupSessionId("/projects/foo", sessionsPath);
+    expect(id).not.toBe("active123");
+    expect(id).toMatch(/^[a-z0-9]+$/);
+  });
+
+  it("allocates a new id when the latest empty session is for a different cwd", async () => {
+    const sessionsPath = join(tmpDir, "sessions");
+    const log = openLog(join(sessionsPath, "othercwd.jsonl"));
+    log.write({
+      type: "session_meta",
+      ts: "2026-01-01T00:00:00.000Z",
+      sessionId: "othercwd",
+      cwd: "/projects/bar",
+      model: "m",
+    });
+    await log.close();
+
+    const id = resolveStartupSessionId("/projects/foo", sessionsPath);
+    expect(id).not.toBe("othercwd");
+  });
+
+  it("allocates a new id when there are no sessions", () => {
+    expect(resolveStartupSessionId("/projects/foo", join(tmpDir, "sessions"))).toMatch(/^[a-z0-9]+$/);
   });
 });

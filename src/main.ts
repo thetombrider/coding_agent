@@ -10,7 +10,7 @@ import { defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { resolveActiveProvider } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
-import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, sessionPath } from "./session/log.js";
+import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, resolveStartupSessionId, sessionPath } from "./session/log.js";
 import { getCoreTools } from "./tools/registry.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
@@ -113,6 +113,7 @@ async function runInteractive(opts: {
 }): Promise<void> {
   const { provider, model } = resolveProvider(opts.useFaux);
   const models = loadModelConfig();
+  const localCwd = process.cwd();
 
   let messages: AgentContext["messages"] = [];
   let sessionId: string;
@@ -128,10 +129,9 @@ async function runInteractive(opts: {
     );
     sessionId = opts.resumeId;
   } else {
-    sessionId = generateSessionId();
+    sessionId = resolveStartupSessionId(localCwd);
   }
 
-  const localCwd = process.cwd();
   const sandboxPref = loadConfig().sandbox?.active;
   const workspace = createLocalWorkspace();
   const ctx: AgentContext = { cwd: localCwd, messages, workspace };
