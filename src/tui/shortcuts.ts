@@ -1,4 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
+import { blocksNativeCopyShortcut } from "./terminal-env.js";
 
 type ShortcutKey = Pick<KeyEvent, "name" | "ctrl" | "meta" | "shift">;
 
@@ -6,6 +7,16 @@ type ShortcutKey = Pick<KeyEvent, "name" | "ctrl" | "meta" | "shift">;
 export function isSelectionCopyShortcut(key: ShortcutKey): boolean {
   if (key.name !== "c") return false;
   return (key.ctrl && key.shift && !key.meta) || (key.meta && !key.shift);
+}
+
+/** Copy the current drag selection with an unmodified `c` key. */
+export function isPlainSelectionCopyShortcut(key: ShortcutKey): boolean {
+  return key.name === "c" && !key.ctrl && !key.meta && !key.shift;
+}
+
+/** Quit — Ctrl+C only, not Ctrl+Shift+C (which is copy in many TUIs). */
+export function isInterruptShortcut(key: ShortcutKey): boolean {
+  return key.name === "c" && key.ctrl && !key.shift && !key.meta;
 }
 
 /** Copy the focused conversation block (Ctrl+O). */
@@ -31,7 +42,10 @@ export function isSelectionHintShortcut(key: ShortcutKey): boolean {
   return key.name === "v" && !key.ctrl && !key.meta && !key.shift;
 }
 
-export function clipboardHintText(): string {
+export function clipboardHintText(env: NodeJS.ProcessEnv = process.env): string {
+  if (process.platform === "darwin" && blocksNativeCopyShortcut(env)) {
+    return "select · c copy · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand";
+  }
   if (process.platform === "darwin") {
     return "select · ⌘C · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand · c expanded";
   }

@@ -45,6 +45,8 @@ export interface ClipboardDeps {
   writeTempFile?: (text: string) => string;
   /** When set, skip OSC 52 and use platform/file fallbacks only. */
   skipOsc52?: boolean;
+  /** OpenTUI renderer OSC 52 copy, when the terminal advertises support. */
+  osc52Copy?: (text: string) => boolean;
   /** Test hook: override clipboard read from the resolved paste command. */
   readText?: (command: CopyCommand) => Promise<string | null>;
 }
@@ -194,6 +196,10 @@ export async function copyToClipboard(
     if (copied) {
       return { ok: true, method: copyMethodFor(command), lineCount };
     }
+  }
+
+  if (!deps.skipOsc52 && deps.osc52Copy?.(text)) {
+    return { ok: true, method: "osc52", lineCount };
   }
 
   if (!deps.skipOsc52 && shouldTryOsc52First(platform) && isTty) {

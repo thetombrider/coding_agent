@@ -92,6 +92,24 @@ describe("clipboard", () => {
     expect(shouldTryOsc52First("darwin")).toBe(false);
   });
 
+  it("uses renderer OSC 52 copy when platform helpers fail", async () => {
+    let copied = "";
+    const result = await copyToClipboard("remote payload", {
+      skipOsc52: false,
+      platform: "darwin",
+      spawn: () => {
+        throw new Error("no pbcopy");
+      },
+      osc52Copy: (text) => {
+        copied = text;
+        return true;
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.method).toBe("osc52");
+    expect(copied).toBe("remote payload");
+  });
+
   it("falls back to platform copy when OSC 52 is skipped", async () => {
     const result = await copyToClipboard("payload", {
       skipOsc52: true,

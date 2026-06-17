@@ -13,11 +13,14 @@ import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
 import {
   isCopyAllShortcut,
   isCopyBlockShortcut,
+  isInterruptShortcut,
   isPasteShortcut,
+  isPlainSelectionCopyShortcut,
   isSelectionCopyShortcut,
   isSelectionHintShortcut,
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
+import { selectionCopyHint } from "./terminal-env.js";
 import { KEYBOARD_HINTS, processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { pickerModelsForProvider } from "../config/models.js";
@@ -129,7 +132,11 @@ export function App(props: {
       props.controller.setStatusHint("Nothing to copy — see ~/.orin/sessions/*.jsonl");
       return;
     }
-    const result = await copyToClipboard(text);
+    const result = await copyToClipboard(text, {
+      osc52Copy: renderer.isOsc52Supported()
+        ? (payload) => renderer.copyToClipboardOSC52(payload)
+        : undefined,
+    });
     props.controller.setStatusHint(formatCopyStatus(result));
   };
 
@@ -541,21 +548,29 @@ export function App(props: {
   useKeyboard((key) => {
     const phase = state().phase;
 
-    if (key.ctrl && key.name === "c") {
+    // Copy before quit — Ctrl+Shift+C must not match the Ctrl+C exit handler.
+    if (isSelectionCopyShortcut(key)) {
+      const selected = readRendererSelection(renderer);
+      if (selected) void performCopy(selected);
+      else props.controller.setStatusHint("Select text to copy");
+      return;
+    }
+
+    if (isPlainSelectionCopyShortcut(key)) {
+      const selected = readRendererSelection(renderer);
+      if (selected) {
+        void performCopy(selected);
+        return;
+      }
+    }
+
+    if (isInterruptShortcut(key)) {
       if (configPrompt() !== null) {
         closeConfigPrompt();
         props.controller.setStatusHint("configuration cancelled");
         return;
       }
       props.onExit();
-      return;
-    }
-
-    // Standard select-then-copy — always active, including while the agent runs.
-    if (isSelectionCopyShortcut(key)) {
-      const selected = readRendererSelection(renderer);
-      if (selected) void performCopy(selected);
-      else props.controller.setStatusHint("Select text to copy");
       return;
     }
 
@@ -621,11 +636,7 @@ export function App(props: {
     }
     if (copyShortcutsEnabled()) {
       if (isSelectionHintShortcut(key)) {
-        props.controller.setStatusHint(
-          process.platform === "darwin"
-            ? "Drag to select text, then ⌘C to copy."
-            : "Drag to select text, then Ctrl+Shift+C to copy.",
-        );
+        props.controller.setStatusHint(selectionCopyHint());
         return;
       }
       if (isCopyBlockShortcut(key)) {
@@ -636,12 +647,7 @@ export function App(props: {
         void copyConversation();
         return;
       }
-      if (key.name === "c" && !key.ctrl && !key.meta && !key.shift) {
-        const selected = readRendererSelection(renderer);
-        if (selected) {
-          void performCopy(selected);
-          return;
-        }
+      if (isPlainSelectionCopyShortcut(key)) {
         const expanded = toolExpand.getHoveredExpandedOutput();
         if (expanded) {
           void performCopy(expanded);
