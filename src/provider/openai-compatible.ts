@@ -4,7 +4,7 @@
  */
 import { createOpenAI } from "@ai-sdk/openai";
 import { loadConfig, type Config } from "../config/config.js";
-import type { ModelMetadataProvider, Provider } from "./types.js";
+import type { ModelMetadataProvider, Provider, ProviderDefaultModels } from "./types.js";
 
 export interface OpenAiCompatibleProviderConfig {
   id: string;
@@ -16,6 +16,9 @@ export interface OpenAiCompatibleProviderConfig {
   idPrefix?: string;
   /** Defaults to `${baseURL}/models` when baseURL is set. */
   modelsListUrl?: string;
+  /** Curated ids for the `/model` picker when this provider is active. */
+  pickerModels: readonly string[];
+  defaultModels: ProviderDefaultModels;
 }
 
 const CATALOG_TTL_MS = 60 * 60 * 1000;
@@ -36,12 +39,14 @@ interface OpenAiModelsResponse {
 }
 
 let catalogCache: Map<string, number> | null = null;
+let catalogIdsCache: string[] | null = null;
 let catalogFetchedAt = 0;
 let catalogCacheKey = "";
 
 /** @internal test helper */
 export function resetOpenAiCompatibleModelsCache(): void {
   catalogCache = null;
+  catalogIdsCache = null;
   catalogFetchedAt = 0;
   catalogCacheKey = "";
 }
@@ -122,16 +127,34 @@ export async function loadOpenAiCompatibleModelsCatalog(
 
   const body = (await response.json()) as OpenAiModelsResponse;
   const next = new Map<string, number>();
+  const ids: string[] = [];
 
   for (const model of body.data ?? []) {
+    ids.push(model.id);
     const contextWindow = resolveContextLength(model);
     if (contextWindow !== undefined) next.set(model.id, contextWindow);
   }
 
   catalogCache = next;
+  catalogIdsCache = ids;
   catalogFetchedAt = Date.now();
   catalogCacheKey = cacheKey;
   return next;
+}
+
+/** Model ids from the OpenAI-compatible /models endpoint (reuses the catalog cache). */
+export async function listOpenAiCompatibleModelIds(
+  cfg: OpenAiCompatibleProviderConfig,
+  fetchImpl: FetchModelsCatalog = fetch,
+  apiKey?: string,
+): Promise<string[]> {
+  const url = modelsListUrl(cfg);
+  const cacheKey = `${cfg.id}:${url ?? ""}`;
+  if (catalogIdsCache && catalogCacheKey === cacheKey && Date.now() - catalogFetchedAt < CATALOG_TTL_MS) {
+    return catalogIdsCache;
+  }
+  await loadOpenAiCompatibleModelsCatalog(cfg, fetchImpl, apiKey);
+  return catalogIdsCache ?? [];
 }
 
 export async function lookupOpenAiCompatibleContextWindow(
@@ -176,13 +199,16 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
       if (cfg.idPrefix && modelId.startsWith(cfg.idPrefix)) return true;
       if (catalogCache && catalogCacheKey.startsWith(`${cfg.id}:`)) {
         const normalized = normalizeModelId(modelId, cfg.idPrefix);
-        return catalogCache.has(normalized);
+        return catalogIdsCache?.includes(normalized) ?? catalogCache.has(normalized);
       }
-      // Permissive when the catalog is unavailable — native ids don't share OpenRouter's `author/slug` shape.
-      return true;
+      const normalized = normalizeModelId(modelId, cfg.idPrefix);
+      return !normalized.includes("/");
     },
     getContextWindow(modelId) {
       return lookupOpenAiCompatibleContextWindow(cfg, modelId);
+    },
+    listModelIds() {
+      return listOpenAiCompatibleModelIds(cfg);
     },
   };
 
@@ -208,5 +234,7 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
       return getClient().chat(normalizeModelId(modelId, cfg.idPrefix));
     },
     metadata,
+    pickerModels: cfg.pickerModels,
+    defaultModels: cfg.defaultModels,
   };
 }

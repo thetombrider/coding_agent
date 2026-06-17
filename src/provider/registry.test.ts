@@ -19,7 +19,10 @@ function makeFakeProvider(overrides: Partial<Provider> = {}): Provider {
       id: "fake",
       supportsModel: () => true,
       getContextWindow: async () => 4242,
+      listModelIds: async () => ["fake/model-a", "fake/model-b"],
     },
+    pickerModels: ["fake/model-a", "fake/model-b"],
+    defaultModels: { main: "fake/model-a", cheap: "fake/model-b" },
     ...overrides,
   };
 }
@@ -108,5 +111,29 @@ describe("provider registry", () => {
     const fields = providerConfigFields("openrouter");
     expect(fields.some((f) => f.key === "apiKey")).toBe(true);
     expect(providerConfigFields("missing")).toEqual([]);
+  });
+
+  it("returns bundled picker models for the active provider", async () => {
+    const { resolvePickerModels } = await import("./registry.js");
+    const { OPENROUTER_PICKER_MODELS } = await import("./providers/openrouter.js");
+    expect(resolvePickerModels("openrouter")).toEqual(OPENROUTER_PICKER_MODELS);
+  });
+
+  it("returns regolo picker models when regolo is active", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ provider: { active: "regolo" } });
+    const { resolvePickerModels } = await import("./registry.js");
+    const { REGOLO_PICKER_MODELS } = await import("./providers/regolo.js");
+    expect(resolvePickerModels()).toEqual(REGOLO_PICKER_MODELS);
+  });
+
+  it("prefers config picker overrides over bundled defaults", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({
+      provider: { active: "openrouter" },
+      models: { picker: { openrouter: ["custom/model-a", "custom/model-b"] } },
+    });
+    const { resolvePickerModels } = await import("./registry.js");
+    expect(resolvePickerModels()).toEqual(["custom/model-a", "custom/model-b"]);
   });
 });

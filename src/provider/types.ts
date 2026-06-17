@@ -55,6 +55,14 @@ export interface ModelMetadataProvider {
   readonly id: string;
   supportsModel(modelId: string): boolean;
   getContextWindow(modelId: string): Promise<number | undefined>;
+  /** Model ids from the provider's live catalog (cached). Empty when unavailable. */
+  listModelIds(): Promise<string[]>;
+}
+
+/** Default main/cheap models when switching to or starting with a provider. */
+export interface ProviderDefaultModels {
+  main: string;
+  cheap: string;
 }
 
 /**
@@ -116,4 +124,11 @@ export interface Provider {
   markCacheBreakpoints?(aiMessages: ModelMessage[], modelId: string): void;
   /** Context-window / metadata lookups for this backend. */
   readonly metadata: ModelMetadataProvider;
+  /**
+   * Curated model ids shown in the `/model` picker when this provider is active.
+   * Users can override per provider via `models.picker.<id>` in config.
+   */
+  readonly pickerModels: readonly string[];
+  /** Sensible main/cheap defaults when no model is set for this provider. */
+  readonly defaultModels: ProviderDefaultModels;
 }

@@ -26,7 +26,7 @@ describe("ensureConfigFile", () => {
 
     const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
     const parsed = JSON.parse(raw) as { models: { main: string }; provider: { active: string } };
-    expect(parsed.models.main).toBe("anthropic/claude-sonnet-4");
+    expect(parsed.models.main).toBe("anthropic/claude-sonnet-4.6");
     expect(parsed.provider.active).toBe("openrouter");
     expect(raw.length).toBeGreaterThan(10);
   });
@@ -42,7 +42,7 @@ describe("ensureConfigFile", () => {
 
     const raw = readFileSync(configPath, "utf8").trim();
     expect(raw).not.toBe("");
-    expect(JSON.parse(raw).models.main).toBe("anthropic/claude-sonnet-4");
+    expect(JSON.parse(raw).models.main).toBe("anthropic/claude-sonnet-4.6");
   });
 
   it("leaves a non-empty config file untouched", async () => {
@@ -56,6 +56,22 @@ describe("ensureConfigFile", () => {
 
     const raw = readFileSync(configPath, "utf8");
     expect(JSON.parse(raw).models.main).toBe("custom/model");
+  });
+
+  it("migrates a legacy flat picker array to openrouter-scoped overrides", async () => {
+    const configDir = join(home, ".orin");
+    mkdirSync(configDir, { recursive: true });
+    const configPath = join(configDir, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ models: { picker: ["legacy/model-a", "legacy/model-b"] } }) + "\n",
+      "utf8",
+    );
+
+    const { loadConfig } = await import("./config.js");
+    expect(loadConfig().models.picker).toEqual({
+      openrouter: ["legacy/model-a", "legacy/model-b"],
+    });
   });
 });
 

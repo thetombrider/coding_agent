@@ -202,14 +202,18 @@ describe("processCommand", () => {
       });
     });
 
-    it("hints to switch model when moving to regolo with an OpenRouter-style model id", () => {
+    it("auto-swaps model when moving to regolo with an OpenRouter-style model id", () => {
       const r = processCommand("/providers regolo", {
         ...provCtx,
         providers: [{ ...providers[2]!, configured: true }],
       });
+      expect(r).toMatchObject({
+        type: "set-provider",
+        provider: "regolo",
+        model: "Llama-3.3-70B-Instruct",
+      });
       if (r.type === "set-provider") {
-        expect(r.message).toMatch(/\/model/);
-        expect(r.message).toMatch(/Llama-3\.3-70B-Instruct/);
+        expect(r.message).toMatch(/model → Llama-3\.3-70B-Instruct/);
       }
     });
   });

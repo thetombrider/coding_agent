@@ -23,7 +23,10 @@ export interface Config {
   models: {
     main: string;
     cheap: string;
-    picker: string[];
+    /** Per-provider overrides for the `/model` picker; falls back to each provider's bundled list. */
+    picker: Record<string, string[]>;
+    /** Last main model used per provider — restored when switching back. */
+    lastUsed: Record<string, { main: string; cheap?: string }>;
     contextWindows: Record<string, number>;
     pricing: Record<string, ModelPricing>;
   };
@@ -49,20 +52,10 @@ type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]>
 const DEFAULT_CONFIG: Config = {
   provider: { active: "openrouter" },
   models: {
-    main: "anthropic/claude-sonnet-4",
+    main: "anthropic/claude-sonnet-4.6",
     cheap: "deepseek/deepseek-v4-flash",
-    picker: [
-      "anthropic/claude-opus-4.8",
-      "anthropic/claude-sonnet-4.6",
-      "google/gemini-3.5-flash",
-      "google/gemini-3.1-flash-lite",
-      "deepseek/deepseek-v4-pro",
-      "minimax/minimax-m3",
-      "z-ai/glm-5.1",
-      "inception/mercury-2",
-      "arcee-ai/trinity-large-thinking",
-      "mistralai/mistral-large-2512",
-    ],
+    picker: {},
+    lastUsed: {},
     contextWindows: {
       "anthropic/claude-opus-4.8": 200000,
       "anthropic/claude-sonnet-4.6": 200000,
@@ -142,12 +135,33 @@ export function ensureConfigFile(): boolean {
   return false;
 }
 
+function normalizePickerConfig(raw: unknown): Record<string, string[]> {
+  if (Array.isArray(raw)) {
+    return { openrouter: raw.filter((id): id is string => typeof id === "string") };
+  }
+  if (raw && typeof raw === "object") {
+    const next: Record<string, string[]> = {};
+    for (const [providerId, models] of Object.entries(raw as Record<string, unknown>)) {
+      if (Array.isArray(models)) {
+        next[providerId] = models.filter((id): id is string => typeof id === "string");
+      }
+    }
+    return next;
+  }
+  return {};
+}
+
 /** Load config: file merged with defaults, then env var overrides applied on top. */
 export function loadConfig(): Config {
+  const raw = readRawConfig();
   const merged = deepMerge(
     DEFAULT_CONFIG as unknown as Record<string, unknown>,
-    readRawConfig(),
+    raw,
   ) as unknown as Config;
+
+  merged.models.picker = normalizePickerConfig(
+    (raw.models as { picker?: unknown } | undefined)?.picker ?? merged.models.picker,
+  );
 
   if (process.env.ORIN_MODEL?.trim()) merged.models.main = process.env.ORIN_MODEL.trim();
   if (process.env.ORIN_CHEAP_MODEL?.trim()) merged.models.cheap = process.env.ORIN_CHEAP_MODEL.trim();

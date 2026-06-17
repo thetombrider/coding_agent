@@ -13,7 +13,8 @@ import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
 import { isCopyAllShortcut, isCopyBlockShortcut, isPasteShortcut } from "./shortcuts.js";
 import { KEYBOARD_HINTS, processCommand } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
-import { KNOWN_MAIN_MODELS } from "../config/models.js";
+import { pickerModelsForProvider } from "../config/models.js";
+import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
@@ -87,7 +88,7 @@ export function App(props: {
   onExit: () => void;
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
-  onSetProvider: (provider: string) => void;
+  onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (provider: string, values: Record<string, string>, activate: boolean) => void;
   onSetSandbox: (kind: "local" | "e2b") => void | Promise<void>;
   getSandbox: () => "local" | "e2b";
@@ -163,6 +164,22 @@ export function App(props: {
   const live = () => currentTurn(state());
   const completed = () => state().completedTurns;
   const hasContent = () => completed().length > 0 || live() !== null;
+
+  const [pickerModelList, setPickerModelList] = createSignal<string[]>([
+    ...pickerModelsForProvider(activeProviderId()),
+  ]);
+
+  createEffect(() => {
+    const providerId = state().meta.provider ?? activeProviderId();
+    setPickerModelList([...pickerModelsForProvider(providerId)]);
+    void loadPickerModels(providerId).then((models) => {
+      if ((state().meta.provider ?? activeProviderId()) === providerId) {
+        setPickerModelList(models);
+      }
+    });
+  });
+
+  const pickerModels = () => pickerModelList();
 
   const filteredCommands = () => {
     const input = state().input;
@@ -261,7 +278,7 @@ export function App(props: {
       const name = cmd.name as CommandName;
 
       if (name === "model") {
-        const currentIdx = KNOWN_MAIN_MODELS.indexOf(state().meta.model);
+        const currentIdx = pickerModels().indexOf(state().meta.model);
         if (inputRef) inputRef.value = "";
         props.controller.clearInput();
         setPalette({ phase: "model", index: Math.max(0, currentIdx) });
@@ -323,7 +340,7 @@ export function App(props: {
     }
 
     if (p.phase === "model") {
-      const model = KNOWN_MAIN_MODELS[p.index];
+      const model = pickerModels()[p.index];
       if (model) {
         setPalette(null);
         props.onSetModel(model);
@@ -358,9 +375,14 @@ export function App(props: {
             return;
           }
         }
-        props.onSetProvider(provider.id);
+        const { model, note } = resolveModelOnProviderSwitch(
+          state().meta.provider ?? activeProviderId(),
+          provider.id,
+          state().meta.model,
+        );
+        props.onSetProvider(provider.id, model);
         const warn = provider.configured ? "" : " (needs setup — /providers configure " + provider.id + ")";
-        props.controller.setStatusHint(`provider → ${provider.id}${warn}`);
+        props.controller.setStatusHint(`provider → ${provider.id}${warn}${note}`);
       } else {
         setPalette(null);
       }
@@ -408,7 +430,7 @@ export function App(props: {
         currentModel: meta.model,
         currentMode: coerceApprovalMode(meta.approval) ?? "normal",
         currentSandbox: props.getSandbox(),
-        knownModels: KNOWN_MAIN_MODELS,
+        knownModels: pickerModels(),
         currentProvider: meta.provider ?? activeProviderId(),
         providers: providerSummaries(),
         providerConfigFields,
@@ -444,7 +466,7 @@ export function App(props: {
           props.controller.setStatusHint(result.message);
           return;
         case "set-provider":
-          props.onSetProvider(result.provider);
+          props.onSetProvider(result.provider, result.model);
           props.controller.setStatusHint(result.message);
           return;
         case "configure-provider":
@@ -543,7 +565,7 @@ export function App(props: {
           p.phase === "commands"
             ? Math.max(0, filteredCommands().length - 1)
             : p.phase === "model"
-              ? KNOWN_MAIN_MODELS.length - 1
+              ? Math.max(0, pickerModels().length - 1)
               : p.phase === "providers"
                 ? Math.max(0, p.providers.length - 1)
                 : p.phase === "sessions"
@@ -728,7 +750,7 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "model"}>
-                <For each={KNOWN_MAIN_MODELS}>
+                <For each={[...pickerModels()]}>
                   {(model, i) => {
                     const selected = () => (p() as { phase: "model"; index: number }).index === i();
                     const isCurrent = () => model === state().meta.model;

@@ -36,7 +36,7 @@ describe("loadModelConfig", () => {
     delete process.env.ORIN_CHEAP_MODEL;
     const { loadModelConfig } = await import("./models.js");
     expect(loadModelConfig()).toEqual({
-      main: "anthropic/claude-sonnet-4",
+      main: "anthropic/claude-sonnet-4.6",
       cheap: "deepseek/deepseek-v4-flash",
     });
   });
@@ -49,5 +49,23 @@ describe("loadModelConfig", () => {
       main: "openai/gpt-4o",
       cheap: "meta-llama/llama-3.1-8b-instruct",
     });
+  });
+
+  it("scopes picker models to the active provider", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({ provider: { active: "regolo" } });
+    const { pickerModelsForProvider } = await import("./models.js");
+    const { REGOLO_PICKER_MODELS } = await import("../provider/providers/regolo.js");
+    expect(pickerModelsForProvider()).toEqual(REGOLO_PICKER_MODELS);
+  });
+
+  it("uses provider defaults when the global main model is incompatible", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({
+      provider: { active: "regolo" },
+      models: { main: "anthropic/claude-sonnet-4" },
+    });
+    const { defaultMainModel } = await import("./models.js");
+    expect(defaultMainModel()).toBe("Llama-3.3-70B-Instruct");
   });
 });
