@@ -129,3 +129,12 @@ export function listSessions(scanDir?: string): SessionSummary[] {
 
   return summaries;
 }
+
+/** Reuse the newest zero-turn session for `cwd`, or allocate a fresh id. */
+export function resolveStartupSessionId(cwd: string, scanDir?: string): string {
+  const latest = listSessions(scanDir)[0];
+  if (latest && latest.turns === 0 && latest.cwd === cwd) {
+    return latest.sessionId;
+  }
+  return generateSessionId();
+}
