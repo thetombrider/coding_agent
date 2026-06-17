@@ -1,4 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
+import { blocksNativeCopyShortcut } from "./terminal-env.js";
 
 type ShortcutKey = Pick<KeyEvent, "name" | "ctrl" | "meta" | "shift">;
 
@@ -31,7 +32,10 @@ export function isSelectionHintShortcut(key: ShortcutKey): boolean {
   return key.name === "v" && !key.ctrl && !key.meta && !key.shift;
 }
 
-export function clipboardHintText(): string {
+export function clipboardHintText(env: NodeJS.ProcessEnv = process.env): string {
+  if (process.platform === "darwin" && blocksNativeCopyShortcut(env)) {
+    return "select copies on release · Ctrl+Shift+C · ⌘⇧C all · ⌘V paste · Ctrl+O block";
+  }
   if (process.platform === "darwin") {
     return "select · ⌘C · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand · c expanded";
   }

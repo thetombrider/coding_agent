@@ -18,9 +18,11 @@ import { createLocalWorkspace } from "../workspace/local.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
 import type { SandboxKind } from "../workspace/types.js";
 import { App } from "./app.js";
+import { copyToClipboard, formatCopyStatus } from "./clipboard.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { messagesToTurns } from "./messages-to-turns.js";
 import { restoreTerminal } from "./terminal.js";
+import { copyOnSelectionRelease } from "./terminal-env.js";
 import { terminalBg, terminalFg, theme } from "./theme.js";
 
 const hex2 = (n: number) => n.toString(16).padStart(2, "0");
@@ -225,6 +227,20 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       exitOnCtrlC: false,
       backgroundColor: theme.bg,
     });
+
+    if (copyOnSelectionRelease()) {
+      renderer.on("selection", (selection: { isDragging: boolean; getSelectedText: () => string } | null) => {
+        if (!selection || selection.isDragging) return;
+        const text = selection.getSelectedText().trim();
+        if (!text) return;
+        void copyToClipboard(text).then((result) => {
+          controller.setStatusHint(formatCopyStatus(result));
+        });
+      });
+      controller.setStatusHint(
+        "Terminal.app blocks ⌘C — release mouse after selecting to copy, or use Ctrl+Shift+C",
+      );
+    }
 
     await render(
       () =>

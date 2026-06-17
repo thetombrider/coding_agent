@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clipboardHintText,
   isCopyAllShortcut,
   isCopyBlockShortcut,
   isPasteShortcut,
@@ -44,5 +45,10 @@ describe("shortcuts", () => {
     expect(isSelectionHintShortcut(key("v"))).toBe(true);
     expect(isSelectionHintShortcut(key("v", { ctrl: true }))).toBe(false);
     expect(isSelectionHintShortcut(key("v", { meta: true }))).toBe(false);
+  });
+
+  it("shows Terminal.app-specific clipboard hints", () => {
+    expect(clipboardHintText({ TERM_PROGRAM: "Apple_Terminal" })).toContain("select copies on release");
+    expect(clipboardHintText({ TERM_PROGRAM: "vscode" })).toContain("⌘C");
   });
 });
