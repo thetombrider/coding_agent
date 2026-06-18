@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  deleteSession,
   generateSessionId,
   getLastEventTimestamp,
   listSessions,
@@ -241,6 +242,31 @@ describe("listSessions", () => {
     await log.close();
 
     expect(listSessions(sessionsPath)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteSession
+// ---------------------------------------------------------------------------
+describe("deleteSession", () => {
+  it("removes an existing session log file", async () => {
+    const sessionsPath = join(tmpDir, "sessions");
+    const log = openLog(join(sessionsPath, "todelete.jsonl"));
+    log.write({
+      type: "session_meta",
+      ts: "2026-01-01T00:00:00.000Z",
+      sessionId: "todelete",
+      cwd: "/",
+      model: "m",
+    });
+    await log.close();
+
+    expect(deleteSession("todelete", sessionsPath)).toBe(true);
+    expect(listSessions(sessionsPath)).toHaveLength(0);
+  });
+
+  it("returns false when the session file does not exist", () => {
+    expect(deleteSession("missing", join(tmpDir, "sessions"))).toBe(false);
   });
 });
 

@@ -29,6 +29,8 @@ import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/pick
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
+import type { SessionsPaletteState } from "./sessions-palette.js";
+import { selectedSession, sessionsPaletteHint } from "./sessions-palette.js";
 
 const BOLD = createTextAttributes({ bold: true });
 const SESSION_LIST_MAX_VISIBLE = 10;
@@ -51,7 +53,7 @@ type PaletteState =
   | { phase: "model"; index: number }
   | { phase: "mode"; index: number }
   | { phase: "providers"; index: number; providers: ProviderSummary[] }
-  | { phase: "sessions"; index: number; sessions: SessionSummary[] };
+  | SessionsPaletteState;
 
 type ConfigPromptState = {
   providerId: string;
@@ -103,7 +105,9 @@ export function App(props: {
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => { ok: boolean; message: string };
   onListSessions: () => SessionSummary[];
+  activeSessionId: string;
 }) {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
@@ -181,7 +185,7 @@ export function App(props: {
 
   createEffect(() => {
     const p = palette();
-    if (p?.phase !== "sessions") return;
+    if (p?.phase !== "sessions" || p.menu !== "list") return;
     const index = p.index;
     queueMicrotask(() => scrollSessionIntoView(index));
   });
@@ -284,6 +288,33 @@ export function App(props: {
     props.controller.clearInput();
   };
 
+  const openSessionsPalette = (sessions: SessionSummary[], index = 0) => {
+    setPalette({ phase: "sessions", index, sessions, menu: "list" });
+  };
+
+  const confirmSessionDelete = () => {
+    const p = palette();
+    if (p?.phase !== "sessions" || p.menu !== "delete") return;
+
+    const session = selectedSession(p);
+    if (!session) return;
+
+    const result = props.onDeleteSession(session.sessionId);
+    props.controller.setStatusHint(result.message);
+    if (!result.ok) {
+      setPalette({ ...p, menu: "list" });
+      return;
+    }
+
+    const sessions = props.onListSessions();
+    if (sessions.length === 0) {
+      closePalette();
+      return;
+    }
+
+    openSessionsPalette(sessions, Math.min(p.index, sessions.length - 1));
+  };
+
   const handlePaletteSelect = () => {
     const p = palette();
     if (!p) return;
@@ -337,7 +368,7 @@ export function App(props: {
           props.controller.setStatusHint("No sessions found.");
           return;
         }
-        setPalette({ phase: "sessions", index: 0, sessions });
+        setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
         return;
       }
 
@@ -410,11 +441,16 @@ export function App(props: {
     }
 
     if (p.phase === "sessions") {
+      if (p.menu === "delete") {
+        confirmSessionDelete();
+        return;
+      }
       const session = p.sessions[p.index];
       if (session) {
         setPalette(null);
         props.onResume(session.sessionId);
       }
+      return;
     }
   };
 
@@ -474,7 +510,7 @@ export function App(props: {
             props.controller.setStatusHint("No sessions found.");
             return;
           }
-          setPalette({ phase: "sessions", index: 0, sessions });
+          setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
           return;
         }
         case "set-model":
@@ -585,6 +621,23 @@ export function App(props: {
 
     const p = palette();
     if (p !== null) {
+      if (p.phase === "sessions") {
+        if (p.menu === "delete") {
+          if (key.name === "left" || key.name === "escape") {
+            setPalette({ ...p, menu: "list" });
+            return;
+          }
+          if (key.name === "return" || key.name === "enter") {
+            confirmSessionDelete();
+            return;
+          }
+          if (key.name !== undefined) return;
+        } else if (key.name === "right") {
+          setPalette({ ...p, menu: "delete" });
+          return;
+        }
+      }
+
       if (key.name === "up") {
         setPalette({ ...p, index: Math.max(0, p.index - 1) });
         return;
@@ -604,6 +657,10 @@ export function App(props: {
         return;
       }
       if (key.name === "escape") {
+        if (p.phase === "sessions" && p.menu === "delete") {
+          setPalette({ ...p, menu: "list" });
+          return;
+        }
         if (p.phase !== "commands") {
           // Go back to command list
           setPalette({ phase: "commands", index: 0 });
@@ -870,38 +927,70 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "sessions"}>
-                <scrollbox
-                  ref={sessionListScrollRef}
-                  height={Math.min(
-                    (p() as { phase: "sessions"; sessions: SessionSummary[] }).sessions.length,
-                    SESSION_LIST_MAX_VISIBLE,
-                  )}
-                  scrollY
-                  contentOptions={{ flexDirection: "column" }}
+                <Show
+                  when={(p() as SessionsPaletteState).menu === "list"}
+                  fallback={
+                    <Show when={selectedSession(p() as SessionsPaletteState)}>
+                      {(session) => {
+                        const date = formatSessionDate(session().lastTs || session().createdAt);
+                        const turns = `${session().turns} turn${session().turns !== 1 ? "s" : ""}`;
+                        const active = () => session().sessionId === props.activeSessionId;
+                        return (
+                          <box flexDirection="column">
+                            <text fg={theme.toolError} attributes={BOLD}>delete</text>
+                            <text fg={theme.fg} attributes={BOLD}>
+                              {date}  {session().sessionId}
+                            </text>
+                            <text fg={theme.secondary}>  {turns}  {session().cwd}</text>
+                            <Show when={active()}>
+                              <text fg={theme.secondary}>  active session — cannot delete</text>
+                            </Show>
+                          </box>
+                        );
+                      }}
+                    </Show>
+                  }
                 >
-                  <For each={(p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).sessions}>
-                    {(session, i) => {
-                      const selected = () => (p() as { phase: "sessions"; index: number; sessions: SessionSummary[] }).index === i();
-                      const date = formatSessionDate(session.lastTs || session.createdAt);
-                      const turns = `${session.turns} turn${session.turns !== 1 ? "s" : ""}`;
-                      return (
-                        <box id={`session-row-${i()}`} flexDirection="row">
-                          <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                            {selected() ? "▶ " : "  "}{date}  {session.sessionId}
-                          </text>
-                          <text fg={theme.secondary}>  {turns}  {session.cwd}</text>
-                        </box>
-                      );
-                    }}
-                  </For>
-                </scrollbox>
+                  <scrollbox
+                    ref={sessionListScrollRef}
+                    height={Math.min(
+                      (p() as SessionsPaletteState).sessions.length,
+                      SESSION_LIST_MAX_VISIBLE,
+                    )}
+                    scrollY
+                    contentOptions={{ flexDirection: "column" }}
+                  >
+                    <For each={(p() as SessionsPaletteState).sessions}>
+                      {(session, i) => {
+                        const sp = () => p() as SessionsPaletteState;
+                        const selected = () => sp().index === i();
+                        const date = formatSessionDate(session.lastTs || session.createdAt);
+                        const turns = `${session.turns} turn${session.turns !== 1 ? "s" : ""}`;
+                        const active = () => session.sessionId === props.activeSessionId;
+                        return (
+                          <box id={`session-row-${i()}`} flexDirection="row">
+                            <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                              {selected() ? "▶ " : "  "}{date}  {session.sessionId}
+                            </text>
+                            <text fg={theme.secondary}>  {turns}  {session.cwd}</text>
+                            <Show when={active()}>
+                              <text fg={theme.muted}>  (active)</text>
+                            </Show>
+                          </box>
+                        );
+                      }}
+                    </For>
+                  </scrollbox>
+                </Show>
               </Show>
 
               <box marginTop={1}>
                 <text fg={theme.secondary}>
                   {p().phase === "commands"
                     ? "↑↓ navigate · Enter select · Esc close"
-                    : "↑↓ navigate · Enter select · Esc back"}
+                    : p().phase === "sessions"
+                      ? sessionsPaletteHint((p() as SessionsPaletteState).menu)
+                      : "↑↓ navigate · Enter select · Esc back"}
                 </text>
               </box>
             </box>

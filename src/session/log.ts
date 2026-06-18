@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Message, SessionEvent } from "../types.js";
@@ -128,6 +128,15 @@ export function listSessions(scanDir?: string): SessionSummary[] {
   }
 
   return summaries;
+}
+
+/** Remove a session log file from disk. Returns false if the file is missing. */
+export function deleteSession(sessionId: string, scanDir?: string): boolean {
+  const path = sessionPath(sessionId);
+  const resolved = scanDir ? join(scanDir, `${sessionId}.jsonl`) : path;
+  if (!existsSync(resolved)) return false;
+  unlinkSync(resolved);
+  return true;
 }
 
 /** Reuse the newest zero-turn session for `cwd`, or allocate a fresh id. */
