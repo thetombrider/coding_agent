@@ -210,7 +210,13 @@ export async function runLoop(
     if (shouldCompact(ctx.messages, contextWindow)) {
       await hooks.fireHook("before_compact", { messages: ctx.messages }, ctx, options.signal);
       const cheapModel = options.cheapModel ?? defaultCheapModel();
-      ctx.messages = await summariseOldTurns(ctx.messages, cheapModel);
+      ctx.messages = await summariseOldTurns(
+        ctx.messages,
+        cheapModel,
+        undefined,
+        undefined,
+        ctx.loopHost?.recordLlmCall,
+      );
     }
     ctx.messages = evictStaleToolResults(ctx.messages, turnIndex);
 

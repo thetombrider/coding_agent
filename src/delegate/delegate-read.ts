@@ -9,6 +9,8 @@ import { defaultCheapModel } from "../config/models.js";
 import { resolveLanguageModel } from "../provider/registry.js";
 import { resolvePath } from "../util/paths.js";
 import { findMatchingFiles } from "../tools/find.js";
+import { aiSdkUsageToUsage, type AiSdkUsage } from "../telemetry/cost.js";
+import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { Workspace } from "../workspace/types.js";
 
 export const DELEGATE_READ_SYSTEM = (
@@ -23,6 +25,8 @@ export interface DelegateReadOptions {
   workspace: Workspace;
   model?: string;
   signal?: AbortSignal;
+  /** Optional telemetry recorder for the cheap-model call (issue 3/8). */
+  record?: LlmCallRecorder;
 }
 
 export interface DelegateReadResult {
@@ -90,7 +94,7 @@ export function buildDelegateReadMessages(corpus: string, task: string) {
 /** @internal inject generate in tests */
 export type DelegateReadGenerate = (
   options: Parameters<typeof generateText>[0],
-) => Promise<{ text: string }>;
+) => Promise<{ text: string; usage?: AiSdkUsage }>;
 
 export async function runDelegateRead(
   options: DelegateReadOptions,
@@ -111,13 +115,17 @@ export async function runDelegateRead(
   const corpus = buildDelegateReadCorpus(files, contents);
   const model = options.model ?? defaultCheapModel();
 
-  const { text } = await generate({
+  const { text, usage } = await generate({
     model: resolveLanguageModel(model),
     system: DELEGATE_READ_SYSTEM,
     messages: buildDelegateReadMessages(corpus, options.task),
     maxOutputTokens: 8192,
     abortSignal: options.signal,
   });
+
+  if (options.record && usage) {
+    options.record({ model, usage: aiSdkUsageToUsage(usage), source: "delegate_read" });
+  }
 
   return { answer: text, warnings };
 }

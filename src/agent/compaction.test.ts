@@ -134,4 +134,54 @@ describe("compaction", () => {
     );
     expect(result.slice(1)).toEqual(messages.slice(4));
   });
+
+  it("records the compaction LLM call with its source and normalized tokens", async () => {
+    const messages: Message[] = [
+      user("turn 1"),
+      assistant("a"),
+      user("turn 2"),
+      assistant("b"),
+      user("turn 3"),
+      assistant("c"),
+    ];
+
+    const calls: Array<{ model: string; usage: unknown; source: string }> = [];
+    await summariseOldTurns(
+      messages,
+      "cheap:test",
+      2,
+      async () => ({
+        text: "summary",
+        usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+      }),
+      (call) => calls.push(call),
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.source).toBe("compaction");
+    expect(calls[0]?.model).toBe("cheap:test");
+    expect(calls[0]?.usage).toMatchObject({ input: 120, output: 30, totalTokens: 150 });
+  });
+
+  it("skips recording when the generate result has no usage", async () => {
+    const messages: Message[] = [
+      user("turn 1"),
+      assistant("a"),
+      user("turn 2"),
+      assistant("b"),
+      user("turn 3"),
+      assistant("c"),
+    ];
+
+    const calls: unknown[] = [];
+    await summariseOldTurns(
+      messages,
+      "cheap:test",
+      2,
+      async () => ({ text: "summary" }),
+      (call) => calls.push(call),
+    );
+
+    expect(calls).toHaveLength(0);
+  });
 });
