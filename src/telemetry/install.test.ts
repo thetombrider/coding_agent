@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelPricing } from "../config/config.js";
 import { createHookRegistry } from "../hooks/registry.js";
@@ -35,7 +36,7 @@ function assistantMessage(usage: AssistantMessage["usage"], subagentId?: string)
     model: "anthropic/claude-opus-4.8",
     usage,
   };
-  return { type: "assistant_message" as const, message, subagentId };
+  return { type: "assistant_message" as const, id: randomUUID(), message, subagentId };
 }
 
 describe("installTelemetry", () => {
