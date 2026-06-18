@@ -8,6 +8,9 @@ import { runSubagentTask, taskTool } from "./task.js";
 import type { AgentContext } from "../types.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { runLoop } from "../agent/loop.js";
+import { installTelemetry } from "../telemetry/install.js";
+import type { MetricSink } from "../telemetry/sinks.js";
+import type { SessionCostSummary } from "../telemetry/events.js";
 
 function loopHost(provider: ReturnType<typeof createStatefulFauxProvider>, tools = getCoreTools()) {
   const hooks = createHookRegistry();
@@ -162,7 +165,12 @@ describe("runSubagentTask", () => {
 
     const childEvents: Array<{ type: string; subagentId?: string }> = [];
     parentHooks.observe((event) => {
-      if (event.type === "tool_start" || event.type === "tool_end") {
+      if (
+        event.type === "tool_start" ||
+        event.type === "tool_end" ||
+        event.type === "assistant_message" ||
+        event.type === "llm_start"
+      ) {
         childEvents.push({ type: event.type, subagentId: event.subagentId });
       }
     });
@@ -184,6 +192,59 @@ describe("runSubagentTask", () => {
 
     expect(childEvents.some((e) => e.type === "tool_start" && e.subagentId)).toBe(true);
     expect(childEvents.some((e) => e.type === "tool_end" && e.subagentId)).toBe(true);
+    expect(childEvents.some((e) => e.type === "llm_start" && e.subagentId)).toBe(true);
+    expect(childEvents.some((e) => e.type === "assistant_message" && e.subagentId)).toBe(true);
+    // Every forwarded child event carries the subagentId tag.
+    expect(childEvents.every((e) => Boolean(e.subagentId))).toBe(true);
+  });
+
+  it("subagent LLM turns reach the parent accumulator tagged as subagent", async () => {
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "read1", name: "read", arguments: { path: "package.json" } }] },
+      { text: ["done"] },
+    ]);
+
+    const parentHooks = createHookRegistry();
+    const approval: ApprovalGateRef = {
+      mode: "auto-accept",
+      autoAcceptCli: true,
+      tools: getChildTools(),
+    };
+    installCoreHooks(parentHooks, approval);
+
+    const turns: Array<{ source: string; model: string }> = [];
+    let summary: SessionCostSummary | undefined;
+    const sink: MetricSink = {
+      emit(event) {
+        if (event.type === "turn") turns.push({ source: event.source, model: event.model });
+        if (event.type === "session") summary = event.summary;
+      },
+    };
+    installTelemetry({
+      hooks: parentHooks,
+      sinks: [sink],
+      sessionId: "s-sub",
+      pricing: { "faux:test": { inputPerM: 1, outputPerM: 1 } },
+    });
+
+    const ctx = baseCtx({
+      loopHost: { provider, model: "faux:test", hooks: parentHooks, approval },
+    });
+
+    await runSubagentTask(
+      { description: "read pkg", prompt: "read package.json", agent: "explore" },
+      ctx,
+      new AbortController().signal,
+    );
+    // The observer schedules on a microtask; let forwarded events drain.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await parentHooks.fireHook("session_end", { reason: "complete" }, ctx);
+
+    // Two assistant turns in the child loop, both tagged subagent.
+    expect(turns.length).toBeGreaterThanOrEqual(2);
+    expect(turns.every((t) => t.source === "subagent")).toBe(true);
+    expect(summary?.sourceMix.subagent).toBe(turns.length);
+    expect(summary?.modelMix["faux:test"]?.turns).toBe(turns.length);
   });
 });
 
