@@ -30,7 +30,7 @@ import { activeProviderId, providerConfigFields, providerSummaries, type Provide
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
 import type { SessionsPaletteState } from "./sessions-palette.js";
-import { selectedSession, sessionsPaletteHint } from "./sessions-palette.js";
+import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
 
 const BOLD = createTextAttributes({ bold: true });
 const SESSION_LIST_MAX_VISIBLE = 10;
@@ -288,8 +288,8 @@ export function App(props: {
     props.controller.clearInput();
   };
 
-  const openSessionsPalette = (sessions: SessionSummary[], index = 0) => {
-    setPalette({ phase: "sessions", index, sessions, menu: "list" });
+  const openSessionsPalette = (state: SessionsPaletteState) => {
+    setPalette(state);
   };
 
   const confirmSessionDelete = () => {
@@ -306,13 +306,13 @@ export function App(props: {
       return;
     }
 
-    const sessions = props.onListSessions();
-    if (sessions.length === 0) {
+    const next = sessionsPaletteAfterDelete(props.onListSessions(), p.index);
+    if (!next) {
       closePalette();
       return;
     }
 
-    openSessionsPalette(sessions, Math.min(p.index, sessions.length - 1));
+    openSessionsPalette(next);
   };
 
   const handlePaletteSelect = () => {
@@ -627,10 +627,8 @@ export function App(props: {
             setPalette({ ...p, menu: "list" });
             return;
           }
-          if (key.name === "return" || key.name === "enter") {
-            confirmSessionDelete();
-            return;
-          }
+          // Enter is handled by the input submit path (handlePaletteSelect) only.
+          // Handling it here too would delete then immediately resume on the same keypress.
           if (key.name !== undefined) return;
         } else if (key.name === "right") {
           setPalette({ ...p, menu: "delete" });
