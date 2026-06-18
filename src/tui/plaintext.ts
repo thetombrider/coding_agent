@@ -3,8 +3,15 @@ import { toolSummary } from "./views.js";
 
 export function toolEntryToPlainText(entry: ToolEntry): string {
   const header = `${entry.name}${toolSummary(entry.name, entry.args) ? `  ${toolSummary(entry.name, entry.args)}` : ""}`;
-  if (!entry.output) return header;
-  return `${header}\n${entry.output}`;
+  const lines = [header];
+  if (entry.subagent) {
+    lines.push(`subagent (${entry.subagent.agent}): ${entry.subagent.description}`);
+    for (const child of entry.subagent.tools) {
+      lines.push(`  ${toolEntryToPlainText(child).replace(/\n/g, "\n  ")}`);
+    }
+  }
+  if (entry.output) lines.push(entry.output);
+  return lines.join("\n");
 }
 
 export function turnToPlainText(turn: Turn): string {

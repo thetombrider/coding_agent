@@ -140,4 +140,57 @@ describe("createSessionController", () => {
       { id: "2", content: "Add tests", status: "in_progress" },
     ]);
   });
+
+  it("nests subagent tool calls under the running task tool", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("explore");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "task1",
+      name: "task",
+      args: { description: "scan repo", prompt: "list files", agent: "explore" },
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan repo",
+      agent: "explore",
+    });
+    controller.handleEvent({
+      type: "tool_start",
+      id: "read1",
+      name: "read",
+      args: { path: "package.json" },
+      subagentId: "sub1",
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "read1",
+      name: "read",
+      output: "ok",
+      subagentId: "sub1",
+    });
+    controller.handleEvent({
+      type: "subagent_end",
+      id: "sub1",
+      agent: "explore",
+      turns: 2,
+      summary: "Found package.json",
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "task1",
+      name: "task",
+      output: "Subagent finished",
+    });
+    controller.finalizeTurn();
+
+    const task = controller.getState().completedTurns[0]?.tools[0];
+    expect(task?.name).toBe("task");
+    expect(task?.subagent?.agent).toBe("explore");
+    expect(task?.subagent?.tools).toHaveLength(1);
+    expect(task?.subagent?.tools[0]?.name).toBe("read");
+    expect(task?.subagent?.active).toBe(false);
+  });
 });
