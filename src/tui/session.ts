@@ -9,7 +9,7 @@ import { saveConfig, saveProviderConfig } from "../config/config.js";
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
-import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
+import { generateSessionId, listSessions, openLog, replayLog, sessionPath, deleteSession } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
 import { createDefaultSinks, installTelemetry } from "../telemetry/install.js";
 import type { StreamAssistantFn } from "../provider/types.js";
@@ -101,6 +101,19 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     controller.setStatusHint(
       `Resumed session ${resumeSessionId} — ${turns.length} turn${turns.length !== 1 ? "s" : ""}`,
     );
+  };
+
+  const onDeleteSession = (sessionId: string): { ok: boolean; message: string } => {
+    if (sessionId === activeSessionId) {
+      return {
+        ok: false,
+        message: "Cannot delete the active session — use /new to archive it first.",
+      };
+    }
+    if (!deleteSession(sessionId)) {
+      return { ok: false, message: `Session ${sessionId} not found.` };
+    }
+    return { ok: true, message: `Deleted session ${sessionId}.` };
   };
 
   // Archive the current session (already persisted to its own log file) and
@@ -278,7 +291,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           },
           onNew,
           onResume,
+          onDeleteSession,
           onListSessions: listSessions,
+          activeSessionId,
         }),
       renderer,
     );
