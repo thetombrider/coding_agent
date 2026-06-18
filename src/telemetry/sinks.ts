@@ -42,15 +42,24 @@ function expandHome(filePath: string): string {
 export function jsonlSink(filePath?: string): MetricSink {
   const path = expandHome(filePath ?? join(homedir(), ".orin", "metrics.jsonl"));
   let stream: WriteStream | undefined;
+  // WriteStream surfaces failures (disk full, EPIPE) asynchronously via the
+  // "error" event; without a listener Node would throw and crash the process.
+  // Latch the failure and drop further writes so telemetry stays best-effort.
+  let failed = false;
   const ensure = (): WriteStream => {
     if (!stream) {
       mkdirSync(dirname(path), { recursive: true });
       stream = createWriteStream(path, { flags: "a" });
+      stream.on("error", () => {
+        failed = true;
+        stream = undefined;
+      });
     }
     return stream;
   };
   return {
     emit(event) {
+      if (failed) return;
       ensure().write(JSON.stringify(event) + "\n");
     },
     flush() {
@@ -58,6 +67,7 @@ export function jsonlSink(filePath?: string): MetricSink {
         if (!stream) return resolve();
         const s = stream;
         stream = undefined;
+        s.once("error", () => resolve());
         s.end(() => resolve());
       });
     },

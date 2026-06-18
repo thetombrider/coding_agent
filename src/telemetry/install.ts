@@ -66,7 +66,13 @@ export function installTelemetry(opts: InstallTelemetryOptions): () => void {
       const breakdown = calcCost(message.model, message.usage, pricing, providerId);
       acc.recordTurn(breakdown, source);
       emitAll(sinks, { type: "turn", sessionId, ts: now(), ...breakdown, source });
-      onSessionCost?.(acc.snapshot());
+      if (onSessionCost) {
+        try {
+          onSessionCost(acc.snapshot());
+        } catch {
+          // A throwing consumer must never propagate into the agent loop.
+        }
+      }
     } else if (event.type === "tool_start") {
       toolStarts.set(event.id, Date.now());
     } else if (event.type === "tool_end") {

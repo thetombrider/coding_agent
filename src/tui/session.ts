@@ -68,6 +68,24 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   };
   writeMeta();
 
+  // Telemetry: the sinks are created once (the session sink writes through the
+  // live `log` binding, which is reassigned on resume/new). `reinstallTelemetry`
+  // re-subscribes with the current sessionId/provider so metrics never carry a
+  // stale identity after /new, /resume, or a provider switch.
+  const telemetrySinks = createDefaultSinks({
+    sessionWrite: (event) => log.write({ type: "metric", ts: new Date().toISOString(), event }),
+  });
+  let disposeTelemetry: () => void = () => {};
+  const reinstallTelemetry = () => {
+    disposeTelemetry();
+    disposeTelemetry = installTelemetry({
+      hooks: config.hooks,
+      sinks: telemetrySinks,
+      sessionId: activeSessionId,
+      providerId: config.meta.provider,
+    });
+  };
+
   const onResume = (resumeSessionId: string) => {
     void log.close();
     const messages = replayLog(sessionPath(resumeSessionId));
@@ -76,6 +94,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     activeSessionId = resumeSessionId;
     log = openLog(sessionPath(activeSessionId));
     if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
+    reinstallTelemetry();
     const turns = messagesToTurns(messages);
     controller.loadHistory(turns);
     controller.setTodos(config.ctx.todos);
@@ -95,6 +114,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     log = openLog(sessionPath(activeSessionId));
     if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
     writeMeta();
+    reinstallTelemetry();
     controller.clearHistory();
     controller.setTodos([]);
     controller.setStatusHint(
@@ -113,18 +133,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     confirm: controller.requestApproval,
   };
   installCoreHooks(config.hooks, approvalRef);
-
-  // Telemetry: emit turn/tool/session metrics to the local sinks. The session
-  // sink mirrors each metric into the active session log (`log` is reassigned on
-  // resume/new, so write through the live binding).
-  installTelemetry({
-    hooks: config.hooks,
-    sinks: createDefaultSinks({
-      sessionWrite: (event) => log.write({ type: "metric", ts: new Date().toISOString(), event }),
-    }),
-    sessionId: activeSessionId,
-    providerId: config.meta.provider,
-  });
+  reinstallTelemetry();
 
   config.ctx.loopHost = {
     provider: config.provider,
@@ -167,6 +176,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       models: { lastUsed: patch },
     });
     config.meta.provider = provider;
+    reinstallTelemetry();
     if (model && model !== activeModel) {
       setModel(model);
     }
@@ -294,6 +304,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   } finally {
     process.removeListener("exit", onProcessExit);
     await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
+    disposeTelemetry();
     await config.ctx.workspace.dispose();
     await log.close();
     renderer?.destroy();
