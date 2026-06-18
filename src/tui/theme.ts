@@ -25,6 +25,8 @@ export const theme = {
   /** Box-drawing edges and extrusion on filled logo glyphs. */
   logoShadow: "#6B6560",
   reasoning: "#6B6560",
+  /** Subagent nested tool calls under a parent `task`. */
+  subagent: "#345AAC",
 } as const;
 export const terminalFg = { r: 23, g: 20, b: 18 } as const;
 

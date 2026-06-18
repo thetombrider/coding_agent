@@ -1,6 +1,6 @@
 import { createTextAttributes } from "@opentui/core";
 import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
-import type { ToolEntry, Turn } from "./controller.js";
+import type { SubagentContext, ToolEntry, Turn } from "./controller.js";
 import type { TodoItem, TodoStatus } from "../todos/types.js";
 import { countCompletedTodos, hasActiveTodos } from "../todos/store.js";
 import type { SessionPhase } from "./controller.js";
@@ -118,6 +118,10 @@ export function toolSummary(_name: string, args: unknown): string {
       const task = record.task;
       return task.length > 56 ? `${task.slice(0, 53)}…` : task;
     }
+    if (typeof record.description === "string") {
+      const description = record.description;
+      return description.length > 56 ? `${description.slice(0, 53)}…` : description;
+    }
     if (typeof record.pattern === "string") return record.pattern;
   }
   const json = JSON.stringify(args);
@@ -181,9 +185,10 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
   );
 }
 
-function ToolLine(props: { entry: ToolEntry; expandKey: string }) {
+function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean }) {
   const entry = () => props.entry;
   const expandKey = () => props.expandKey;
+  const nested = () => props.nested ?? false;
   const toolExpand = useToolExpand();
   const showDiff = () =>
     entry().name === "edit"
@@ -243,14 +248,16 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string }) {
   return (
     <box
       flexDirection="column"
-      marginLeft={1}
+      marginLeft={nested() ? 3 : 1}
       onMouseOver={() => toolExpand?.setHovered(expandKey())}
     >
       <box
         flexDirection="row"
         onMouseDown={() => toggleExpanded()}
       >
-        <text selectable={false} fg={accent()} attributes={running() ? BOLD : 0}>{glyph()} {entry().name}</text>
+        <text selectable={false} fg={accent()} attributes={running() ? BOLD : 0}>
+          {nested() ? "↳ " : ""}{glyph()} {entry().name}
+        </text>
         <Show when={summary()}>
           <text selectable={false} fg={theme.secondary}>  {summary()}</text>
         </Show>
@@ -269,6 +276,44 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string }) {
       </Show>
       <Show when={hasPlainOutput() && expanded()}>
         <ToolOutputView output={entry().output!} />
+      </Show>
+    </box>
+  );
+}
+
+function SubagentBlock(props: { subagent: SubagentContext; expandKeyPrefix: string }) {
+  const subagent = () => props.subagent;
+  const running = () => subagent().active || subagent().tools.some((t) => t.status === "running");
+
+  return (
+    <box flexDirection="column" marginLeft={2} marginTop={0}>
+      <box flexDirection="row" marginBottom={subagent().tools.length ? 0 : 0}>
+        <text selectable={false} fg={theme.subagent} attributes={running() ? BOLD : 0}>
+          {running() ? spinnerFrame() : "▸"} subagent ({subagent().agent})
+        </text>
+        <text selectable={false} fg={theme.secondary}>  {subagent().description}</text>
+      </box>
+      <For each={subagent().tools}>
+        {(child) => (
+          <ToolLine
+            entry={child}
+            expandKey={`${props.expandKeyPrefix}/sub/${child.id}`}
+            nested
+          />
+        )}
+      </For>
+    </box>
+  );
+}
+
+function ToolBlock(props: { entry: ToolEntry; expandKeyPrefix: string }) {
+  return (
+    <box flexDirection="column">
+      <ToolLine entry={props.entry} expandKey={`${props.expandKeyPrefix}/${props.entry.id}`} />
+      <Show when={props.entry.subagent}>
+        {(subagent) => (
+          <SubagentBlock subagent={subagent()} expandKeyPrefix={`${props.expandKeyPrefix}/${props.entry.id}`} />
+        )}
       </Show>
     </box>
   );
@@ -306,7 +351,7 @@ export function TurnView(props: {
         />
       </Show>
       <For each={turn().tools}>
-        {(entry) => <ToolLine entry={entry} expandKey={`${props.turnKey}/${entry.id}`} />}
+        {(entry) => <ToolBlock entry={entry} expandKeyPrefix={props.turnKey} />}
       </For>
       <Show when={turn().assistantText}>
         <box flexDirection="column" marginTop={hasTools() ? 1 : 0}>

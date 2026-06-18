@@ -7,12 +7,22 @@ import { clipboardHintText } from "./shortcuts.js";
 export type ToolStatus = "running" | "done" | "error";
 export type SessionPhase = "input" | "running" | "approval";
 
+/** Nested tools run inside a parent `task` subagent loop. */
+export interface SubagentContext {
+  id: string;
+  agent: string;
+  description: string;
+  active: boolean;
+  tools: ToolEntry[];
+}
+
 export interface ToolEntry {
   id: string;
   name: string;
   args: unknown;
   status: ToolStatus;
   output?: string;
+  subagent?: SubagentContext;
 }
 
 export interface PendingApproval {
@@ -92,7 +102,7 @@ function todosFromToolArgs(args: unknown): TodoItem[] | undefined {
 }
 
 /** Build a descriptive status hint for a running tool, e.g. "Reading src/foo.ts…". */
-function toolStatusHint(name: string, args: unknown): string {
+function toolStatusHint(name: string, args: unknown, subagentAgent?: string): string {
   const verb = TOOL_VERBS[name] ?? `Running ${name}`;
   let detail = "";
   if (args && typeof args === "object") {
@@ -105,7 +115,64 @@ function toolStatusHint(name: string, args: unknown): string {
     }
   }
   if (detail.length > 48) detail = `${detail.slice(0, 45)}…`;
-  return detail ? `${verb} ${detail}…` : `${verb}…`;
+  const action = detail ? `${verb} ${detail}…` : `${verb}…`;
+  return subagentAgent ? `Subagent (${subagentAgent}): ${action}` : action;
+}
+
+function findSubagentAgent(tools: ToolEntry[], subagentId: string): string | undefined {
+  for (const tool of tools) {
+    if (tool.subagent?.id === subagentId) return tool.subagent.agent;
+  }
+  return undefined;
+}
+
+function attachSubagentToRunningTask(
+  tools: ToolEntry[],
+  subagent: Omit<SubagentContext, "tools">,
+): ToolEntry[] {
+  let attached = false;
+  return tools.map((tool) => {
+    if (attached || tool.name !== "task" || tool.status !== "running" || tool.subagent) {
+      return tool;
+    }
+    attached = true;
+    return {
+      ...tool,
+      subagent: { ...subagent, tools: [] },
+    };
+  });
+}
+
+function upsertSubagentTool(
+  tools: ToolEntry[],
+  subagentId: string,
+  toolId: string,
+  patch: Partial<ToolEntry> & Pick<ToolEntry, "name" | "args">,
+): ToolEntry[] {
+  return tools.map((tool) => {
+    if (tool.subagent?.id !== subagentId) return tool;
+    const subTools = [...tool.subagent.tools];
+    const idx = subTools.findIndex((t) => t.id === toolId);
+    if (idx === -1) {
+      subTools.push({
+        id: toolId,
+        name: patch.name,
+        args: patch.args,
+        status: patch.status ?? "running",
+        output: patch.output,
+      });
+    } else {
+      subTools[idx] = { ...subTools[idx]!, ...patch };
+    }
+    return { ...tool, subagent: { ...tool.subagent, tools: subTools } };
+  });
+}
+
+function finalizeSubagent(tools: ToolEntry[], subagentId: string): ToolEntry[] {
+  return tools.map((tool) => {
+    if (tool.subagent?.id !== subagentId) return tool;
+    return { ...tool, subagent: { ...tool.subagent, active: false } };
+  });
 }
 
 export function createSessionController(meta: SessionMeta): SessionController {
@@ -279,6 +346,20 @@ export function createSessionController(meta: SessionMeta): SessionController {
           });
           break;
         case "tool_start": {
+          if (event.subagentId) {
+            const agent = findSubagentAgent(state.currentTools, event.subagentId);
+            update({
+              currentTools: upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
+                name: event.name,
+                args: event.args,
+                status: "running",
+              }),
+              pendingApproval: null,
+              phase: "running",
+              statusHint: toolStatusHint(event.name, event.args, agent),
+            });
+            break;
+          }
           upsertTool(event.id, {
             name: event.name,
             args: event.args,
@@ -295,6 +376,19 @@ export function createSessionController(meta: SessionMeta): SessionController {
           break;
         }
         case "tool_end":
+          if (event.subagentId) {
+            update({
+              currentTools: upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
+                name: event.name,
+                args: state.currentTools
+                  .flatMap((t) => t.subagent?.tools ?? [])
+                  .find((t) => t.id === event.id)?.args ?? {},
+                status: event.isError ? "error" : "done",
+                output: event.output,
+              }),
+            });
+            break;
+          }
           upsertTool(event.id, {
             name: event.name,
             args: state.currentTools.find((t) => t.id === event.id)?.args ?? {},
@@ -307,11 +401,18 @@ export function createSessionController(meta: SessionMeta): SessionController {
           break;
         case "subagent_start":
           update({
+            currentTools: attachSubagentToRunningTask(state.currentTools, {
+              id: event.id,
+              agent: event.agent,
+              description: event.description,
+              active: true,
+            }),
             statusHint: `Subagent (${event.agent}): ${event.description}…`,
           });
           break;
         case "subagent_end":
           update({
+            currentTools: finalizeSubagent(state.currentTools, event.id),
             statusHint: `Subagent (${event.agent}) finished — ${event.turns} turn${event.turns === 1 ? "" : "s"}`,
           });
           break;
