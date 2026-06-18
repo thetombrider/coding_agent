@@ -1,5 +1,10 @@
 export const MAX_OUTPUT_DISPLAY_LINES = 200;
 
+// When an expanded tool output is taller than this, it is rendered inside a
+// fixed-height scrollable window instead of pushing the rest of the
+// conversation off-screen. The user can scroll within that window.
+export const MAX_EXPANDED_VIEW_ROWS = 16;
+
 export function countOutputLines(output: string): number {
   const lines = output.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") return lines.length - 1;
