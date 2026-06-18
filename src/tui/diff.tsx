@@ -1,6 +1,6 @@
 import { createTextAttributes } from "@opentui/core";
 import { For } from "solid-js";
-import { theme } from "./theme.js";
+import { surfaceSelection, theme } from "./theme.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -20,17 +20,21 @@ export function DiffView(props: { patch: string }) {
     });
 
   return (
-    <box flexDirection="column" marginLeft={2} paddingLeft={1} paddingRight={1} backgroundColor={theme.codeBg}>
+    <box flexDirection="column" marginLeft={2} paddingLeft={1} paddingRight={1} backgroundColor={theme.toolOutputBg}>
       <For each={lines()}>
-        {(line) => (
+        {(line) => {
+          const color = diffColor(line);
+          return (
           <text
             selectable
-            fg={diffColor(line)}
+            {...surfaceSelection(theme.toolOutputBg, color)}
+            fg={color}
             attributes={line.startsWith("+") || line.startsWith("-") ? BOLD : 0}
           >
             {line || " "}
           </text>
-        )}
+          );
+        }}
       </For>
     </box>
   );
