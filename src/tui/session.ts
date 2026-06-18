@@ -11,6 +11,7 @@ import { getProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
+import { createDefaultSinks, installTelemetry } from "../telemetry/install.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
@@ -112,6 +113,18 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     confirm: controller.requestApproval,
   };
   installCoreHooks(config.hooks, approvalRef);
+
+  // Telemetry: emit turn/tool/session metrics to the local sinks. The session
+  // sink mirrors each metric into the active session log (`log` is reassigned on
+  // resume/new, so write through the live binding).
+  installTelemetry({
+    hooks: config.hooks,
+    sinks: createDefaultSinks({
+      sessionWrite: (event) => log.write({ type: "metric", ts: new Date().toISOString(), event }),
+    }),
+    sessionId: activeSessionId,
+    providerId: config.meta.provider,
+  });
 
   config.ctx.loopHost = {
     provider: config.provider,

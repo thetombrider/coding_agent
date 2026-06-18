@@ -1,6 +1,7 @@
 import type { ApprovalGateRef } from "./hooks/approval-gate.js";
 import type { HookRegistryImpl } from "./hooks/registry.js";
 import type { StreamAssistantFn } from "./provider/types.js";
+import type { MetricEvent } from "./telemetry/events.js";
 import type { TodoItem } from "./todos/types.js";
 import type { Workspace } from "./workspace/types.js";
 
@@ -45,6 +46,7 @@ export type SessionEvent =
   | { type: "assistant_chunk"; ts: string; content: ContentBlock[] }
   | { type: "tool_result";     ts: string; toolUseId: string; content: ContentBlock[] }
   | { type: "session_meta";    ts: string; sessionId: string; cwd: string; model: string }
-  | { type: "session_clear";   ts: string };
+  | { type: "session_clear";   ts: string }
+  | { type: "metric";          ts: string; event: MetricEvent };
 
 export type SessionEventCallback = (event: SessionEvent) => void;
