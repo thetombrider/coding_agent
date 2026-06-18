@@ -8,6 +8,8 @@ export const theme = {
   user: "#0F0E0D",
   border: "#B8AEA0",
   codeBg: "#EDE7DB",
+  /** Expanded tool / reasoning output panels — distinct from page and inline code. */
+  toolOutputBg: "#DDD4C4",
   codeFg: "#171412",
   heading: "#0F0E0D",
   diffAdd: "#0F5132",
@@ -32,3 +34,32 @@ export const terminalFg = { r: 23, g: 20, b: 18 } as const;
 
 /** RGB for terminal-wide ANSI background (matches theme.bg). */
 export const terminalBg = { r: 255, g: 253, b: 248 } as const;
+
+/** Invert fg/bg for drag-selection so text stays legible on any surface. */
+export function surfaceSelection(background: string, foreground: string = theme.fg) {
+  return {
+    bg: background,
+    selectionBg: foreground,
+    selectionFg: background,
+  } as const;
+}
+
+/** Scrollbar track/thumb colors — main conversation vs nested tool output. */
+export const scrollbars = {
+  main: {
+    verticalScrollbarOptions: {
+      trackOptions: {
+        backgroundColor: theme.logoHighlight,
+        foregroundColor: theme.logoShadow,
+      },
+    },
+  },
+  toolOutput: {
+    verticalScrollbarOptions: {
+      trackOptions: {
+        backgroundColor: theme.logo,
+        foregroundColor: theme.muted,
+      },
+    },
+  },
+} as const;

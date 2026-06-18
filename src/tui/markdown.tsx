@@ -7,7 +7,7 @@ import {
   plainTextLength,
   tableColumnWidths,
 } from "./markdown-parse.js";
-import { theme } from "./theme.js";
+import { surfaceSelection, theme } from "./theme.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -80,11 +80,11 @@ function TableBlock(props: { headers: string[]; rows: string[][] }) {
 
   return (
     <box flexDirection="column" marginTop={1} marginBottom={1}>
-      <text selectable fg={theme.border}>{top()}</text>
-      <text selectable>{styled(rowText(props.headers, widths(), true))}</text>
-      <text selectable fg={theme.border}>{divider()}</text>
-      <For each={props.rows}>{(row) => <text selectable>{styled(rowText(row, widths(), false))}</text>}</For>
-      <text selectable fg={theme.border}>{bottom()}</text>
+      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{top()}</text>
+      <text selectable {...surfaceSelection(theme.bg)}>{styled(rowText(props.headers, widths(), true))}</text>
+      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{divider()}</text>
+      <For each={props.rows}>{(row) => <text selectable {...surfaceSelection(theme.bg)}>{styled(rowText(row, widths(), false))}</text>}</For>
+      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{bottom()}</text>
     </box>
   );
 }
@@ -97,6 +97,7 @@ function BlockView(props: { block: Block; first: boolean }) {
         <box marginTop={props.first ? 0 : 1}>
           <text
             selectable
+            {...surfaceSelection(theme.bg, theme.heading)}
             fg={theme.heading}
             attributes={createTextAttributes({ bold: true, underline: block.level === 1 })}
           >
@@ -108,7 +109,7 @@ function BlockView(props: { block: Block; first: boolean }) {
       return (
         <box flexDirection="column" marginTop={1} marginBottom={1} paddingLeft={1} paddingRight={1} backgroundColor={theme.codeBg}>
           <For each={block.body.split("\n")}>
-            {(line) => <text selectable fg={theme.codeFg} attributes={BOLD}>{line || " "}</text>}
+            {(line) => <text selectable {...surfaceSelection(theme.codeBg, theme.codeFg)} fg={theme.codeFg} attributes={BOLD}>{line || " "}</text>}
           </For>
         </box>
       );
@@ -117,7 +118,7 @@ function BlockView(props: { block: Block; first: boolean }) {
         <box flexDirection="column">
           <For each={block.items}>
             {(item, i) => (
-              <text selectable wrapMode="word">
+              <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">
                 {styled(new StyledText([
                   fg(theme.muted)(bold(block.ordered ? `${i() + 1}. ` : "· ")),
                   ...inlineChunks(item),
@@ -130,7 +131,7 @@ function BlockView(props: { block: Block; first: boolean }) {
     case "blockquote":
       return (
         <box flexDirection="column" marginTop={1} marginBottom={1} paddingLeft={1} border={["left"]} borderColor={theme.border}>
-          <For each={block.lines}>{(line) => <text selectable wrapMode="word">{styled(inlineText(line))}</text>}</For>
+          <For each={block.lines}>{(line) => <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">{styled(inlineText(line))}</text>}</For>
         </box>
       );
     case "rule":
@@ -144,7 +145,7 @@ function BlockView(props: { block: Block; first: boolean }) {
     case "paragraph":
       return (
         <box flexDirection="column">
-          <For each={block.lines}>{(line) => <text selectable wrapMode="word">{styled(inlineText(line))}</text>}</For>
+          <For each={block.lines}>{(line) => <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">{styled(inlineText(line))}</text>}</For>
         </box>
       );
   }

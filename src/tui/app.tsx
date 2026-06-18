@@ -3,7 +3,7 @@ import { createTextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { SessionController, SessionState, Turn } from "./controller.js";
-import { theme } from "./theme.js";
+import { scrollbars, theme } from "./theme.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
 import { ApprovalBar, Header, TodoSidebar, TurnView } from "./views.js";
@@ -689,6 +689,7 @@ export function App(props: {
           stickyScroll
           stickyStart="bottom"
           contentOptions={{ flexDirection: "column" }}
+          {...scrollbars.main}
         >
           <Show
             when={hasContent()}
