@@ -44,22 +44,19 @@ export function surfaceSelection(background: string, foreground: string = theme.
   } as const;
 }
 
-/** Scrollbar track/thumb colors — main conversation vs nested tool output. */
+/** Solid scroll-rail colors — main conversation vs nested tool output. */
 export const scrollbars = {
   main: {
-    verticalScrollbarOptions: {
-      trackOptions: {
-        backgroundColor: theme.logoHighlight,
-        foregroundColor: theme.logoShadow,
-      },
-    },
+    track: theme.logoHighlight,
+    thumb: theme.logoShadow,
   },
   toolOutput: {
-    verticalScrollbarOptions: {
-      trackOptions: {
-        backgroundColor: theme.logo,
-        foregroundColor: theme.muted,
-      },
-    },
+    track: theme.logo,
+    thumb: theme.muted,
   },
+} as const;
+
+/** Hide OpenTUI's block-character slider; we render a solid rail instead. */
+export const hiddenNativeScrollbar = {
+  verticalScrollbarOptions: { visible: false },
 } as const;

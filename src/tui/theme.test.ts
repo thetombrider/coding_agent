@@ -18,8 +18,7 @@ describe("surfaceSelection", () => {
 
 describe("scrollbars", () => {
   it("uses different track colors for main and tool output scroll areas", () => {
-    expect(scrollbars.main.verticalScrollbarOptions.trackOptions.backgroundColor).not.toBe(
-      scrollbars.toolOutput.verticalScrollbarOptions.trackOptions.backgroundColor,
-    );
+    expect(scrollbars.main.track).not.toBe(scrollbars.toolOutput.track);
+    expect(scrollbars.main.thumb).not.toBe(scrollbars.toolOutput.thumb);
   });
 });

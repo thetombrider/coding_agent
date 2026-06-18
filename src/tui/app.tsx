@@ -3,7 +3,8 @@ import { createTextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { SessionController, SessionState, Turn } from "./controller.js";
-import { scrollbars, theme } from "./theme.js";
+import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
+import { ScrollRail } from "./scroll-rail.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
 import { ApprovalBar, Header, TodoSidebar, TurnView } from "./views.js";
@@ -160,6 +161,15 @@ export function App(props: {
     }
     props.controller.setStatusHint(formatPasteStatus(result, text.length));
   };
+
+  const [scrollRailRevision, setScrollRailRevision] = createSignal(0);
+  const bumpScrollRail = () => setScrollRailRevision((n) => n + 1);
+
+  createEffect(() => {
+    completed();
+    live();
+    queueMicrotask(bumpScrollRail);
+  });
 
   let scrollRef: ScrollBoxRenderable | undefined;
   let sessionListScrollRef: ScrollBoxRenderable | undefined;
@@ -689,7 +699,8 @@ export function App(props: {
           stickyScroll
           stickyStart="bottom"
           contentOptions={{ flexDirection: "column" }}
-          {...scrollbars.main}
+          {...hiddenNativeScrollbar}
+          on:scroll={bumpScrollRail}
         >
           <Show
             when={hasContent()}
@@ -723,6 +734,13 @@ export function App(props: {
             </Show>
           </Show>
         </scrollbox>
+
+        <ScrollRail
+          scrollRef={() => scrollRef}
+          revision={scrollRailRevision()}
+          trackColor={scrollbars.main.track}
+          thumbColor={scrollbars.main.thumb}
+        />
 
         <TodoSidebar todos={state().todos} phase={state().phase} />
       </box>
