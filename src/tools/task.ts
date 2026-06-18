@@ -144,8 +144,17 @@ export async function runSubagentTask(
       tools: preset.tools,
     });
 
+    // Forward child LLM + tool events to the parent registry, tagged with
+    // subagentId, so one accumulator (and later one trace) captures subagent
+    // cost. llm_start is forwarded for span pairing (6/8); the telemetry
+    // observer ignores it today.
     childHooks.observe((event) => {
-      if (event.type === "tool_start" || event.type === "tool_end") {
+      if (
+        event.type === "tool_start" ||
+        event.type === "tool_end" ||
+        event.type === "assistant_message" ||
+        event.type === "llm_start"
+      ) {
         host.hooks.emit({ ...event, subagentId });
       }
     });
