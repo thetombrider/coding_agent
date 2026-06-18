@@ -14,6 +14,7 @@ import { streamAssistant } from "./provider/stream.js";
 import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, resolveStartupSessionId, sessionPath } from "./session/log.js";
 import { rebuildTodosFromMessages } from "./todos/store.js";
 import { getCoreTools } from "./tools/registry.js";
+import { createDefaultSinks, installTelemetry } from "./telemetry/install.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
@@ -229,6 +230,15 @@ async function runHeadless(opts: {
     tools: getCoreTools(),
   };
   installCoreHooks(hooks, approvalRef);
+
+  // Telemetry: turn/tool metrics plus a session summary flushed at session_end
+  // (fired in the finally below). No session-log sink in headless mode.
+  installTelemetry({
+    hooks,
+    sinks: createDefaultSinks(),
+    sessionId: sessionId ?? generateSessionId(),
+    providerId: opts.useFaux ? "faux" : resolveActiveProvider().id,
+  });
 
   ctx.loopHost = {
     provider,
