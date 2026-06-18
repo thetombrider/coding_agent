@@ -16,9 +16,14 @@ function stopToolOutputScrollBubble(
   if (canScroll) event.stopPropagation();
 }
 
-export function ToolOutputView(props: { output: string; fg?: string }) {
+export function ToolOutputView(props: {
+  output: string;
+  fg?: string;
+  wrapMode?: "none" | "word" | "char";
+}) {
   const formatted = () => formatToolOutputForDisplay(props.output);
   const fg = () => props.fg ?? theme.codeFg;
+  const wrapMode = () => props.wrapMode ?? "none";
   const textSelection = () => surfaceSelection(theme.toolOutputBg, fg());
   // Rendered rows = the visible lines plus the optional "more lines" notice.
   const rowCount = () => formatted().lines.length + (formatted().truncated ? 1 : 0);
@@ -37,7 +42,13 @@ export function ToolOutputView(props: { output: string; fg?: string }) {
     <>
       <For each={formatted().lines}>
         {(line) => (
-          <text selectable {...textSelection()} fg={fg()} wrapMode="none">
+          <text
+            selectable
+            {...textSelection()}
+            fg={fg()}
+            wrapMode={wrapMode()}
+            {...(wrapMode() === "word" ? { flexGrow: 1 } : {})}
+          >
             {line || " "}
           </text>
         )}
@@ -95,5 +106,5 @@ export function ToolOutputView(props: { output: string; fg?: string }) {
 }
 
 export function ReasoningOutputView(props: { text: string }) {
-  return <ToolOutputView output={props.text} fg={theme.reasoning} />;
+  return <ToolOutputView output={props.text} fg={theme.reasoning} wrapMode="word" />;
 }
