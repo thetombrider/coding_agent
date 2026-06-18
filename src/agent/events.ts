@@ -4,7 +4,8 @@ import type { TodoItem } from "../todos/types.js";
 export type AgentEvent =
   | { type: "text_delta"; text: string; subagentId?: string }
   | { type: "reasoning_delta"; text: string; subagentId?: string }
-  | { type: "assistant_message"; message: AssistantMessage; subagentId?: string }
+  | { type: "llm_start"; id: string; model: string; subagentId?: string }
+  | { type: "assistant_message"; id: string; message: AssistantMessage; subagentId?: string }
   | { type: "tool_start"; id: string; name: string; args: unknown; subagentId?: string }
   | { type: "tool_end"; id: string; name: string; output: string; isError?: boolean; subagentId?: string }
   | { type: "approval_required"; id: string; name: string; args: unknown; subagentId?: string }

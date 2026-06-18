@@ -1,4 +1,5 @@
 import { tool } from "ai";
+import { randomUUID } from "node:crypto";
 import type { HookRegistryImpl } from "../hooks/registry.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import { enrichAssistantMessage, formatToolValidationErrors } from "../provider/tool-call-parser.js";
@@ -224,6 +225,9 @@ export async function runLoop(
       promptMessages = promptHook.messages;
     }
 
+    const llmCallId = randomUUID();
+    hooks.emit({ type: "llm_start", id: llmCallId, model: options.model });
+
     const rawMessage = await options.provider(
       promptMessages,
       {
@@ -255,7 +259,7 @@ export async function runLoop(
       if (validationErrors.length > 0) {
         ctx.messages.push(message);
         options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
-        hooks.emit({ type: "assistant_message", message });
+        hooks.emit({ type: "assistant_message", id: llmCallId, message });
         ctx.messages.push({
           role: "user",
           content: [{ type: "text", text: formatToolValidationErrors(validationErrors) }],
@@ -274,7 +278,7 @@ export async function runLoop(
     assistantTurns += 1;
     ctx.messages.push(message);
     options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
-    hooks.emit({ type: "assistant_message", message });
+    hooks.emit({ type: "assistant_message", id: llmCallId, message });
 
     if (toolCalls.length === 0) {
       hooks.emit({ type: "loop_end", reason: "complete" });

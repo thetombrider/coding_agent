@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { runLoop, lastAssistantText } from "../agent/loop.js";
 import { createHookRegistry } from "../hooks/registry.js";
+import type { AgentEvent } from "../agent/events.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { createStatefulFauxProvider } from "../provider/faux.js";
@@ -54,6 +55,46 @@ describe("runLoop", () => {
 
     expect(result.messages.some((m) => m.role === "tool")).toBe(true);
     expect(lastAssistantText(result)).toContain("2 dependencies");
+  });
+
+  it("emits one llm_start before each assistant_message sharing the same id", async () => {
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "read", arguments: { path: "package.json" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks(getCoreTools().filter((t) => t.name === "read"));
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    const readTools = getCoreTools().filter((t) => t.name === "read");
+    await runLoop(ctx, registry, { provider, tools: readTools, model: "faux:test" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const starts = observed.filter((e) => e.type === "llm_start");
+    const messages = observed.filter((e) => e.type === "assistant_message");
+    // Two LLM calls: the tool-call turn and the final text turn.
+    expect(starts).toHaveLength(2);
+    expect(messages).toHaveLength(2);
+
+    // Each assistant_message is preceded by an llm_start with the matching id.
+    for (const msg of messages) {
+      const id = msg.type === "assistant_message" ? msg.id : "";
+      const startIdx = observed.findIndex((e) => e.type === "llm_start" && e.id === id);
+      const msgIdx = observed.indexOf(msg);
+      expect(startIdx).toBeGreaterThanOrEqual(0);
+      expect(startIdx).toBeLessThan(msgIdx);
+    }
+
+    // Ids are unique per call.
+    const ids = messages.map((m) => (m.type === "assistant_message" ? m.id : ""));
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("calls onEvent with assistant_chunk and tool_result for each message pushed", async () => {
