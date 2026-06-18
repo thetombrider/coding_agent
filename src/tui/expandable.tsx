@@ -2,9 +2,14 @@ import { For, Show } from "solid-js";
 import { theme } from "./theme.js";
 import { formatToolOutputForDisplay, MAX_EXPANDED_VIEW_ROWS } from "./tool-output.js";
 
-export function ToolOutputView(props: { output: string; fg?: string }) {
+export function ToolOutputView(props: {
+  output: string;
+  fg?: string;
+  wrapMode?: "none" | "word" | "char";
+}) {
   const formatted = () => formatToolOutputForDisplay(props.output);
   const fg = () => props.fg ?? theme.codeFg;
+  const wrapMode = () => props.wrapMode ?? "none";
   // Rendered rows = the visible lines plus the optional "more lines" notice.
   const rowCount = () => formatted().lines.length + (formatted().truncated ? 1 : 0);
   const scrollable = () => rowCount() > MAX_EXPANDED_VIEW_ROWS;
@@ -13,7 +18,12 @@ export function ToolOutputView(props: { output: string; fg?: string }) {
     <>
       <For each={formatted().lines}>
         {(line) => (
-          <text selectable fg={fg()} wrapMode="none">
+          <text
+            selectable
+            fg={fg()}
+            wrapMode={wrapMode()}
+            {...(wrapMode() === "word" ? { flexGrow: 1 } : {})}
+          >
             {line || " "}
           </text>
         )}
@@ -51,5 +61,5 @@ export function ToolOutputView(props: { output: string; fg?: string }) {
 }
 
 export function ReasoningOutputView(props: { text: string }) {
-  return <ToolOutputView output={props.text} fg={theme.reasoning} />;
+  return <ToolOutputView output={props.text} fg={theme.reasoning} wrapMode="word" />;
 }
