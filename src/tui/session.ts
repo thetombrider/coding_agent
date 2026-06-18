@@ -12,6 +12,7 @@ import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "..
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath, deleteSession } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
 import { createDefaultSinks, installTelemetry } from "../telemetry/install.js";
+import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
@@ -76,14 +77,20 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     sessionWrite: (event) => log.write({ type: "metric", ts: new Date().toISOString(), event }),
   });
   let disposeTelemetry: () => void = () => {};
+  let recordSideLlmCall: LlmCallRecorder = () => {};
   const reinstallTelemetry = () => {
     disposeTelemetry();
-    disposeTelemetry = installTelemetry({
+    const installed = installTelemetry({
       hooks: config.hooks,
       sinks: telemetrySinks,
       sessionId: activeSessionId,
       providerId: config.meta.provider,
     });
+    disposeTelemetry = installed.dispose;
+    recordSideLlmCall = installed.recordLlmCall;
+    // A fresh install rebinds the accumulator, so point the loop host at the
+    // new recorder (compaction / delegate_read tag their side-path calls here).
+    if (config.ctx.loopHost) config.ctx.loopHost.recordLlmCall = recordSideLlmCall;
   };
 
   const onResume = (resumeSessionId: string) => {
@@ -156,6 +163,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     onEvent: (event) => log.write(event),
     hooks: config.hooks,
     approval: approvalRef,
+    recordLlmCall: recordSideLlmCall,
   };
 
   let resolveExit!: () => void;

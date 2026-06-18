@@ -58,4 +58,51 @@ describe("runDelegateRead", () => {
     );
     expect(result.warnings[0]).toMatch(/not found/);
   });
+
+  it("records the cheap-model call with delegate_read source and tokens", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "delegate-read-"));
+    try {
+      await writeFile(join(cwd, "sample.txt"), "secret=42\n", "utf8");
+
+      const mockGenerate: DelegateReadGenerate = async () => ({
+        text: "ok",
+        usage: { inputTokens: 200, outputTokens: 40, totalTokens: 240 },
+      });
+
+      const calls: Array<{ model: string; usage: unknown; source: string }> = [];
+      await runDelegateRead(
+        {
+          task: "what secret?",
+          paths: ["sample.txt"],
+          cwd,
+          workspace: createLocalWorkspace(),
+          model: "cheap:test",
+          record: (call) => calls.push(call),
+        },
+        mockGenerate,
+      );
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.source).toBe("delegate_read");
+      expect(calls[0]?.model).toBe("cheap:test");
+      expect(calls[0]?.usage).toMatchObject({ input: 200, output: 40, totalTokens: 240 });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("skips recording when the generate result has no usage", async () => {
+    const mockGenerate: DelegateReadGenerate = async () => ({ text: "ok" });
+    const calls: unknown[] = [];
+    await runDelegateRead(
+      {
+        task: "hi",
+        cwd: "/tmp",
+        workspace: createLocalWorkspace(),
+        record: (call) => calls.push(call),
+      },
+      mockGenerate,
+    );
+    expect(calls).toHaveLength(0);
+  });
 });

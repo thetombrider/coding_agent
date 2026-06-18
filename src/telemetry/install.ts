@@ -3,7 +3,7 @@ import type { HookRegistry } from "../hooks/types.js";
 import type { Usage } from "../provider/types.js";
 import { SessionCostAccumulator } from "./accumulator.js";
 import { calcCost } from "./cost.js";
-import type { MetricEvent, SessionCostSnapshot, TurnSource } from "./events.js";
+import type { LlmCallRecorder, MetricEvent, SessionCostSnapshot, TurnSource } from "./events.js";
 import { emitAll, flushAll, jsonlSink, sessionLogSink, stdoutSink, type MetricSink } from "./sinks.js";
 
 const now = () => new Date().toISOString();
@@ -44,13 +44,25 @@ export interface InstallTelemetryOptions {
   onSessionCost?: (snapshot: SessionCostSnapshot) => void;
 }
 
+/** Handle returned by {@link installTelemetry}. */
+export interface InstalledTelemetry {
+  /** Unsubscribes every hook this install added. */
+  dispose: () => void;
+  /**
+   * Records a side-path LLM call (compaction, delegate_read) into this
+   * session's accumulator + sinks. Best-effort — never throws into the caller.
+   */
+  recordLlmCall: LlmCallRecorder;
+}
+
 /**
  * Subscribe a session's hooks to the metric pipeline: each `assistant_message`
  * becomes a `turn` metric (cost + tokens), each tool call a `tool` metric
  * (duration keyed by call id, parallel-safe), and `session_end` a `session`
- * summary followed by a flush. Returns a disposer that unsubscribes everything.
+ * summary followed by a flush. Returns a {@link InstalledTelemetry} handle with
+ * a disposer plus a recorder for side-path calls that bypass `runLoop`.
  */
-export function installTelemetry(opts: InstallTelemetryOptions): () => void {
+export function installTelemetry(opts: InstallTelemetryOptions): InstalledTelemetry {
   const { hooks, sinks, sessionId, providerId, onSessionCost } = opts;
   const pricing = opts.pricing ?? loadConfig().models.pricing;
   const acc = new SessionCostAccumulator(sessionId);
@@ -98,9 +110,21 @@ export function installTelemetry(opts: InstallTelemetryOptions): () => void {
     await flushAll(sinks);
   });
 
-  return () => {
-    unsubObserve();
-    unsubEnd();
+  const recordSideLlmCall: LlmCallRecorder = (call) => {
+    try {
+      recordLlmCall(acc, sinks, { ...call, providerId, pricing });
+    } catch {
+      // Best-effort: a telemetry failure must never break the caller
+      // (compaction / delegate_read).
+    }
+  };
+
+  return {
+    dispose: () => {
+      unsubObserve();
+      unsubEnd();
+    },
+    recordLlmCall: recordSideLlmCall,
   };
 }
 

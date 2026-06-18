@@ -233,7 +233,7 @@ async function runHeadless(opts: {
 
   // Telemetry: turn/tool metrics plus a session summary flushed at session_end
   // (fired in the finally below). No session-log sink in headless mode.
-  installTelemetry({
+  const telemetry = installTelemetry({
     hooks,
     sinks: createDefaultSinks(),
     sessionId: sessionId ?? generateSessionId(),
@@ -247,6 +247,7 @@ async function runHeadless(opts: {
     sessionId,
     hooks,
     approval: approvalRef,
+    recordLlmCall: telemetry.recordLlmCall,
   };
 
   hooks.observe((event) => {

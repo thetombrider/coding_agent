@@ -1,7 +1,7 @@
 import type { ApprovalGateRef } from "./hooks/approval-gate.js";
 import type { HookRegistryImpl } from "./hooks/registry.js";
 import type { StreamAssistantFn } from "./provider/types.js";
-import type { MetricEvent } from "./telemetry/events.js";
+import type { LlmCallRecorder, MetricEvent } from "./telemetry/events.js";
 import type { TodoItem } from "./todos/types.js";
 import type { Workspace } from "./workspace/types.js";
 
@@ -27,6 +27,8 @@ export interface LoopHost {
   onEvent?: SessionEventCallback;
   hooks: HookRegistryImpl;
   approval: ApprovalGateRef;
+  /** Records side-path LLM calls (compaction, delegate_read) for telemetry. */
+  recordLlmCall?: LlmCallRecorder;
 }
 
 export interface AgentContext {

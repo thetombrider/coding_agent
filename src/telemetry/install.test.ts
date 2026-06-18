@@ -137,6 +137,60 @@ describe("installTelemetry", () => {
     expect(snapshots).toEqual([1, 2]);
   });
 
+  it("recordLlmCall emits a side-path turn tagged with its source and counts it", async () => {
+    const hooks = createHookRegistry();
+    const sink = collectingSink();
+    const { recordLlmCall } = installTelemetry({
+      hooks,
+      sinks: [sink],
+      sessionId: "s1",
+      pricing,
+    });
+
+    recordLlmCall({
+      model: "anthropic/claude-opus-4.8",
+      usage: { input: 1_000_000, output: 0, totalTokens: 1_000_000 },
+      source: "compaction",
+    });
+    recordLlmCall({
+      model: "anthropic/claude-opus-4.8",
+      usage: { input: 0, output: 0, totalTokens: 0 },
+      source: "delegate_read",
+    });
+    await hooks.fireHook("session_end", { reason: "complete" }, ctx);
+
+    const turns = sink.events.filter((e) => e.type === "turn");
+    expect(turns.map((t) => (t.type === "turn" ? t.source : ""))).toEqual([
+      "compaction",
+      "delegate_read",
+    ]);
+
+    const summary = sink.events.find((e) => e.type === "session");
+    if (summary?.type !== "session") throw new Error("expected session");
+    expect(summary.summary.turns).toBe(2);
+    expect(summary.summary.sourceMix.compaction).toBe(1);
+    expect(summary.summary.sourceMix.delegate_read).toBe(1);
+    expect(summary.summary.modelMix["anthropic/claude-opus-4.8"].turns).toBe(2);
+  });
+
+  it("recordLlmCall never throws into the caller when a sink fails", () => {
+    const hooks = createHookRegistry();
+    const bad: MetricSink = {
+      emit() {
+        throw new Error("sink boom");
+      },
+    };
+    const { recordLlmCall } = installTelemetry({ hooks, sinks: [bad], sessionId: "s1", pricing });
+
+    expect(() =>
+      recordLlmCall({
+        model: "anthropic/claude-opus-4.8",
+        usage: { input: 1, output: 1, totalTokens: 2 },
+        source: "compaction",
+      }),
+    ).not.toThrow();
+  });
+
   it("isolates a throwing sink so others still receive events", async () => {
     const hooks = createHookRegistry();
     const bad: MetricSink = {

@@ -7,6 +7,18 @@ import type { Usage } from "../provider/types.js";
  */
 export type TurnSource = "main_loop" | "compaction" | "delegate_read" | "subagent";
 
+/**
+ * Records a side-path LLM call (one that never surfaces as an `assistant_message`
+ * event) into the session's metric pipeline. Bound to a session by
+ * `installTelemetry` and threaded to compaction / delegate_read via `LoopHost`.
+ * Best-effort: implementations must never throw into the caller.
+ */
+export type LlmCallRecorder = (call: {
+  model: string;
+  usage: Usage;
+  source: TurnSource;
+}) => void;
+
 /** Per-call cost + token breakdown produced by `calcCost`, tagged with its source. */
 export interface TurnCost {
   model: string;

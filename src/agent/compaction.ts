@@ -1,5 +1,7 @@
 import { generateText } from "ai";
 import { resolveLanguageModel } from "../provider/registry.js";
+import { aiSdkUsageToUsage, type AiSdkUsage } from "../telemetry/cost.js";
+import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { Message } from "../types.js";
 
 const COMPACT_THRESHOLD = 0.85;
@@ -27,7 +29,7 @@ export interface TurnSlice {
 
 export type SummariseGenerate = (
   options: Parameters<typeof generateText>[0],
-) => Promise<{ text: string }>;
+) => Promise<{ text: string; usage?: AiSdkUsage }>;
 
 export function estimateMessageTokens(messages: Message[]): number {
   return JSON.stringify(messages).length / 4;
@@ -146,6 +148,7 @@ export async function summariseOldTurns(
   model: string,
   keepLastN = DEFAULT_KEEP_LAST_N_TURNS,
   generate: SummariseGenerate = generateText,
+  recordCall?: LlmCallRecorder,
 ): Promise<Message[]> {
   const turns = sliceTurns(messages);
   const prefixTurns = prefixTurnCount(turns.length, keepLastN);
@@ -160,7 +163,7 @@ export async function summariseOldTurns(
   const endTurn = turns[prefixTurns - 1]!.turn;
   const corpus = formatMessagesForSummary(oldMessages);
 
-  const { text } = await generate({
+  const { text, usage } = await generate({
     model: resolveLanguageModel(model),
     system: SUMMARY_SYSTEM,
     messages: [
@@ -172,6 +175,10 @@ export async function summariseOldTurns(
     ],
     maxOutputTokens: 4096,
   });
+
+  if (recordCall && usage) {
+    recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
+  }
 
   const summaryMessage: Message = {
     role: "assistant",
