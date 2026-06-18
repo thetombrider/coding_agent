@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectedSession, sessionsPaletteHint } from "./sessions-palette.js";
+import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
 
 describe("sessionsPaletteHint", () => {
   it("describes delete confirmation controls", () => {
@@ -10,6 +10,24 @@ describe("sessionsPaletteHint", () => {
   it("describes session list navigation including delete", () => {
     expect(sessionsPaletteHint("list")).toContain("→ delete");
     expect(sessionsPaletteHint("list")).toContain("Enter resume");
+  });
+});
+
+describe("sessionsPaletteAfterDelete", () => {
+  it("returns the refreshed list view instead of closing the menu", () => {
+    const sessions = [
+      { sessionId: "a", cwd: "/", model: "m", createdAt: "t", lastTs: "t", turns: 1 },
+    ];
+    expect(sessionsPaletteAfterDelete(sessions, 3)).toEqual({
+      phase: "sessions",
+      index: 0,
+      sessions,
+      menu: "list",
+    });
+  });
+
+  it("returns null when no sessions remain", () => {
+    expect(sessionsPaletteAfterDelete([], 0)).toBeNull();
   });
 });
 
