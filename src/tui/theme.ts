@@ -8,6 +8,8 @@ export const theme = {
   user: "#0F0E0D",
   border: "#B8AEA0",
   codeBg: "#EDE7DB",
+  /** Expanded tool / reasoning output panels — distinct from page and inline code. */
+  toolOutputBg: "#DDD4C4",
   codeFg: "#171412",
   heading: "#0F0E0D",
   diffAdd: "#0F5132",
@@ -32,3 +34,29 @@ export const terminalFg = { r: 23, g: 20, b: 18 } as const;
 
 /** RGB for terminal-wide ANSI background (matches theme.bg). */
 export const terminalBg = { r: 255, g: 253, b: 248 } as const;
+
+/** Invert fg/bg for drag-selection so text stays legible on any surface. */
+export function surfaceSelection(background: string, foreground: string = theme.fg) {
+  return {
+    bg: background,
+    selectionBg: foreground,
+    selectionFg: background,
+  } as const;
+}
+
+/** Solid scroll-rail colors — main conversation vs nested tool output. */
+export const scrollbars = {
+  main: {
+    track: theme.logoHighlight,
+    thumb: theme.logoShadow,
+  },
+  toolOutput: {
+    track: theme.logo,
+    thumb: theme.muted,
+  },
+} as const;
+
+/** Hide OpenTUI's block-character slider; we render a solid rail instead. */
+export const hiddenNativeScrollbar = {
+  verticalScrollbarOptions: { visible: false },
+} as const;

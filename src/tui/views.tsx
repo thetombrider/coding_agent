@@ -8,7 +8,7 @@ import { DiffView } from "./diff.js";
 import { ToolOutputView, ReasoningOutputView } from "./expandable.js";
 import { Markdown } from "./markdown.js";
 import { spinnerFrame } from "./spinner.js";
-import { theme } from "./theme.js";
+import { surfaceSelection, theme } from "./theme.js";
 import { useToolExpand } from "./tool-expand.js";
 import { outputExpandHint } from "./tool-output.js";
 
@@ -269,7 +269,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
         </Show>
       </box>
       <Show when={entry().status === "error" && entry().output && !expanded()}>
-        <text selectable fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
+        <text selectable {...surfaceSelection(theme.bg)} fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
       </Show>
       <Show when={showDiff()}>
         <DiffView patch={entry().output!} />
@@ -340,7 +340,7 @@ export function TurnView(props: {
       <Show when={turn().userText}>
         <box flexDirection="row" marginBottom={1}>
           <text fg={theme.muted} attributes={BOLD}>you  </text>
-          <text selectable fg={theme.user} attributes={BOLD} flexGrow={1} wrapMode="word">{turn().userText}</text>
+          <text selectable {...surfaceSelection(theme.bg, theme.user)} fg={theme.user} attributes={BOLD} flexGrow={1} wrapMode="word">{turn().userText}</text>
         </box>
       </Show>
       <Show when={showReasoning()}>
