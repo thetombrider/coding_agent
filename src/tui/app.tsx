@@ -38,7 +38,6 @@ import {
   ANTHROPIC_OAUTH_POLICY_NOTE,
   beginAnthropicOAuth,
   completeAnthropicOAuthPaste,
-  exchangeAnthropicOAuthCode,
   openBrowser,
   storeAnthropicOAuthTokens,
   type AnthropicOAuthSession,
@@ -340,32 +339,17 @@ export function App(props: {
     props.controller.setStatusHint("Starting OAuth — opening browser…");
 
     try {
-      const session = await beginAnthropicOAuth("loopback");
+      const session = await beginAnthropicOAuth("manual");
+      setOauthPrompt({ phase: "paste", providerId, session, activateOnComplete });
       openBrowser(session.authorizeUrl);
-      props.controller.setStatusHint("Complete sign-in in your browser (loopback)…");
-      const callback = await session.loopback!.waitForCallback(120_000);
-      const tokens = await exchangeAnthropicOAuthCode(
-        callback.code,
-        session.verifier,
-        session.redirectUri,
-        callback.state,
+      props.controller.setStatusHint(
+        "Sign in via browser — copy the authorization code from the page and paste it here "
+        + "(code or code#state) · Esc to cancel",
       );
-      storeAnthropicOAuthTokens(tokens);
-      session.loopback!.close();
-      finishOAuthSetup(providerId, activateOnComplete);
-    } catch {
-      try {
-        const session = await beginAnthropicOAuth("manual");
-        setOauthPrompt({ phase: "paste", providerId, session, activateOnComplete });
-        openBrowser(session.authorizeUrl);
-        props.controller.setStatusHint(
-          "Loopback unavailable — paste authorization code (code or code#state) · Esc to cancel",
-        );
-      } catch (err) {
-        closeOAuthPrompt();
-        const message = err instanceof Error ? err.message : String(err);
-        props.controller.setStatusHint(`OAuth failed: ${message}`);
-      }
+    } catch (err) {
+      closeOAuthPrompt();
+      const message = err instanceof Error ? err.message : String(err);
+      props.controller.setStatusHint(`OAuth failed: ${message}`);
     } finally {
       setOauthRunning(false);
     }
