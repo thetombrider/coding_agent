@@ -3,6 +3,22 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generatePkce, parseOAuthCallbackInput } from "./pkce.js";
+import {
+  ANTHROPIC_OAUTH_CONSOLE_REDIRECT_URI,
+  beginAnthropicOAuth,
+} from "./anthropic-oauth.js";
+
+describe("anthropic oauth session", () => {
+  it("uses the Anthropic Console redirect URI for manual flow", async () => {
+    const session = await beginAnthropicOAuth("manual");
+    expect(session.mode).toBe("manual");
+    expect(session.redirectUri).toBe(ANTHROPIC_OAUTH_CONSOLE_REDIRECT_URI);
+    expect(session.authorizeUrl).toContain(
+      encodeURIComponent(ANTHROPIC_OAUTH_CONSOLE_REDIRECT_URI),
+    );
+    expect(session.loopback).toBeUndefined();
+  });
+});
 
 describe("pkce", () => {
   it("generates a verifier/challenge pair", () => {

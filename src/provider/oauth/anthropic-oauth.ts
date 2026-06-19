@@ -60,7 +60,10 @@ export function openBrowser(url: string): void {
   }
 }
 
-/** Begin OAuth: loopback server or manual paste flow. */
+/**
+ * Begin OAuth. Anthropic's public client only accepts the Console callback URI,
+ * so the default (and TUI) flow is manual paste — loopback redirect URIs are rejected.
+ */
 export async function beginAnthropicOAuth(
   mode: AnthropicOAuthMode = "manual",
 ): Promise<AnthropicOAuthSession> {
