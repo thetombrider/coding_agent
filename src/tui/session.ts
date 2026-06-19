@@ -5,7 +5,7 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig, saveProviderConfig } from "../config/config.js";
+import { saveConfig, saveProviderConfig, saveProviderAuthPreference } from "../config/config.js";
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
@@ -203,8 +203,18 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     }
   };
 
-  const configureProvider = (providerId: string, values: Record<string, string>, activate: boolean) => {
+  const setProviderAuthPreference = (providerId: string, preferredAuth: "api-key" | "oauth") => {
+    saveProviderAuthPreference(providerId, preferredAuth);
+  };
+
+  const configureProvider = (
+    providerId: string,
+    values: Record<string, string>,
+    activate: boolean,
+    preferredAuth?: "api-key" | "oauth",
+  ) => {
     saveProviderConfig(providerId, values);
+    if (preferredAuth) saveProviderAuthPreference(providerId, preferredAuth);
     const display = getProvider(providerId)?.displayName ?? providerId;
     if (activate) {
       const fromProvider = config.meta.provider ?? "openrouter";
@@ -292,6 +302,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetMode: setApprovalMode,
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
+          onSetProviderAuthPreference: setProviderAuthPreference,
           onClear: () => {
             config.ctx.messages = [];
             config.ctx.todos = [];

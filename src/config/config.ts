@@ -13,7 +13,7 @@ export interface Config {
   provider: {
     active: string;
     openrouter?: { apiKey?: string };
-    anthropic?: { apiKey?: string };
+    anthropic?: { apiKey?: string; preferredAuth?: "api-key" | "oauth" };
     openai?: { apiKey?: string };
     litellm?: { baseUrl?: string };
     vercel?: { apiKey?: string };
@@ -209,6 +209,14 @@ export function hasE2BApiKey(): boolean {
   const fromEnv = process.env.E2B_API_KEY?.trim();
   const fromConfig = loadConfig().sandbox?.e2b?.apiKey?.trim();
   return Boolean(fromEnv || fromConfig);
+}
+
+/** Persist which auth path to prefer when a provider has both API key and OAuth. */
+export function saveProviderAuthPreference(
+  providerId: string,
+  preferredAuth: "api-key" | "oauth",
+): void {
+  saveConfig({ provider: { [providerId]: { preferredAuth } } } as DeepPartial<Config>);
 }
 
 /** Persist provider-specific settings under `provider.<id>.<key>` in config.json. */

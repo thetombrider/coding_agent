@@ -129,23 +129,56 @@ describe("processCommand", () => {
       expect(processCommand("/provider", provCtx).type).toBe("info");
     });
 
-    it("switches by explicit id", () => {
+    it("switches by explicit id when configured", () => {
+      expect(processCommand("/providers regolo", {
+        ...provCtx,
+        providers: [{ ...providers[2]!, configured: true }],
+      })).toMatchObject({
+        type: "set-provider",
+        provider: "regolo",
+      });
+    });
+
+    it("opens auth menu for unconfigured anthropic", () => {
       expect(processCommand("/providers anthropic", provCtx)).toMatchObject({
+        type: "open-provider-auth",
+        provider: "anthropic",
+        activateOnComplete: true,
+      });
+    });
+
+    it("opens auth menu when anthropic is already active", () => {
+      expect(processCommand("/providers anthropic", {
+        ...provCtx,
+        providers: [{ ...providers[1]!, active: true, configured: true }],
+        currentProvider: "anthropic",
+      })).toMatchObject({
+        type: "open-provider-auth",
+        provider: "anthropic",
+        activateOnComplete: false,
+      });
+    });
+
+    it("switches configured anthropic by explicit id", () => {
+      expect(processCommand("/providers anthropic", {
+        ...provCtx,
+        providers: [{ ...providers[1]!, configured: true }],
+      })).toMatchObject({
         type: "set-provider",
         provider: "anthropic",
       });
     });
 
-    it("switches by numeric index", () => {
+    it("opens auth menu by numeric index for unconfigured anthropic", () => {
       expect(processCommand("/providers 2", provCtx)).toMatchObject({
-        type: "set-provider",
+        type: "open-provider-auth",
         provider: "anthropic",
       });
     });
 
-    it("warns when switching to an unconfigured provider", () => {
+    it("opens auth menu when switching to unconfigured anthropic", () => {
       const r = processCommand("/providers anthropic", provCtx);
-      if (r.type === "set-provider") expect(r.message).toMatch(/not configured/);
+      expect(r.type).toBe("open-provider-auth");
     });
 
     it("is a no-op info when already active", () => {

@@ -56,12 +56,26 @@ describe("anthropic provider", () => {
     expect(anthropicProvider.isConfigured()).toBe(true);
   });
 
-  it("prefers API key over OAuth tokens", async () => {
+  it("prefers API key over OAuth tokens by default", async () => {
     const { saveProviderTokens } = await import("../oauth/tokens.js");
     saveProviderTokens("anthropic", { accessToken: "oauth-access", expiresAt: Date.now() + 3600_000 });
     process.env.ANTHROPIC_API_KEY = "sk-ant-priority";
     const { resolveAnthropicAuth } = await import("./anthropic.js");
     expect(resolveAnthropicAuth()?.kind).toBe("api-key");
+  });
+
+  it("prefers OAuth when preferredAuth is oauth and both credentials exist", async () => {
+    const { saveProviderTokens } = await import("../oauth/tokens.js");
+    const { saveConfig } = await import("../../config/config.js");
+    const { resolveAnthropicAuth } = await import("./anthropic.js");
+    saveProviderTokens("anthropic", {
+      accessToken: "oauth-access",
+      refreshToken: "oauth-refresh",
+      expiresAt: Date.now() + 3600_000,
+    });
+    process.env.ANTHROPIC_API_KEY = "sk-ant-priority";
+    saveConfig({ provider: { anthropic: { preferredAuth: "oauth" } } });
+    expect(resolveAnthropicAuth()?.kind).toBe("oauth");
   });
 
   it("normalizes OpenRouter-style and prefixed model ids", () => {

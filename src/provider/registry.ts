@@ -1,5 +1,6 @@
 import type { LanguageModel } from "ai";
 import { loadConfig } from "../config/config.js";
+import { providerAuthPaths } from "./auth-paths.js";
 import { anthropicProvider } from "./providers/anthropic.js";
 import { openRouterProvider } from "./providers/openrouter.js";
 import { regoloProvider } from "./providers/regolo.js";
@@ -15,6 +16,8 @@ export interface ProviderSummary {
   active: boolean;
   /** Credentials available (env var or config file). */
   configured: boolean;
+  /** Per-path setup status for dual-auth providers. */
+  authPaths?: ReturnType<typeof providerAuthPaths>;
 }
 
 const registry = new Map<string, Provider>();
@@ -91,6 +94,7 @@ export function providerSummaries(): ProviderSummary[] {
     authStrategy: provider.authStrategy,
     active: provider.id === active,
     configured: provider.isConfigured(),
+    authPaths: providerAuthPaths(provider.id),
   }));
 }
 
