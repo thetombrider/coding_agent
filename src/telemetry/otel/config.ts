@@ -4,7 +4,8 @@
  * OpenTelemetry packages — so it is safe to call on every session to decide
  * whether the OTel subtree should be lazy-loaded at all.
  */
-import { loadConfig, type OtelConfig } from "../../config/config.js";
+import { randomUUID } from "node:crypto";
+import { loadConfig, saveConfig, type OtelConfig } from "../../config/config.js";
 
 export type { OtelConfig };
 
@@ -80,4 +81,24 @@ export function resolveOtelConfig(base?: OtelConfig): OtelConfig {
     sampleRatio,
     enabled: cfg.enabled || Boolean(endpoint),
   };
+}
+
+/**
+ * Resolve the OTLP user id for Langfuse grouping. Only called when OTLP export
+ * is enabled. Order: `OTEL_USER_ID` env → `telemetry.otel.userId` config →
+ * generated UUID persisted to config. Returns undefined when export is off.
+ */
+export function resolveOtelUserId(base?: OtelConfig): string | undefined {
+  const cfg = resolveOtelConfig(base);
+  if (!cfg.enabled) return undefined;
+
+  const fromEnv = process.env.OTEL_USER_ID?.trim();
+  if (fromEnv) return fromEnv;
+
+  const fromConfig = loadConfig().telemetry.otel.userId?.trim();
+  if (fromConfig) return fromConfig;
+
+  const generated = randomUUID();
+  saveConfig({ telemetry: { otel: { userId: generated } } });
+  return generated;
 }

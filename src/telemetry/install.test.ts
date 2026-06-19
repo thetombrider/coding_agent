@@ -223,30 +223,31 @@ describe("installTelemetry", () => {
     ).not.toThrow();
   });
 
-  it("drives the injected OTel consumer through the session lifecycle", async () => {
+  it("drives the injected OTel consumer through turn_start and loop_end", async () => {
     const hooks = createHookRegistry();
     const calls: string[] = [];
     const otel = {
-      startSession: () => calls.push("start"),
       handleEvent: (e: { type: string }) => calls.push(`event:${e.type}`),
-      endSession: (reason: string) => calls.push(`end:${reason}`),
+      endOpenTurn: (reason: string) => calls.push(`endOpen:${reason}`),
       flush: async () => {
         calls.push("flush");
       },
     };
     const { dispose } = installTelemetry({ hooks, sinks: [], sessionId: "s1", pricing, otel });
 
-    expect(calls).toContain("start");
+    hooks.emit({ type: "turn_start", id: "t1" });
     hooks.emit({ type: "llm_start", id: "c1", model: "m" });
+    hooks.emit({ type: "loop_end", reason: "complete" });
     await tick();
     await hooks.fireHook("session_end", { reason: "complete" }, ctx);
 
+    expect(calls).toContain("event:turn_start");
     expect(calls).toContain("event:llm_start");
-    expect(calls).toContain("end:complete");
+    expect(calls).toContain("event:loop_end");
     expect(calls).toContain("flush");
-    // dispose closes again (idempotent for /new and /resume).
+    // dispose closes any open turn (idempotent for /new and /resume).
     dispose();
-    expect(calls.filter((c) => c.startsWith("end:")).length).toBeGreaterThanOrEqual(2);
+    expect(calls.filter((c) => c.startsWith("endOpen:")).length).toBeGreaterThanOrEqual(1);
   });
 
   it("isolates a throwing sink so others still receive events", async () => {

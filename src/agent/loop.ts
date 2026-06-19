@@ -198,6 +198,9 @@ export async function runLoop(
   let parseCorrectionRetries = 0;
   let assistantTurns = 0;
 
+  const turnId = randomUUID();
+  hooks.emit({ type: "turn_start", id: turnId });
+
   while (true) {
     if (options.maxTurns !== undefined && assistantTurns >= options.maxTurns) {
       hooks.emit({ type: "loop_end", reason: "terminate" });
