@@ -64,6 +64,8 @@ docs/
 
 Root-level `README.md`, `SPEC.md`, `CONTRIBUTING.md`, `AGENTS.md`, `LICENSE`
 stay where they are (conventional) and are cross-linked from `docs/README.md`.
+`AGENTS.md` additionally gets a minimal pointer to the docs conventions so the
+next agent that edits the code keeps the docs in sync (#133, applied last).
 
 ## Work items
 
@@ -107,6 +109,14 @@ Each maps to a GitHub issue under epic **#132**.
 - **#131 — README sync, CHANGELOG & doc-maintenance conventions.** Reconcile the
   README with the code, add `CHANGELOG.md`, and tell contributors which doc to
   update for which change.
+- **#133 — Minimal docs-convention pointers in `AGENTS.md`** *(do last).* A few
+  lines pointing the next agent at `docs/README.md` + `DOCUMENTATION_PLAN.md`,
+  the "update the doc when you change the behavior" rule, and the source-of-truth
+  anchors (config in `src/config/config.ts`, tool args in the Zod schemas, tool
+  text in `src/tools/*.txt`, flags in `src/main.ts`, commands in
+  `src/tui/commands.ts`). Kept minimal — pointers, not a copy of the conventions
+  (those live in `CONTRIBUTING.md` and this file). **Sequenced last**, after the
+  docs it references exist, so the links aren't dangling.
 
 ## Suggested sequencing
 
@@ -115,7 +125,9 @@ Each maps to a GitHub issue under epic **#132**.
 3. **Reference docs (#122–#125)** and **guides (#126–#129)** in parallel; these
    are mostly independent.
 4. **#121 (architecture)** and **#130 (troubleshooting)** draw on the rest, so
-   they settle last.
+   they settle late.
+5. **#133 (AGENTS.md pointers)** is **strictly last** — it links the shipped
+   docs, so it only makes sense once v1 of the `docs/` tree is in place.
 
 ## Definition of done (per doc)
 
