@@ -130,6 +130,9 @@ describe("getPromptCacheStrategy", () => {
     expect(getPromptCacheStrategy("qwen/qwen3-coder-plus")).toBe(
       "explicit-breakpoints",
     );
+    expect(getPromptCacheStrategy("qwen/qwen3.7-plus")).toBe(
+      "explicit-breakpoints",
+    );
     expect(getPromptCacheStrategy("deepseek/deepseek-v3.2")).toBe(
       "explicit-breakpoints",
     );

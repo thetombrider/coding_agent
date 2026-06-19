@@ -249,6 +249,7 @@ const QWEN_EXPLICIT_PREFIXES = [
   "qwen/qwen3-coder-plus",
   "qwen/qwen3-coder-flash",
   "qwen/qwen3.7-max",
+  "qwen/qwen3.7-plus",
 ] as const;
 
 /** Snapshot Qwen endpoints do not support explicit cache_control on OpenRouter. */
@@ -344,7 +345,10 @@ export const OPENROUTER_PICKER_MODELS = [
   "deepseek/deepseek-v4-pro",
   "deepseek/deepseek-v4-flash",
   "minimax/minimax-m3",
-  "z-ai/glm-5.1",
+  "moonshotai/kimi-k2.7-code",
+  "z-ai/glm-5.2",
+  "qwen/qwen3.7-plus",
+  "xiaomi/mimo-v2.5-pro",
   "inception/mercury-2",
   "arcee-ai/trinity-large-thinking",
   "mistralai/mistral-large-2512",
