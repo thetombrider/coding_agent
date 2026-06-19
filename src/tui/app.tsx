@@ -22,10 +22,16 @@ import {
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
 import { selectionCopyHint } from "./terminal-env.js";
-import { KEYBOARD_HINTS, processCommand } from "./commands.js";
+import { KEYBOARD_HINTS, processCommand, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { pickerModelsForProvider } from "../config/models.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
+import {
+  defaultProviderAuthIndex,
+  providerAuthPaths,
+  shouldOpenProviderAuthMenu,
+  type ProviderAuthPath,
+} from "../provider/auth-paths.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import {
@@ -62,6 +68,16 @@ type PaletteState =
   | { phase: "model"; index: number }
   | { phase: "mode"; index: number }
   | { phase: "providers"; index: number; providers: ProviderSummary[] }
+  | {
+      phase: "provider-auth";
+      index: number;
+      providerId: string;
+      displayName: string;
+      paths: ProviderAuthPath[];
+      activateOnComplete: boolean;
+      providers: ProviderSummary[];
+      providersIndex: number;
+    }
   | SessionsPaletteState;
 
 type ConfigPromptState = {
@@ -74,8 +90,8 @@ type ConfigPromptState = {
 };
 
 type OAuthPromptState =
-  | { phase: "confirm"; providerId: string }
-  | { phase: "paste"; providerId: string; session: AnthropicOAuthSession };
+  | { phase: "confirm"; providerId: string; activateOnComplete: boolean }
+  | { phase: "paste"; providerId: string; session: AnthropicOAuthSession; activateOnComplete: boolean };
 
 function providerAuthLabel(strategy: ProviderSummary["authStrategy"]): string {
   if (strategy === "oauth") return " [oauth]";
@@ -120,7 +136,13 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onSetProvider: (provider: string, model?: string) => void;
-  onConfigureProvider: (provider: string, values: Record<string, string>, activate: boolean) => void;
+  onConfigureProvider: (
+    provider: string,
+    values: Record<string, string>,
+    activate: boolean,
+    preferredAuth?: "api-key" | "oauth",
+  ) => void;
+  onSetProviderAuthPreference: (provider: string, preferredAuth: "api-key" | "oauth") => void;
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -248,7 +270,66 @@ export function App(props: {
     props.controller.clearInput();
   };
 
-  const runAnthropicOAuth = async (providerId: string) => {
+  const commandContext = () => {
+    const meta = state().meta;
+    return {
+      currentModel: meta.model,
+      currentMode: coerceApprovalMode(meta.approval) ?? "normal",
+      knownModels: pickerModels(),
+      currentProvider: meta.provider ?? activeProviderId(),
+      providers: providerSummaries(),
+      providerConfigFields,
+    };
+  };
+
+  const switchToProvider = (providerId: string, notePrefix = "") => {
+    const { model, note } = resolveModelOnProviderSwitch(
+      state().meta.provider ?? activeProviderId(),
+      providerId,
+      state().meta.model,
+    );
+    props.onSetProvider(providerId, model);
+    props.controller.setStatusHint(`${notePrefix}provider → ${providerId}${note}`);
+  };
+
+  const finishOAuthSetup = (providerId: string, activateOnComplete: boolean) => {
+    props.onSetProviderAuthPreference(providerId, "oauth");
+    closeOAuthPrompt();
+    if (activateOnComplete) {
+      switchToProvider(providerId, "Anthropic OAuth configured · ");
+    } else {
+      props.controller.setStatusHint("Anthropic OAuth configured — tokens saved to ~/.orin/tokens.json");
+    }
+  };
+
+  const openProviderAuthPalette = (
+    provider: ProviderSummary,
+    activateOnComplete: boolean,
+    providers: ProviderSummary[],
+    providersIndex: number,
+  ) => {
+    const paths = provider.authPaths ?? providerAuthPaths(provider.id) ?? [];
+    setPalette({
+      phase: "provider-auth",
+      index: defaultProviderAuthIndex(paths),
+      providerId: provider.id,
+      displayName: provider.displayName,
+      paths,
+      activateOnComplete,
+      providers,
+      providersIndex,
+    });
+    props.controller.setStatusHint(`${provider.displayName}: choose API key or OAuth · ↑↓ Enter · Esc back`);
+  };
+
+  const beginOAuthFlow = (providerId: string, activateOnComplete: boolean) => {
+    setOauthPrompt({ phase: "confirm", providerId, activateOnComplete });
+    props.controller.setStatusHint(
+      `${ANTHROPIC_OAUTH_POLICY_NOTE} Type "yes" to continue · Esc to cancel`,
+    );
+  };
+
+  const runAnthropicOAuth = async (providerId: string, activateOnComplete: boolean) => {
     if (providerId !== "anthropic") {
       props.controller.setStatusHint(`OAuth is not available for ${providerId}`);
       closeOAuthPrompt();
@@ -271,12 +352,11 @@ export function App(props: {
       );
       storeAnthropicOAuthTokens(tokens);
       session.loopback!.close();
-      closeOAuthPrompt();
-      props.controller.setStatusHint("Anthropic OAuth configured — tokens saved to ~/.orin/tokens.json");
+      finishOAuthSetup(providerId, activateOnComplete);
     } catch {
       try {
         const session = await beginAnthropicOAuth("manual");
-        setOauthPrompt({ phase: "paste", providerId, session });
+        setOauthPrompt({ phase: "paste", providerId, session, activateOnComplete });
         openBrowser(session.authorizeUrl);
         props.controller.setStatusHint(
           "Loopback unavailable — paste authorization code (code or code#state) · Esc to cancel",
@@ -304,7 +384,7 @@ export function App(props: {
         props.controller.setStatusHint('Type "yes" to accept the policy and continue, or Esc to cancel');
         return;
       }
-      void runAnthropicOAuth(prompt.providerId);
+      void runAnthropicOAuth(prompt.providerId, prompt.activateOnComplete);
       return;
     }
 
@@ -318,8 +398,7 @@ export function App(props: {
       const tokens = await completeAnthropicOAuthPaste(prompt.session, trimmed);
       storeAnthropicOAuthTokens(tokens);
       prompt.session.loopback?.close();
-      closeOAuthPrompt();
-      props.controller.setStatusHint("Anthropic OAuth configured — tokens saved to ~/.orin/tokens.json");
+      finishOAuthSetup(prompt.providerId, prompt.activateOnComplete);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       props.controller.setStatusHint(`OAuth failed: ${message} — try again or Esc to cancel`);
@@ -389,7 +468,12 @@ export function App(props: {
     }
 
     closeConfigPrompt();
-    props.onConfigureProvider(prompt.providerId, values, prompt.activateOnComplete);
+    props.onConfigureProvider(
+      prompt.providerId,
+      values,
+      prompt.activateOnComplete,
+      "api-key",
+    );
   };
 
   const closePalette = () => {
@@ -423,6 +507,110 @@ export function App(props: {
     }
 
     openSessionsPalette(next);
+  };
+
+  const handleProviderAuthSelect = (auth: ProviderAuthPath, paletteState: Extract<PaletteState, { phase: "provider-auth" }>) => {
+    setPalette(null);
+    if (auth.id === "api-key") {
+      if (auth.configured) {
+        props.onSetProviderAuthPreference(paletteState.providerId, "api-key");
+        if (paletteState.activateOnComplete) {
+          switchToProvider(paletteState.providerId, "Using API key · ");
+        } else {
+          props.controller.setStatusHint("Anthropic API key is active — run /providers configure anthropic to update");
+        }
+        return;
+      }
+      const fields = providerConfigFields(paletteState.providerId);
+      if (!fields.length) {
+        props.controller.setStatusHint(`${paletteState.displayName} has no API key fields`);
+        return;
+      }
+      beginConfigPrompt({
+        providerId: paletteState.providerId,
+        displayName: paletteState.displayName,
+        fields,
+        activateOnComplete: paletteState.activateOnComplete,
+      });
+      return;
+    }
+
+    if (auth.configured) {
+      props.onSetProviderAuthPreference(paletteState.providerId, "oauth");
+      if (paletteState.activateOnComplete) {
+        switchToProvider(paletteState.providerId, "Using OAuth · ");
+      } else {
+        props.controller.setStatusHint("Anthropic OAuth is active — re-authenticate from this menu to refresh");
+      }
+      return;
+    }
+    beginOAuthFlow(paletteState.providerId, paletteState.activateOnComplete);
+  };
+
+  const applyCommandResult = (result: CommandResult) => {
+    switch (result.type) {
+      case "exit":
+        props.onExit();
+        return;
+      case "clear":
+        props.onClear();
+        props.controller.clearHistory();
+        props.controller.setTodos([]);
+        return;
+      case "new":
+        props.onNew();
+        return;
+      case "sessions": {
+        const sessions = props.onListSessions();
+        if (sessions.length === 0) {
+          props.controller.setStatusHint("No sessions found.");
+          return;
+        }
+        setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
+        return;
+      }
+      case "set-model":
+        props.onSetModel(result.model);
+        props.controller.setStatusHint(result.message);
+        return;
+      case "set-mode":
+        props.onSetMode(result.mode);
+        props.controller.setStatusHint(result.message);
+        return;
+      case "set-provider":
+        props.onSetProvider(result.provider, result.model);
+        props.controller.setStatusHint(result.message);
+        return;
+      case "configure-provider":
+        beginConfigPrompt({
+          providerId: result.provider,
+          displayName:
+            providerSummaries().find((p) => p.id === result.provider)?.displayName ?? result.provider,
+          fields: result.fields,
+          activateOnComplete: result.activateOnComplete,
+        });
+        return;
+      case "start-oauth":
+        beginOAuthFlow(result.provider, result.activateOnComplete ?? false);
+        return;
+      case "open-provider-auth": {
+        const providers = providerSummaries();
+        const idx = providers.findIndex((p) => p.id === result.provider);
+        const provider = providers[idx];
+        if (!provider) {
+          props.controller.setStatusHint(`unknown provider "${result.provider}"`);
+          return;
+        }
+        openProviderAuthPalette(provider, result.activateOnComplete, providers, Math.max(0, idx));
+        return;
+      }
+      case "info":
+      case "error":
+        props.controller.setStatusHint(result.message);
+        return;
+      case "not-command":
+        break;
+    }
   };
 
   const handlePaletteSelect = () => {
@@ -522,7 +710,14 @@ export function App(props: {
 
     if (p.phase === "providers") {
       const provider = p.providers[p.index];
-      if (provider && !provider.active) {
+      if (!provider) return;
+
+      if (shouldOpenProviderAuthMenu(provider)) {
+        openProviderAuthPalette(provider, !provider.active, p.providers, p.index);
+        return;
+      }
+
+      if (!provider.active) {
         setPalette(null);
         if (!provider.configured && provider.authStrategy === "api-key") {
           const fields = providerConfigFields(provider.id);
@@ -536,29 +731,16 @@ export function App(props: {
             return;
           }
         }
-        if (!provider.configured && provider.authStrategy === "api-key-or-oauth") {
-          const { model, note } = resolveModelOnProviderSwitch(
-            state().meta.provider ?? activeProviderId(),
-            provider.id,
-            state().meta.model,
-          );
-          props.onSetProvider(provider.id, model);
-          props.controller.setStatusHint(
-            `provider → ${provider.id} (needs setup — /providers configure ${provider.id} or /providers oauth ${provider.id})${note}`,
-          );
-          return;
-        }
-        const { model, note } = resolveModelOnProviderSwitch(
-          state().meta.provider ?? activeProviderId(),
-          provider.id,
-          state().meta.model,
-        );
-        props.onSetProvider(provider.id, model);
-        const warn = provider.configured ? "" : " (needs setup — /providers configure " + provider.id + ")";
-        props.controller.setStatusHint(`provider → ${provider.id}${warn}${note}`);
+        switchToProvider(provider.id);
       } else {
         setPalette(null);
       }
+      return;
+    }
+
+    if (p.phase === "provider-auth") {
+      const auth = p.paths[p.index];
+      if (auth) handleProviderAuthSelect(auth, p);
       return;
     }
 
@@ -588,8 +770,19 @@ export function App(props: {
       return;
     }
 
-    // If palette is open, Enter selects the current item instead of submitting.
+    // If palette is open, Enter selects unless the input is a complete slash command.
     if (palette() !== null) {
+      const text = raw.trim();
+      if (text.startsWith("/")) {
+        const result = processCommand(text, commandContext());
+        if (result.type !== "not-command") {
+          if (inputRef) inputRef.value = "";
+          props.controller.clearInput();
+          closePalette();
+          applyCommandResult(result);
+          return;
+        }
+      }
       handlePaletteSelect();
       return;
     }
@@ -608,72 +801,9 @@ export function App(props: {
     if (submitting() || oauthRunning() || state().phase !== "input") return;
 
     if (text.startsWith("/")) {
-      const meta = state().meta;
-      const result = processCommand(text, {
-        currentModel: meta.model,
-        currentMode: coerceApprovalMode(meta.approval) ?? "normal",
-        knownModels: pickerModels(),
-        currentProvider: meta.provider ?? activeProviderId(),
-        providers: providerSummaries(),
-        providerConfigFields,
-      });
-
       props.controller.clearInput();
-      switch (result.type) {
-        case "exit":
-          props.onExit();
-          return;
-        case "clear":
-          props.onClear();
-          props.controller.clearHistory();
-          props.controller.setTodos([]);
-          return;
-        case "new":
-          props.onNew();
-          return;
-        case "sessions": {
-          const sessions = props.onListSessions();
-          if (sessions.length === 0) {
-            props.controller.setStatusHint("No sessions found.");
-            return;
-          }
-          setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
-          return;
-        }
-        case "set-model":
-          props.onSetModel(result.model);
-          props.controller.setStatusHint(result.message);
-          return;
-        case "set-mode":
-          props.onSetMode(result.mode);
-          props.controller.setStatusHint(result.message);
-          return;
-        case "set-provider":
-          props.onSetProvider(result.provider, result.model);
-          props.controller.setStatusHint(result.message);
-          return;
-        case "configure-provider":
-          beginConfigPrompt({
-            providerId: result.provider,
-            displayName:
-              providerSummaries().find((p) => p.id === result.provider)?.displayName ?? result.provider,
-            fields: result.fields,
-            activateOnComplete: result.activateOnComplete,
-          });
-          return;
-        case "start-oauth":
-          setOauthPrompt({ phase: "confirm", providerId: result.provider });
-          props.controller.setStatusHint(
-            `${ANTHROPIC_OAUTH_POLICY_NOTE} Type "yes" to continue · Esc to cancel`,
-          );
-          return;
-        case "info":
-        case "error":
-          props.controller.setStatusHint(result.message);
-          return;
-        case "not-command":
-          break; // fall through to run as a normal turn
-      }
+      applyCommandResult(processCommand(text, commandContext()));
+      return;
     }
 
     props.controller.clearInput();
@@ -794,15 +924,25 @@ export function App(props: {
               ? Math.max(0, pickerModels().length - 1)
               : p.phase === "providers"
                 ? Math.max(0, p.providers.length - 1)
-                : p.phase === "sessions"
-                  ? Math.max(0, p.sessions.length - 1)
-                  : APPROVAL_MODES.length - 1;
+                : p.phase === "provider-auth"
+                  ? Math.max(0, p.paths.length - 1)
+                  : p.phase === "sessions"
+                    ? Math.max(0, p.sessions.length - 1)
+                    : APPROVAL_MODES.length - 1;
         setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
         return;
       }
       if (key.name === "escape") {
         if (p.phase === "sessions" && p.menu === "delete") {
           setPalette({ ...p, menu: "list" });
+          return;
+        }
+        if (p.phase === "provider-auth") {
+          setPalette({
+            phase: "providers",
+            index: p.providersIndex,
+            providers: p.providers,
+          });
           return;
         }
         if (p.phase !== "commands") {
@@ -1043,6 +1183,27 @@ export function App(props: {
                           <text fg={theme.secondary}>  (active)</text>
                         </Show>
                         <Show when={!provider.configured}>
+                          <text fg={theme.secondary}>  (needs setup)</text>
+                        </Show>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "provider-auth"}>
+                <For each={(p() as { phase: "provider-auth"; paths: ProviderAuthPath[] }).paths}>
+                  {(path, i) => {
+                    const selected = () => (p() as { phase: "provider-auth"; index: number }).index === i();
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{path.label}
+                        </text>
+                        <Show when={path.configured}>
+                          <text fg={theme.secondary}>  (configured)</text>
+                        </Show>
+                        <Show when={!path.configured}>
                           <text fg={theme.secondary}>  (needs setup)</text>
                         </Show>
                       </box>

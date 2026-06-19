@@ -40,18 +40,25 @@ export function hasAnthropicOAuthTokens(): boolean {
   return hasValidOAuthTokens(tokens) || Boolean(tokens.refreshToken);
 }
 
-/** Prefer API key over OAuth (env → config, then tokens.json). */
+/** Prefer API key over OAuth unless `preferredAuth` selects OAuth when both exist. */
 export function resolveAnthropicAuth():
   | { kind: "api-key"; apiKey: string }
   | { kind: "oauth"; accessToken: string }
   | undefined {
   const apiKey = getAnthropicApiKey();
-  if (apiKey) return { kind: "api-key", apiKey };
-
   const tokens = getAnthropicOAuthTokens();
-  if (hasValidOAuthTokens(tokens, REFRESH_SKEW_MS)) {
-    return { kind: "oauth", accessToken: tokens!.accessToken };
+  const oauthReady = hasValidOAuthTokens(tokens, REFRESH_SKEW_MS);
+  const hasOAuth = oauthReady || Boolean(tokens?.refreshToken);
+  const preferred = loadConfig().provider.anthropic?.preferredAuth;
+
+  if (apiKey && hasOAuth) {
+    if (preferred === "oauth" && oauthReady) {
+      return { kind: "oauth", accessToken: tokens!.accessToken };
+    }
+    return { kind: "api-key", apiKey };
   }
+  if (apiKey) return { kind: "api-key", apiKey };
+  if (oauthReady) return { kind: "oauth", accessToken: tokens!.accessToken };
   return undefined;
 }
 

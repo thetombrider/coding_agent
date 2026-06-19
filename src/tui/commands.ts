@@ -5,6 +5,7 @@ import {
   nextApprovalMode,
   type ApprovalMode,
 } from "../approval/policy.js";
+import { shouldOpenProviderAuthMenu } from "../provider/auth-paths.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import type { ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
@@ -35,7 +36,13 @@ export type CommandResult =
       activateOnComplete: boolean;
       message: string;
     }
-  | { type: "start-oauth"; provider: string; message: string }
+  | { type: "start-oauth"; provider: string; message: string; activateOnComplete?: boolean }
+  | {
+      type: "open-provider-auth";
+      provider: string;
+      displayName: string;
+      activateOnComplete: boolean;
+    }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
@@ -257,7 +264,20 @@ function handleProviderOAuth(arg: string, ctx: CommandContext): CommandResult {
   return {
     type: "start-oauth",
     provider: resolved.id,
+    activateOnComplete: false,
     message: `Starting OAuth for ${resolved.displayName} — confirm policy note, then authenticate · Esc to cancel`,
+  };
+}
+
+function openProviderAuthResult(
+  match: ProviderSummary,
+  activateOnComplete: boolean,
+): CommandResult {
+  return {
+    type: "open-provider-auth",
+    provider: match.id,
+    displayName: match.displayName,
+    activateOnComplete,
   };
 }
 
@@ -281,7 +301,13 @@ function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
     return { type: "error", message: `unknown provider "${target}". ${providerInfo(ctx)}` };
   }
   if (match.active) {
+    if (match.authStrategy === "api-key-or-oauth") {
+      return openProviderAuthResult(match, false);
+    }
     return { type: "info", message: `already using ${match.id}` };
+  }
+  if (shouldOpenProviderAuthMenu(match)) {
+    return openProviderAuthResult(match, true);
   }
   const warn = match.configured
     ? ""
