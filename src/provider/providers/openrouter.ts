@@ -13,6 +13,7 @@ import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { ModelMessage } from "ai";
 import { loadConfig } from "../../config/config.js";
+import type { ModelPricing } from "../../config/config.js";
 import type { ModelMetadataProvider, Provider } from "../types.js";
 
 // ── Client & credentials ─────────────────────────────────────────────────────
@@ -54,6 +55,12 @@ interface OpenRouterModelRecord {
   canonical_slug?: string;
   context_length: number | null;
   top_provider?: { context_length: number | null };
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+    request?: string;
+    image?: string;
+  };
 }
 
 interface OpenRouterModelResponse {
@@ -68,6 +75,7 @@ export type FetchModelsCatalog = typeof fetch;
 
 let lookupCache = new Map<string, { value: number | undefined; fetchedAt: number }>();
 let catalogCache: Map<string, number> | null = null;
+let catalogPricingCache: Map<string, ModelPricing> | null = null;
 let catalogIdsCache: string[] | null = null;
 let catalogFetchedAt = 0;
 
@@ -109,8 +117,23 @@ function openRouterRequestInit(apiKey?: string): RequestInit {
 export function resetOpenRouterModelsCache(): void {
   lookupCache.clear();
   catalogCache = null;
+  catalogPricingCache = null;
   catalogIdsCache = null;
   catalogFetchedAt = 0;
+}
+
+/** OpenRouter API returns USD per token; Orin config uses per-million. */
+export function openRouterTokenPricingToPerM(pricing: {
+  prompt?: string;
+  completion?: string;
+}): ModelPricing | undefined {
+  const prompt = parseFloat(pricing.prompt ?? "");
+  const completion = parseFloat(pricing.completion ?? "");
+  if (!Number.isFinite(prompt) || !Number.isFinite(completion)) return undefined;
+  return {
+    inputPerM: prompt * 1_000_000,
+    outputPerM: completion * 1_000_000,
+  };
 }
 
 const OPENROUTER_FETCH_TIMEOUT_MS = 8000;
@@ -167,20 +190,38 @@ export async function loadOpenRouterModelsCatalog(
 
   const body = (await response.json()) as OpenRouterModelsResponse;
   const next = new Map<string, number>();
+  const pricingNext = new Map<string, ModelPricing>();
   const ids: string[] = [];
 
   for (const model of body.data) {
     ids.push(model.id);
     const contextWindow = resolveContextLength(model);
-    if (contextWindow === undefined) continue;
-    next.set(model.id, contextWindow);
-    if (model.canonical_slug) next.set(model.canonical_slug, contextWindow);
+    if (contextWindow !== undefined) {
+      next.set(model.id, contextWindow);
+      if (model.canonical_slug) next.set(model.canonical_slug, contextWindow);
+    }
+    const modelPricing = model.pricing ? openRouterTokenPricingToPerM(model.pricing) : undefined;
+    if (modelPricing) {
+      pricingNext.set(model.id, modelPricing);
+      if (model.canonical_slug) pricingNext.set(model.canonical_slug, modelPricing);
+    }
   }
 
   catalogCache = next;
+  catalogPricingCache = pricingNext;
   catalogIdsCache = ids;
   catalogFetchedAt = Date.now();
   return next;
+}
+
+/** Pricing from the cached OpenRouter catalog (populated by `loadOpenRouterModelsCatalog`). */
+export function lookupOpenRouterPricing(modelId: string): ModelPricing | undefined {
+  if (!catalogPricingCache) return undefined;
+  for (const key of lookupKeys(modelId)) {
+    const match = catalogPricingCache.get(key);
+    if (match) return match;
+  }
+  return undefined;
 }
 
 /** Model ids from the OpenRouter catalog (reuses the catalog cache). */

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   costBadge,
   formatCostUsd,
+  formatModelPricingLabel,
   formatSessionCost,
   formatTokenCount,
   showTodoSidebar,
@@ -55,6 +56,12 @@ describe("cost formatting", () => {
     expect(formatSessionCost(0.04)).toBe("$0.040");
     expect(formatSessionCost(null)).toBe("—");
     expect(formatSessionCost(undefined)).toBe("—");
+  });
+
+  it("formats model pricing labels for the picker", () => {
+    expect(formatModelPricingLabel({ inputPerM: 3, outputPerM: 15 })).toBe("in $3.00 · out $15.00/M");
+    expect(formatModelPricingLabel({ inputPerM: 0.14, outputPerM: 0.28 })).toBe("in $0.14 · out $0.28/M");
+    expect(formatModelPricingLabel(undefined)).toBe("—");
   });
 });
 

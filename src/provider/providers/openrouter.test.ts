@@ -5,8 +5,10 @@ import {
   getPromptCacheStrategy,
   loadOpenRouterModelsCatalog,
   lookupOpenRouterContextWindow,
+  lookupOpenRouterPricing,
   markPromptCacheBreakpoints,
   openRouterModelLookupUrl,
+  openRouterTokenPricingToPerM,
   promptCacheProviderOptions,
   requiresExplicitCacheBreakpoints,
   resetOpenRouterModelsCache,
@@ -30,6 +32,7 @@ const SAMPLE_CATALOG = {
       canonical_slug: "deepseek/deepseek-v4-flash",
       context_length: 64000,
       top_provider: { context_length: 64000 },
+      pricing: { prompt: "0.00000014", completion: "0.00000028" },
     },
   ],
 };
@@ -103,6 +106,20 @@ describe("openrouter-models", () => {
     expect(first.get("deepseek/deepseek-v4-flash")).toBe(64000);
     expect(second.get("anthropic/claude-sonnet-4")).toBe(200000);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses per-token pricing into per-million rates in the catalog cache", async () => {
+    const fetchImpl = mockFetch({ "/api/v1/models": { body: SAMPLE_CATALOG } });
+    await loadOpenRouterModelsCatalog(fetchImpl, "sk-test");
+
+    expect(openRouterTokenPricingToPerM({ prompt: "0.000003", completion: "0.000015" })).toEqual({
+      inputPerM: 3,
+      outputPerM: 15,
+    });
+    expect(lookupOpenRouterPricing("deepseek/deepseek-v4-flash")).toEqual({
+      inputPerM: 0.14,
+      outputPerM: 0.28,
+    });
   });
 
   it("tries stripped routing suffixes on single-model lookup", async () => {

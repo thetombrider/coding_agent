@@ -7,7 +7,7 @@ import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
-import { ApprovalBar, formatSessionCost, Header, TodoSidebar, TurnView } from "./views.js";
+import { ApprovalBar, formatModelPricingLabel, formatSessionCost, Header, TodoSidebar, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
@@ -25,6 +25,8 @@ import { selectionCopyHint } from "./terminal-env.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { pickerModelsForProvider } from "../config/models.js";
+import { loadConfig } from "../config/config.js";
+import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
@@ -235,6 +237,7 @@ export function App(props: {
       currentProvider: meta.provider ?? activeProviderId(),
       providers: providerSummaries(),
       providerConfigFields,
+      modelPricing: loadConfig().models.pricing,
     };
   };
 
@@ -970,11 +973,21 @@ export function App(props: {
                   {(model, i) => {
                     const selected = () => (p() as { phase: "model"; index: number }).index === i();
                     const isCurrent = () => model === state().meta.model;
+                    const providerId = () => state().meta.provider ?? activeProviderId();
+                    const pricingLabel = () =>
+                      formatModelPricingLabel(
+                        resolveDisplayModelPricing(
+                          model,
+                          providerId(),
+                          loadConfig().models.pricing,
+                        ),
+                      );
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
                           {selected() ? "▶ " : "  "}{model}
                         </text>
+                        <text fg={theme.secondary}>  {pricingLabel()}</text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
                         </Show>

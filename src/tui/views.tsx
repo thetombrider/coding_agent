@@ -1,4 +1,5 @@
 import { createTextAttributes } from "@opentui/core";
+import type { ModelPricing } from "../config/config.js";
 import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
 import type { SubagentContext, ToolEntry, Turn } from "./controller.js";
 import type { TodoItem, TodoStatus } from "../todos/types.js";
@@ -133,6 +134,19 @@ export function costBadge(opts: { costUsd?: number | null; tokenTotals?: number;
 /** Per-session cost label for the /sessions palette; `—` when unpriced. */
 export function formatSessionCost(costUsd?: number | null): string {
   return costUsd != null ? formatCostUsd(costUsd) : "—";
+}
+
+/** Format a per-million-token rate for model list display. */
+function formatPerMRate(rate: number): string {
+  if (rate >= 1) return `$${rate.toFixed(2)}`;
+  if (rate >= 0.1) return `$${rate.toFixed(2)}`;
+  return `$${rate.toFixed(3)}`;
+}
+
+/** Input/output pricing suffix for the /model picker; `—` when unknown. */
+export function formatModelPricingLabel(pricing?: ModelPricing): string {
+  if (!pricing) return "—";
+  return `in ${formatPerMRate(pricing.inputPerM)} · out ${formatPerMRate(pricing.outputPerM)}/M`;
 }
 
 export function toolSummary(_name: string, args: unknown): string {
