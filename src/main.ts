@@ -115,6 +115,24 @@ function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model
   return { provider: streamAssistant, model: defaultMainModel() };
 }
 
+function resolveInteractiveProvider(useFaux: boolean): {
+  provider: StreamAssistantFn;
+  model: string;
+  providerConfigured: boolean;
+} {
+  if (useFaux) {
+    const { provider, model } = resolveProvider(true);
+    return { provider, model, providerConfigured: true };
+  }
+
+  const active = repairActiveProviderIfNeeded();
+  return {
+    provider: streamAssistant,
+    model: defaultMainModel(),
+    providerConfigured: active.isConfigured(),
+  };
+}
+
 async function runInteractive(opts: {
   initialMessage?: string;
   useFaux: boolean;
@@ -122,7 +140,7 @@ async function runInteractive(opts: {
   autoAcceptCli: boolean;
   resumeId?: string;
 }): Promise<void> {
-  const { provider, model } = resolveProvider(opts.useFaux);
+  const { provider, model, providerConfigured } = resolveInteractiveProvider(opts.useFaux);
   const models = loadModelConfig();
   const localCwd = process.cwd();
 
@@ -166,6 +184,7 @@ async function runInteractive(opts: {
       cwd: localCwd,
       sandbox: sandboxPref === "e2b" && hasE2BApiKey() ? "e2b" : "local",
       faux: opts.useFaux,
+      providerConfigured: opts.useFaux || providerConfigured,
     },
   });
 }

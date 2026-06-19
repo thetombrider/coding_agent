@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { processCommand, isActionableCommandResult, type CommandContext } from "./commands.js";
 import type { ProviderSummary } from "../provider/registry.js";
 
@@ -254,5 +254,26 @@ describe("processCommand", () => {
     if (r.type === "error") {
       expect(r.message).toMatch(/unknown command/);
     }
+  });
+
+  describe("/settings", () => {
+    it("starts E2B configure flow when no key is set", () => {
+      const r = processCommand("/settings e2b", ctx);
+      expect(r).toMatchObject({ type: "configure-e2b" });
+      expect(isActionableCommandResult(r)).toBe(true);
+    });
+
+    it("reports configured E2B status", async () => {
+      vi.stubEnv("E2B_API_KEY", "test-key");
+      const r = processCommand("/settings", ctx);
+      expect(r.type).toBe("info");
+      if (r.type === "info") expect(r.message).toContain("configured");
+      vi.unstubAllEnvs();
+    });
+
+    it("rejects unknown settings", () => {
+      const r = processCommand("/settings foo", ctx);
+      expect(r.type).toBe("error");
+    });
   });
 });

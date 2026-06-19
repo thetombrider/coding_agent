@@ -5,9 +5,9 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig, saveProviderConfig } from "../config/config.js";
+import { saveConfig, saveProviderConfig, saveE2BApiKey } from "../config/config.js";
 import { defaultCheapModel } from "../config/models.js";
-import { getProvider } from "../provider/registry.js";
+import { getProvider, resolveActiveProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { generateSessionId, listSessions, openLog, replayLog, sessionPath, deleteSession } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
@@ -15,6 +15,7 @@ import { createDefaultSinks, installTelemetry } from "../telemetry/install.js";
 import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
+import { getCoreTools } from "../tools/registry.js";
 import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
@@ -155,6 +156,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   installCoreHooks(config.hooks, approvalRef);
   reinstallTelemetry();
 
+  let activeTools = config.tools;
+  const refreshTools = () => {
+    activeTools = getCoreTools();
+    approvalRef.tools = activeTools;
+  };
+
   config.ctx.loopHost = {
     provider: config.provider,
     model: activeModel,
@@ -215,6 +222,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   ) => {
     saveProviderConfig(providerId, values);
     const display = getProvider(providerId)?.displayName ?? providerId;
+    controller.updateMeta({ providerConfigured: true });
     if (activate) {
       const fromProvider = config.meta.provider ?? "openrouter";
       const { model } = resolveModelOnProviderSwitch(fromProvider, providerId, activeModel);
@@ -223,6 +231,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     } else {
       controller.setStatusHint(`${display} configured — saved to ~/.orin/config.json`);
     }
+  };
+
+  const configureE2b = (apiKey: string) => {
+    saveE2BApiKey(apiKey);
+    refreshTools();
+    controller.setStatusHint("E2B configured — task tool enabled");
   };
 
   const bootstrapE2BSandbox = async () => {
@@ -250,6 +264,16 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
 
   const runTurn = async (userText: string) => {
+    if (!config.meta.faux) {
+      const active = resolveActiveProvider();
+      if (!active.isConfigured()) {
+        controller.setStatusHint(
+          `${active.displayName} is not configured — run /providers configure ${active.id}`,
+        );
+        return;
+      }
+    }
+
     const userContent = [{ type: "text" as const, text: userText }];
     config.ctx.messages.push({ role: "user", content: userContent });
     log.write({ type: "user_message", ts: new Date().toISOString(), content: userContent });
@@ -258,7 +282,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     try {
       await runLoop(config.ctx, config.hooks, {
         provider: config.provider,
-        tools: config.tools,
+        tools: activeTools,
         model: activeModel,
         system: config.system,
         sessionId: activeSessionId,
@@ -289,7 +313,14 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     });
 
     const startupCopyHint = terminalStartupCopyHint();
-    if (startupCopyHint) controller.setStatusHint(startupCopyHint);
+    if (!config.meta.faux && config.meta.providerConfigured === false) {
+      const active = resolveActiveProvider();
+      controller.setStatusHint(
+        `${active.displayName} needs setup — run /providers configure ${active.id}`,
+      );
+    } else if (startupCopyHint) {
+      controller.setStatusHint(startupCopyHint);
+    }
 
     await render(
       () =>
@@ -301,6 +332,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetMode: setApprovalMode,
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
+          onConfigureE2b: configureE2b,
           onClear: () => {
             config.ctx.messages = [];
             config.ctx.todos = [];

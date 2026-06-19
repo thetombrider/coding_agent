@@ -70,9 +70,9 @@ cd coding_agent
 orin                # start the interactive agent
 ```
 
-`install.sh` is safe to re-run. It seeds `~/.orin/config.json` with defaults and
-prompts for your OpenRouter (and optional E2B) API keys. If Bun isn't on your
-`PATH` yet, the script prints the line to add.
+`install.sh` is safe to re-run. It seeds `~/.orin/config.json` with defaults. Configure
+API keys in the TUI with `/providers configure` (OpenRouter) and `/settings e2b`
+(E2B task tool). If Bun isn't on your `PATH` yet, the script prints the line to add.
 
 Prefer to run from source without a global install:
 

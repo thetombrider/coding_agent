@@ -191,4 +191,12 @@ describe("API key onboarding", () => {
     const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
     expect(JSON.parse(raw).sandbox.e2b.apiKey).toBe("e2b-saved");
   });
+
+  it("saveE2BApiKey trims and persists the key", async () => {
+    const { saveE2BApiKey, hasE2BApiKey, loadConfig } = await import("./config.js");
+    saveE2BApiKey("  e2b-trimmed  ");
+
+    expect(hasE2BApiKey()).toBe(true);
+    expect(loadConfig().sandbox?.e2b?.apiKey).toBe("e2b-trimmed");
+  });
 });

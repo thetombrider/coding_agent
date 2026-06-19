@@ -44,6 +44,8 @@ export interface SessionMeta {
   provider?: string;
   sandbox?: SandboxKind;
   faux?: boolean;
+  /** False when the active LLM provider has no API key yet. */
+  providerConfigured?: boolean;
 }
 
 export interface SessionState {
