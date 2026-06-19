@@ -21,6 +21,8 @@ import type { ModelMetadataProvider, Provider } from "../types.js";
 // ── Credentials ───────────────────────────────────────────────────────────────
 
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
+/** Required beta flag when using subscription OAuth tokens with the Messages API. */
+export const ANTHROPIC_OAUTH_BETA = "oauth-2025-04-20";
 
 /** Anthropic API key from env or config; undefined when not configured. */
 export function getAnthropicApiKey(): string | undefined {
@@ -59,6 +61,9 @@ export function resolveAnthropicAuth():
   }
   if (apiKey) return { kind: "api-key", apiKey };
   if (oauthReady) return { kind: "oauth", accessToken: tokens!.accessToken };
+  if (tokens?.refreshToken && tokens.accessToken) {
+    return { kind: "oauth", accessToken: tokens.accessToken };
+  }
   return undefined;
 }
 
@@ -88,11 +93,23 @@ export async function ensureAnthropicOAuthAccessToken(
   return refreshed.accessToken;
 }
 
-function createAnthropicClient(auth: NonNullable<ReturnType<typeof resolveAnthropicAuth>>) {
+/** Build createAnthropic() options for the resolved auth path. */
+export function anthropicClientOptions(
+  auth: NonNullable<ReturnType<typeof resolveAnthropicAuth>>,
+): { apiKey: string; headers?: Record<string, string> } {
   if (auth.kind === "api-key") {
-    return createAnthropic({ apiKey: auth.apiKey });
+    return { apiKey: auth.apiKey };
   }
-  return createAnthropic({ authToken: auth.accessToken });
+  // Anthropic rejects OAuth tokens sent via Authorization: Bearer — use x-api-key instead.
+  return {
+    apiKey: auth.accessToken,
+    headers: { "anthropic-beta": ANTHROPIC_OAUTH_BETA },
+  };
+}
+
+function createAnthropicClient(auth: NonNullable<ReturnType<typeof resolveAnthropicAuth>>) {
+  const opts = anthropicClientOptions(auth);
+  return createAnthropic(opts);
 }
 
 export function getAnthropic() {
@@ -189,8 +206,9 @@ function anthropicRequestInit(): RequestInit {
   }
   return {
     headers: {
-      Authorization: `Bearer ${auth.accessToken}`,
+      "x-api-key": auth.accessToken,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": ANTHROPIC_OAUTH_BETA,
     },
   };
 }
@@ -361,8 +379,11 @@ export const anthropicProvider: Provider = {
     },
   ],
   async prepareCredentials() {
-    if (getAnthropicApiKey()) return;
-    await ensureAnthropicOAuthAccessToken();
+    if (!hasAnthropicOAuthTokens()) return;
+    const preferred = loadConfig().provider.anthropic?.preferredAuth;
+    if (!getAnthropicApiKey() || preferred === "oauth") {
+      await ensureAnthropicOAuthAccessToken();
+    }
   },
   isConfigured() {
     return Boolean(getAnthropicApiKey()) || hasAnthropicOAuthTokens();

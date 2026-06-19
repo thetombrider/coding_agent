@@ -98,6 +98,10 @@ export const streamAssistant: StreamAssistantFn = async (
 
   for await (const part of result.fullStream) {
     switch (part.type) {
+      case "error": {
+        const err = part.error;
+        throw err instanceof Error ? err : new Error(String(err));
+      }
       case "text-delta": {
         textBuffer += part.text;
         emit({ type: "text_delta", text: part.text });
