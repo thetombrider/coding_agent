@@ -119,8 +119,7 @@ importing it from `src/provider/registry.ts` and calling
 `registerProvider(...)`; it then appears in `/providers` automatically.
 
 API-key providers read credentials from `provider.<id>.apiKey` in the config
-file, with the matching env var taking precedence. OAuth backends store tokens
-in `~/.orin/tokens.json` (mode `0600`), never in `config.json`.
+file, with the matching env var taking precedence.
 
 ## Commit messages
 

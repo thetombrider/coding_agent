@@ -104,8 +104,7 @@ file directly.
 | E2B API key | `E2B_API_KEY` | Optional — for whole-session E2B (`sandbox.active: "e2b"`). Also `sandbox.e2b.apiKey` in config. |
 
 Your config, sessions, and keys all live under `~/.orin/` and are untouched by
-upgrades. OAuth-based providers (when implemented) store tokens in
-`~/.orin/tokens.json` (mode `0600`), never in the config file.
+upgrades.
 
 ### Telemetry
 

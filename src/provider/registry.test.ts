@@ -11,7 +11,7 @@ function makeFakeProvider(overrides: Partial<Provider> = {}): Provider {
   return {
     id: "fake",
     displayName: "Fake",
-    authStrategy: "oauth",
+    authStrategy: "api-key",
     isConfigured: () => true,
     normalizeModelId: (modelId) => modelId,
     languageModel: () => sentinelModel,
@@ -98,7 +98,7 @@ describe("provider registry", () => {
     const summaries = providerSummaries();
     const fake = summaries.find((p) => p.id === "fake");
     const openrouter = summaries.find((p) => p.id === "openrouter");
-    expect(fake).toMatchObject({ active: true, configured: true, authStrategy: "oauth" });
+    expect(fake).toMatchObject({ active: true, configured: true, authStrategy: "api-key" });
     // No OPENROUTER_API_KEY in env/config → OpenRouter is registered but not configured.
     expect(openrouter).toMatchObject({ active: false, configured: false });
   });

@@ -107,16 +107,16 @@ One function: `streamAssistant(ctx, tools, model, signal) -> AsyncIterable<Strea
 ### Provider registry (issue #12)
 The streaming/generation transport is shared; LLM backends plug in behind a `Provider` interface (`src/provider/types.ts`) registered in `src/provider/registry.ts`:
 
-- `Provider` exposes `id` / `displayName`, an `authStrategy` (`api-key` | `oauth`), `isConfigured()`, `normalizeModelId()`, a `languageModel(modelId)` factory returning an AI SDK `LanguageModel`, a `ModelMetadataProvider` for context-window lookups, and optional `streamProviderOptions()` / `markCacheBreakpoints()` hooks so a backend owns its own prompt-cache strategy and request options while `stream.ts` stays provider-agnostic.
+- `Provider` exposes `id` / `displayName`, an `authStrategy` (`api-key`), `isConfigured()`, `normalizeModelId()`, a `languageModel(modelId)` factory returning an AI SDK `LanguageModel`, a `ModelMetadataProvider` for context-window lookups, and optional `streamProviderOptions()` / `markCacheBreakpoints()` hooks so a backend owns its own prompt-cache strategy and request options while `stream.ts` stays provider-agnostic.
 - Core call paths go through the registry instead of calling `getOpenRouter()` directly: `delegate/delegate-read.ts` and `agent/compaction.ts` resolve the model via `resolveLanguageModel()`, and `stream.ts` resolves the active provider for both the model and its cache hooks. `main.ts` checks `resolveActiveProvider().isConfigured()`.
 - The active backend is `loadConfig().provider.active`; resolution falls back to the default (`openrouter`) when the configured id is unknown.
 - `/providers` lists and switches the active provider at runtime, persisting `provider.active` to `~/.orin/config.json`. Because models resolve through the registry on each turn, a switch takes effect on the next turn with no rewiring.
 
 **Currently implemented:** OpenRouter (`api-key`), the default, as a single self-contained module at `src/provider/providers/openrouter.ts` (credentials/client, model-id normalization, model-metadata lookups, and prompt-cache strategy all in one file). **Regolo AI** (`api-key`) uses the shared OpenAI-compatible helper at `src/provider/openai-compatible.ts` with `@ai-sdk/openai` and `baseURL: https://api.regolo.ai/v1` — not OpenRouter's SDK. A future native **OpenAI** provider will reuse the same helper with the default `api.openai.com` base URL.
 
-**Provider families:** OpenRouter uses `@openrouter/ai-sdk-provider` (routing, session stickiness, prompt-cache hooks). OpenAI-compatible backends (Regolo, future OpenAI) use `@ai-sdk/openai` via `openai-compatible.ts`. Native Anthropic uses `@ai-sdk/anthropic` (Messages API) — a separate family with API key and optional subscription OAuth (`~/.orin/tokens.json`).
+**Provider families:** OpenRouter uses `@openrouter/ai-sdk-provider` (routing, session stickiness, prompt-cache hooks). OpenAI-compatible backends (Regolo, future OpenAI) use `@ai-sdk/openai` via `openai-compatible.ts`. Native Anthropic uses `@ai-sdk/anthropic` (Messages API) with a Console API key.
 
-The registry includes OpenRouter, Regolo, and Anthropic. Additional backends (OpenAI API key + OAuth, LiteLLM, Vercel/Cloudflare gateways) register the same way — each one self-contained file under `src/provider/providers/` that calls `registerProvider()`. OAuth tokens live in `~/.orin/tokens.json` (0600), not the config file. **Anthropic subscription OAuth is intended for personal experimentation; prefer Console API keys for production.**
+The registry includes OpenRouter, Regolo, and Anthropic. Additional backends (OpenAI API key, LiteLLM, Vercel/Cloudflare gateways) register the same way — each one self-contained file under `src/provider/providers/` that calls `registerProvider()`.
 
 ## 7. Edit tool — the hard part (in `src/tools/edit.ts`)
 Build in two stages across phases:

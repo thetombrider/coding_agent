@@ -1,7 +1,6 @@
 import { streamText, type ModelMessage, type ToolSet } from "ai";
 import { formatStreamError } from "./format-stream-error.js";
 import { resolveActiveProvider } from "./registry.js";
-import { isAnthropicOAuthActive } from "./providers/anthropic.js";
 import { enrichAssistantMessage } from "./tool-call-parser.js";
 import type { Message } from "../types.js";
 import type {
@@ -87,8 +86,6 @@ export const streamAssistant: StreamAssistantFn = async (
 
   const aiMessages = toAiMessages(messages);
   provider.markCacheBreakpoints?.(aiMessages, options.model);
-  await provider.prepareCredentials?.();
-
   try {
     const result = streamText({
       model: provider.languageModel(options.model),
@@ -96,7 +93,6 @@ export const streamAssistant: StreamAssistantFn = async (
       messages: aiMessages,
       tools: options.tools ?? ({} as ToolSet),
       abortSignal: options.signal,
-      maxRetries: isAnthropicOAuthActive() ? 0 : undefined,
       providerOptions: provider.streamProviderOptions?.(options.model, options.sessionId),
     });
 
@@ -180,7 +176,7 @@ export const streamAssistant: StreamAssistantFn = async (
     return enriched;
   } catch (err) {
     throw new Error(
-      formatStreamError(err, { anthropicOAuth: isAnthropicOAuthActive() }),
+      formatStreamError(err),
       { cause: err },
     );
   }

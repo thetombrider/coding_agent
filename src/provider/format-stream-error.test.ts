@@ -1,7 +1,7 @@
 import { APICallError } from "@ai-sdk/provider";
 import { RetryError } from "ai";
 import { describe, expect, it } from "vitest";
-import { ANTHROPIC_OAUTH_HINT, formatStreamError } from "./format-stream-error.js";
+import { formatStreamError } from "./format-stream-error.js";
 
 describe("formatStreamError", () => {
   it("extracts Anthropic error JSON from APICallError", () => {
@@ -12,14 +12,14 @@ describe("formatStreamError", () => {
       statusCode: 401,
       responseBody: JSON.stringify({
         type: "error",
-        error: { type: "authentication_error", message: "OAuth authentication is currently not supported." },
+        error: { type: "authentication_error", message: "invalid x-api-key" },
       }),
     });
-    expect(formatStreamError(err)).toContain("OAuth authentication is currently not supported");
+    expect(formatStreamError(err)).toContain("invalid x-api-key");
     expect(formatStreamError(err)).toContain("HTTP 401");
   });
 
-  it("unwraps RetryError and adds OAuth guidance when requested", () => {
+  it("unwraps RetryError and preserves attempt count", () => {
     const apiErr = new APICallError({
       message: "Error",
       url: "https://api.anthropic.com/v1/messages",
@@ -34,9 +34,8 @@ describe("formatStreamError", () => {
       reason: "maxRetriesExceeded",
       errors: [apiErr, apiErr, apiErr],
     });
-    const formatted = formatStreamError(retry, { anthropicOAuth: true });
+    const formatted = formatStreamError(retry);
     expect(formatted).toContain("invalid bearer token");
     expect(formatted).toContain("after 3 attempts");
-    expect(formatted).toContain(ANTHROPIC_OAUTH_HINT);
   });
 });

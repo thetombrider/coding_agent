@@ -65,11 +65,8 @@ export interface ProviderDefaultModels {
   cheap: string;
 }
 
-/**
- * How a provider authenticates. `oauth` backends (added in follow-ups) store
- * their tokens in `~/.orin/tokens.json` rather than the main config file.
- */
-export type AuthStrategy = "api-key" | "oauth" | "api-key-or-oauth";
+/** How a provider authenticates (API key from env or config). */
+export type AuthStrategy = "api-key";
 
 /** A user-editable config field persisted under `provider.<id>.<key>`. */
 export interface ProviderConfigField {
@@ -97,8 +94,7 @@ export interface Provider {
   readonly authStrategy: AuthStrategy;
   /**
    * Config fields the TUI `/providers configure` command can collect and
-   * persist to `~/.orin/config.json`. OAuth providers omit this — tokens live
-   * in `~/.orin/tokens.json`.
+   * persist to `~/.orin/config.json`.
    */
   readonly configFields?: readonly ProviderConfigField[];
   /** True when credentials are available (env var or config file). */
@@ -107,8 +103,6 @@ export interface Provider {
   normalizeModelId(modelId: string): string;
   /** AI SDK language model handle for `streamText` / `generateText`. */
   languageModel(modelId: string): LanguageModel;
-  /** Optional async credential refresh (e.g. OAuth token rotation) before a call. */
-  prepareCredentials?(): Promise<void>;
   /**
    * Provider-specific options for the shared `streamText` transport — e.g.
    * prompt-cache hints and session affinity. Optional: providers without such

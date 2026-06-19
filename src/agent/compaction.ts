@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { resolveLanguageModel, prepareActiveProviderCredentials } from "../provider/registry.js";
+import { resolveLanguageModel } from "../provider/registry.js";
 import { aiSdkUsageToUsage, type AiSdkUsage } from "../telemetry/cost.js";
 import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { Message } from "../types.js";
@@ -163,7 +163,6 @@ export async function summariseOldTurns(
   const endTurn = turns[prefixTurns - 1]!.turn;
   const corpus = formatMessagesForSummary(oldMessages);
 
-  await prepareActiveProviderCredentials();
   const { text, usage } = await generate({
     model: resolveLanguageModel(model),
     system: SUMMARY_SYSTEM,

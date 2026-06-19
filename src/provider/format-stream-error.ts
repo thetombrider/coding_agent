@@ -1,12 +1,6 @@
 import { APICallError } from "@ai-sdk/provider";
 import { RetryError } from "ai";
 
-const ANTHROPIC_OAUTH_HINT =
-  "Anthropic subscription OAuth tokens are only supported in Claude Code and claude.ai — "
-  + "not in third-party apps calling the Messages API. "
-  + "Use a Console API key instead: /providers configure anthropic or set ANTHROPIC_API_KEY "
-  + "(https://platform.claude.com).";
-
 function parseAnthropicErrorBody(responseBody?: string): string | undefined {
   if (!responseBody?.trim()) return undefined;
   try {
@@ -35,20 +29,8 @@ function formatApiCallError(error: APICallError): string {
   return parts.join(" — ") || `API request failed (${error.url})`;
 }
 
-function looksLikeOAuthBlock(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes("oauth")
-    || lower.includes("invalid x-api-key")
-    || lower.includes("invalid bearer")
-    || lower.includes("authentication")
-    || lower.includes("not supported")
-    || lower.includes("unauthorized")
-  );
-}
-
 /** Turn AI SDK / provider errors into a user-facing message for the TUI. */
-export function formatStreamError(error: unknown, opts?: { anthropicOAuth?: boolean }): string {
+export function formatStreamError(error: unknown): string {
   let root = error;
   let attemptNote: string | undefined;
 
@@ -79,11 +61,5 @@ export function formatStreamError(error: unknown, opts?: { anthropicOAuth?: bool
     message = `${message} (${attemptNote})`;
   }
 
-  if (opts?.anthropicOAuth && looksLikeOAuthBlock(message)) {
-    message = `${message}\n\n${ANTHROPIC_OAUTH_HINT}`;
-  }
-
   return message;
 }
-
-export { ANTHROPIC_OAUTH_HINT };
