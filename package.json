@@ -31,6 +31,7 @@
     "vitest": "^3.2.6"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.85",
     "@ai-sdk/openai": "^3.0.72",
     "@openrouter/ai-sdk-provider": "^2.9.1",
     "@opentui/core": "^0.4.1",

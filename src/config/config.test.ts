@@ -80,17 +80,20 @@ describe("API key onboarding", () => {
   let prevHome: string | undefined;
   let prevKey: string | undefined;
   let prevRegoloKey: string | undefined;
+  let prevAnthropicKey: string | undefined;
   let prevE2BKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
     prevKey = process.env.OPENROUTER_API_KEY;
     prevRegoloKey = process.env.REGOLO_API_KEY;
+    prevAnthropicKey = process.env.ANTHROPIC_API_KEY;
     prevE2BKey = process.env.E2B_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-config-key-"));
     process.env.HOME = home;
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.REGOLO_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
     delete process.env.E2B_API_KEY;
     vi.resetModules();
   });
@@ -102,6 +105,8 @@ describe("API key onboarding", () => {
     else process.env.OPENROUTER_API_KEY = prevKey;
     if (prevRegoloKey === undefined) delete process.env.REGOLO_API_KEY;
     else process.env.REGOLO_API_KEY = prevRegoloKey;
+    if (prevAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = prevAnthropicKey;
     if (prevE2BKey === undefined) delete process.env.E2B_API_KEY;
     else process.env.E2B_API_KEY = prevE2BKey;
     rmSync(home, { recursive: true, force: true });
@@ -127,6 +132,19 @@ describe("API key onboarding", () => {
 
     const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
     expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-saved");
+  });
+
+  it("detects an Anthropic key from the env var", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-env";
+    const { hasAnthropicApiKey } = await import("./config.js");
+    expect(hasAnthropicApiKey()).toBe(true);
+  });
+
+  it("env var overrides Anthropic config file api key", async () => {
+    const { saveConfig, loadConfig } = await import("./config.js");
+    saveConfig({ provider: { anthropic: { apiKey: "sk-config" } } });
+    process.env.ANTHROPIC_API_KEY = "sk-env";
+    expect(loadConfig().provider.anthropic?.apiKey).toBe("sk-env");
   });
 
   it("detects a Regolo key from the env var", async () => {
