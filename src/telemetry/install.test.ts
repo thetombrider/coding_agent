@@ -191,6 +191,32 @@ describe("installTelemetry", () => {
     ).not.toThrow();
   });
 
+  it("drives the injected OTel consumer through the session lifecycle", async () => {
+    const hooks = createHookRegistry();
+    const calls: string[] = [];
+    const otel = {
+      startSession: () => calls.push("start"),
+      handleEvent: (e: { type: string }) => calls.push(`event:${e.type}`),
+      endSession: (reason: string) => calls.push(`end:${reason}`),
+      flush: async () => {
+        calls.push("flush");
+      },
+    };
+    const { dispose } = installTelemetry({ hooks, sinks: [], sessionId: "s1", pricing, otel });
+
+    expect(calls).toContain("start");
+    hooks.emit({ type: "llm_start", id: "c1", model: "m" });
+    await tick();
+    await hooks.fireHook("session_end", { reason: "complete" }, ctx);
+
+    expect(calls).toContain("event:llm_start");
+    expect(calls).toContain("end:complete");
+    expect(calls).toContain("flush");
+    // dispose closes again (idempotent for /new and /resume).
+    dispose();
+    expect(calls.filter((c) => c.startsWith("end:")).length).toBeGreaterThanOrEqual(2);
+  });
+
   it("isolates a throwing sink so others still receive events", async () => {
     const hooks = createHookRegistry();
     const bad: MetricSink = {

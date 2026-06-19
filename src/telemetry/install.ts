@@ -5,6 +5,7 @@ import { SessionCostAccumulator } from "./accumulator.js";
 import { calcCost } from "./cost.js";
 import type { LlmCallRecorder, MetricEvent, SessionCostSnapshot, TurnSource } from "./events.js";
 import { emitAll, flushAll, jsonlSink, sessionLogSink, stdoutSink, type MetricSink } from "./sinks.js";
+import { createOtelSpanConsumer, type OtelSpanConsumer } from "./otel/exporter.js";
 
 const now = () => new Date().toISOString();
 
@@ -42,6 +43,12 @@ export interface InstallTelemetryOptions {
   pricing?: Record<string, ModelPricing>;
   /** Called with a fresh snapshot after every turn (for the TUI badge, issue 8/8). */
   onSessionCost?: (snapshot: SessionCostSnapshot) => void;
+  /**
+   * OTLP span consumer override (issue 5/8). When omitted, one is built from
+   * the resolved OTel config (a no-op unless an endpoint is configured). Tests
+   * inject an InMemory-backed consumer here.
+   */
+  otel?: OtelSpanConsumer;
 }
 
 /** Handle returned by {@link installTelemetry}. */
@@ -70,7 +77,15 @@ export function installTelemetry(opts: InstallTelemetryOptions): InstalledTeleme
   /** tool-call id → start time, so parallel calls measure their own duration. */
   const toolStarts = new Map<string, number>();
 
+  // OTLP trace export (issue 5/8). Undefined unless an endpoint is configured.
+  // The session_start hook fires before this install in the TUI, so open the
+  // trace root here (the install moment is the session boundary) and close it
+  // on session_end / dispose.
+  const otel = opts.otel ?? createOtelSpanConsumer({ sessionId, providerId, pricing });
+  otel?.startSession();
+
   const unsubObserve = hooks.observe((event) => {
+    otel?.handleEvent(event);
     if (event.type === "assistant_message") {
       const { message } = event;
       if (!message.usage) return;
@@ -107,6 +122,10 @@ export function installTelemetry(opts: InstallTelemetryOptions): InstalledTeleme
   const unsubEnd = hooks.on("session_end", async (payload) => {
     const summary = acc.finalize(Date.now() - startMs, payload.reason);
     emitAll(sinks, { type: "session", sessionId, ts: now(), summary });
+    if (otel) {
+      otel.endSession(payload.reason);
+      await otel.flush();
+    }
     await flushAll(sinks);
   });
 
@@ -123,6 +142,12 @@ export function installTelemetry(opts: InstallTelemetryOptions): InstalledTeleme
     dispose: () => {
       unsubObserve();
       unsubEnd();
+      // /new and /resume reinstall without firing session_end, so close and
+      // flush the trace root here too. Idempotent with the session_end path.
+      if (otel) {
+        otel.endSession("complete");
+        void otel.flush();
+      }
     },
     recordLlmCall: recordSideLlmCall,
   };

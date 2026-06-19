@@ -33,6 +33,11 @@
   "dependencies": {
     "@ai-sdk/openai": "^3.0.72",
     "@openrouter/ai-sdk-provider": "^2.9.1",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.205.0",
+    "@opentelemetry/resources": "^2.8.0",
+    "@opentelemetry/sdk-trace-node": "^2.8.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1",
     "@opentui/core": "^0.4.1",
     "@opentui/solid": "^0.4.1",
     "ai": "^6.0.205",

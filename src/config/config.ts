@@ -9,6 +9,22 @@ export interface ModelPricing {
   cacheWritePerM?: number;
 }
 
+/** OTLP trace exporter settings. Resolved against env vars by `resolveOtelConfig()`. */
+export interface OtelConfig {
+  /** When false, the OTel subtree is never loaded. Auto-enabled if an endpoint is present. */
+  enabled: boolean;
+  /** OTLP/HTTP traces endpoint, e.g. `https://cloud.langfuse.com/api/public/otel/v1/traces`. */
+  endpoint: string;
+  protocol: string;
+  headers: Record<string, string>;
+  serviceName: string;
+  /** Semantic-convention flavour; only `genai` is implemented today. */
+  semconv: string;
+  /** Capture prompt/response content on spans (privacy-sensitive; tuned in 7/8). */
+  captureContent: boolean;
+  sampleRatio: number;
+}
+
 export interface Config {
   provider: {
     active: string;
@@ -40,6 +56,8 @@ export interface Config {
   telemetry: {
     enabled: boolean;
     metricsFile: string;
+    /** OTLP trace export (issue 5/8). Off unless an endpoint is configured. */
+    otel: OtelConfig;
   };
   sandbox?: {
     active?: "local" | "e2b";
@@ -82,7 +100,20 @@ const DEFAULT_CONFIG: Config = {
   },
   approval: { mode: "normal", autoApprovedCommands: [] },
   system: { prompt: "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely." },
-  telemetry: { enabled: true, metricsFile: "~/.orin/metrics.jsonl" },
+  telemetry: {
+    enabled: true,
+    metricsFile: "~/.orin/metrics.jsonl",
+    otel: {
+      enabled: false,
+      endpoint: "",
+      protocol: "http/protobuf",
+      headers: {},
+      serviceName: "orin",
+      semconv: "genai",
+      captureContent: false,
+      sampleRatio: 1.0,
+    },
+  },
 };
 
 function configPath(): string {
