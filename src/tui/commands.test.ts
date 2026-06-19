@@ -10,7 +10,7 @@ const ctx: CommandContext = {
 
 const providers: ProviderSummary[] = [
   { id: "openrouter", displayName: "OpenRouter", authStrategy: "api-key", active: true, configured: true },
-  { id: "anthropic", displayName: "Anthropic", authStrategy: "api-key-or-oauth", active: false, configured: false },
+  { id: "anthropic", displayName: "Anthropic", authStrategy: "api-key", active: false, configured: false },
   { id: "regolo", displayName: "Regolo", authStrategy: "api-key", active: false, configured: false },
 ];
 
@@ -126,7 +126,6 @@ describe("processCommand", () => {
       if (r.type === "info") {
         expect(r.message).toContain("openrouter");
         expect(r.message).toContain("anthropic");
-        expect(r.message).toContain("[api-key|oauth]");
         expect(r.message).toContain("needs setup");
       }
     });
@@ -145,24 +144,15 @@ describe("processCommand", () => {
       });
     });
 
-    it("opens auth menu for unconfigured anthropic", () => {
+    it("switches unconfigured anthropic with configure hint", () => {
       expect(processCommand("/providers anthropic", provCtx)).toMatchObject({
-        type: "open-provider-auth",
+        type: "set-provider",
         provider: "anthropic",
-        activateOnComplete: true,
       });
-    });
-
-    it("opens auth menu when anthropic is already active", () => {
-      expect(processCommand("/providers anthropic", {
-        ...provCtx,
-        providers: [{ ...providers[1]!, active: true, configured: true }],
-        currentProvider: "anthropic",
-      })).toMatchObject({
-        type: "open-provider-auth",
-        provider: "anthropic",
-        activateOnComplete: false,
-      });
+      const r = processCommand("/providers anthropic", provCtx);
+      if (r.type === "set-provider") {
+        expect(r.message).toMatch(/\/providers configure anthropic/);
+      }
     });
 
     it("switches configured anthropic by explicit id", () => {
@@ -175,16 +165,11 @@ describe("processCommand", () => {
       });
     });
 
-    it("opens auth menu by numeric index for unconfigured anthropic", () => {
+    it("switches by numeric index", () => {
       expect(processCommand("/providers 2", provCtx)).toMatchObject({
-        type: "open-provider-auth",
+        type: "set-provider",
         provider: "anthropic",
       });
-    });
-
-    it("opens auth menu when switching to unconfigured anthropic", () => {
-      const r = processCommand("/providers anthropic", provCtx);
-      expect(r.type).toBe("open-provider-auth");
     });
 
     it("is a no-op info when already active", () => {
@@ -223,32 +208,6 @@ describe("processCommand", () => {
       });
     });
 
-    it("starts OAuth flow for anthropic", () => {
-      expect(processCommand("/providers oauth anthropic", provCtx)).toMatchObject({
-        type: "start-oauth",
-        provider: "anthropic",
-      });
-    });
-
-    it("clears OAuth tokens via logout", () => {
-      expect(processCommand("/providers logout anthropic", provCtx)).toMatchObject({
-        type: "clear-provider-oauth",
-        provider: "anthropic",
-      });
-    });
-
-    it("reports oauth-only providers via configure hint", () => {
-      const oauthOnly: ProviderSummary[] = [
-        { id: "oauth-only", displayName: "OAuth Only", authStrategy: "oauth", active: false, configured: false },
-      ];
-      const r = processCommand("/providers configure oauth-only", {
-        ...provCtx,
-        providers: oauthOnly,
-      });
-      expect(r.type).toBe("info");
-      if (r.type === "info") expect(r.message).toMatch(/\/providers oauth oauth-only/);
-    });
-
     it("starts configure flow for anthropic api key", () => {
       expect(processCommand("/providers configure anthropic", provCtx)).toMatchObject({
         type: "configure-provider",
@@ -267,6 +226,10 @@ describe("processCommand", () => {
         provider: "regolo",
         activateOnComplete: false,
       });
+    });
+
+    it("rejects removed oauth subcommand", () => {
+      expect(processCommand("/providers oauth anthropic", provCtx).type).toBe("error");
     });
 
     it("auto-swaps model when moving to regolo with an OpenRouter-style model id", () => {

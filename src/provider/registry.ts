@@ -1,6 +1,5 @@
 import type { LanguageModel } from "ai";
 import { loadConfig, saveConfig } from "../config/config.js";
-import { providerAuthPaths } from "./auth-paths.js";
 import { anthropicProvider } from "./providers/anthropic.js";
 import { openRouterProvider } from "./providers/openrouter.js";
 import { regoloProvider } from "./providers/regolo.js";
@@ -16,8 +15,6 @@ export interface ProviderSummary {
   active: boolean;
   /** Credentials available (env var or config file). */
   configured: boolean;
-  /** Per-path setup status for dual-auth providers. */
-  authPaths?: ReturnType<typeof providerAuthPaths>;
 }
 
 const registry = new Map<string, Provider>();
@@ -70,7 +67,7 @@ export function resolveConfiguredActiveProvider(): Provider {
 
 /**
  * Ensure `provider.active` points at a configured backend. Persists a fix when
- * the saved active provider lost credentials (e.g. anthropic with no auth).
+ * the saved active provider lost credentials (e.g. anthropic with no API key).
  */
 export function repairActiveProviderIfNeeded(): Provider {
   const requestedId = activeProviderId();
@@ -89,11 +86,6 @@ export function repairActiveProviderIfNeeded(): Provider {
  */
 export function resolveLanguageModel(modelId: string): LanguageModel {
   return resolveActiveProvider().languageModel(modelId);
-}
-
-/** Refresh credentials (e.g. OAuth tokens) for the active provider before an LLM call. */
-export async function prepareActiveProviderCredentials(): Promise<void> {
-  await resolveActiveProvider().prepareCredentials?.();
 }
 
 /** Metadata providers for every registered backend (the registry owns this list). */
@@ -121,12 +113,10 @@ export function providerSummaries(): ProviderSummary[] {
     authStrategy: provider.authStrategy,
     active: provider.id === active,
     configured: provider.isConfigured(),
-    authPaths: providerAuthPaths(provider.id),
   }));
 }
 
-// Built-in providers. Additional backends (Anthropic, OpenAI, LiteLLM,
-// Vercel/Cloudflare gateways, OAuth) register here in follow-up PRs.
+// Built-in providers. Additional backends register here in follow-up PRs.
 registerProvider(openRouterProvider);
 registerProvider(regoloProvider);
 registerProvider(anthropicProvider);

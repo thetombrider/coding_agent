@@ -5,7 +5,6 @@ import {
   nextApprovalMode,
   type ApprovalMode,
 } from "../approval/policy.js";
-import { shouldOpenProviderAuthMenu } from "../provider/auth-paths.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import type { ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
@@ -36,14 +35,6 @@ export type CommandResult =
       activateOnComplete: boolean;
       message: string;
     }
-  | { type: "start-oauth"; provider: string; message: string; activateOnComplete?: boolean }
-  | { type: "clear-provider-oauth"; provider: string; message: string }
-  | {
-      type: "open-provider-auth";
-      provider: string;
-      displayName: string;
-      activateOnComplete: boolean;
-    }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
@@ -57,8 +48,6 @@ const HELP_LINES = [
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
-  "/providers oauth [id]         authenticate or re-authenticate via OAuth",
-  "/providers logout [id]        clear saved OAuth tokens for a provider",
   "/sessions                     browse and resume saved sessions",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
@@ -131,22 +120,15 @@ function handleModel(arg: string, ctx: CommandContext): CommandResult {
   return { type: "set-model", model, message: `model → ${model}` };
 }
 
-function authLabel(strategy: ProviderSummary["authStrategy"]): string {
-  if (strategy === "oauth") return " [oauth]";
-  if (strategy === "api-key-or-oauth") return " [api-key|oauth]";
-  return "";
-}
-
 function providerInfo(ctx: CommandContext): string {
   const providers = ctx.providers ?? [];
   if (!providers.length) return "no providers registered";
   const lines = providers.map((p, i) => {
     const marker = p.active ? " ←" : "";
-    const auth = authLabel(p.authStrategy);
     const status = p.configured ? "" : "  (needs setup)";
-    return `${i + 1}. ${p.id}${auth}${status}${marker}`;
+    return `${i + 1}. ${p.id}${status}${marker}`;
   });
-  return `provider: ${ctx.currentProvider ?? "?"}\n${lines.join("\n")}\n/providers <number|id> to switch · /providers configure <id> · /providers oauth <id> · /providers logout <id>`;
+  return `provider: ${ctx.currentProvider ?? "?"}\n${lines.join("\n")}\n/providers <number|id> to switch · /providers configure <id>`;
 }
 
 function resolveProviderTarget(
@@ -188,9 +170,8 @@ function handleProviderConfigure(arg: string, ctx: CommandContext): CommandResul
 
   if (!arg) {
     const lines = providers.map((p, i) => {
-      const auth = authLabel(p.authStrategy);
       const status = p.configured ? "" : "  (needs setup)";
-      return `${i + 1}. ${p.id}${auth}${status}`;
+      return `${i + 1}. ${p.id}${status}`;
     });
     return {
       type: "info",
@@ -205,13 +186,6 @@ function handleProviderConfigure(arg: string, ctx: CommandContext): CommandResul
 
   const fields = ctx.providerConfigFields?.(resolved.id) ?? [];
 
-  if (resolved.authStrategy === "oauth") {
-    return {
-      type: "info",
-      message: `${resolved.id} uses OAuth only — run /providers oauth ${resolved.id}`,
-    };
-  }
-
   if (!fields.length) {
     return {
       type: "error",
@@ -224,101 +198,7 @@ function handleProviderConfigure(arg: string, ctx: CommandContext): CommandResul
     provider: resolved.id,
     fields,
     activateOnComplete: false,
-    message:
-      `Configure ${resolved.displayName}: ${configureFieldHint(fields)}`
-      + (resolved.authStrategy === "api-key-or-oauth" ? ` · or /providers oauth ${resolved.id}` : "")
-      + " · Esc to cancel",
-  };
-}
-
-function handleProviderLogout(arg: string, ctx: CommandContext): CommandResult {
-  const providers = ctx.providers ?? [];
-  if (!providers.length) {
-    return { type: "error", message: "no providers registered" };
-  }
-
-  if (!arg) {
-    const oauthProviders = providers.filter(
-      (p) => p.authStrategy === "oauth" || p.authStrategy === "api-key-or-oauth",
-    );
-    if (!oauthProviders.length) {
-      return { type: "info", message: "no OAuth-capable providers registered" };
-    }
-    const lines = oauthProviders.map((p, i) => `${i + 1}. ${p.id}`);
-    return {
-      type: "info",
-      message: `Clear OAuth tokens for:\n${lines.join("\n")}\n/providers logout <number|id>`,
-    };
-  }
-
-  const resolved = resolveProviderTarget(arg, providers);
-  if ("error" in resolved) {
-    return { type: "error", message: `${resolved.error}. ${providerInfo(ctx)}` };
-  }
-
-  if (resolved.authStrategy !== "oauth" && resolved.authStrategy !== "api-key-or-oauth") {
-    return {
-      type: "error",
-      message: `${resolved.id} does not use OAuth — nothing to clear`,
-    };
-  }
-
-  return {
-    type: "clear-provider-oauth",
-    provider: resolved.id,
-    message: `Cleared OAuth tokens for ${resolved.displayName} — run /providers oauth ${resolved.id} to sign in again`,
-  };
-}
-
-function handleProviderOAuth(arg: string, ctx: CommandContext): CommandResult {
-  const providers = ctx.providers ?? [];
-  if (!providers.length) {
-    return { type: "error", message: "no providers registered" };
-  }
-
-  if (!arg) {
-    const oauthProviders = providers.filter(
-      (p) => p.authStrategy === "oauth" || p.authStrategy === "api-key-or-oauth",
-    );
-    if (!oauthProviders.length) {
-      return { type: "info", message: "no OAuth-capable providers registered" };
-    }
-    const lines = oauthProviders.map((p, i) => `${i + 1}. ${p.id}`);
-    return {
-      type: "info",
-      message: `OAuth providers:\n${lines.join("\n")}\n/providers oauth <number|id>`,
-    };
-  }
-
-  const resolved = resolveProviderTarget(arg, providers);
-  if ("error" in resolved) {
-    return { type: "error", message: `${resolved.error}. ${providerInfo(ctx)}` };
-  }
-
-  if (resolved.authStrategy !== "oauth" && resolved.authStrategy !== "api-key-or-oauth") {
-    return {
-      type: "error",
-      message: `${resolved.id} does not support OAuth — use /providers configure ${resolved.id}`,
-    };
-  }
-
-  return {
-    type: "start-oauth",
-    provider: resolved.id,
-    activateOnComplete: false,
-    message: `Starting OAuth for ${resolved.displayName} — confirm policy note, then sign in (replaces saved tokens) · Esc to cancel`,
-  };
-}
-
-function openProviderAuthResult(
-  match: ProviderSummary,
-  activateOnComplete: boolean,
-): CommandResult {
-  return {
-    type: "open-provider-auth",
-    provider: match.id,
-    displayName: match.displayName,
-    activateOnComplete,
+    message: `Configure ${resolved.displayName}: ${configureFieldHint(fields)} · Esc to cancel`,
   };
 }
 
@@ -342,19 +222,11 @@ function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
     return { type: "error", message: `unknown provider "${target}". ${providerInfo(ctx)}` };
   }
   if (match.active) {
-    if (match.authStrategy === "api-key-or-oauth") {
-      return openProviderAuthResult(match, false);
-    }
     return { type: "info", message: `already using ${match.id}` };
-  }
-  if (shouldOpenProviderAuthMenu(match)) {
-    return openProviderAuthResult(match, true);
   }
   const warn = match.configured
     ? ""
-    : match.authStrategy === "oauth" || match.authStrategy === "api-key-or-oauth"
-      ? " (not configured — run /providers oauth " + match.id + " or /providers configure " + match.id + ")"
-      : " (not configured — run /providers configure " + match.id + ")";
+    : " (not configured — run /providers configure " + match.id + ")";
   let message = `provider → ${match.id}${warn}`;
   const fromProvider = ctx.currentProvider ?? "openrouter";
   const { model, note } = resolveModelOnProviderSwitch(fromProvider, match.id, ctx.currentModel);
@@ -367,12 +239,6 @@ function handleProviders(arg: string, ctx: CommandContext): CommandResult {
   const sub = parts[0]?.toLowerCase();
   if (sub === "configure" || sub === "config") {
     return handleProviderConfigure(parts.slice(1).join(" "), ctx);
-  }
-  if (sub === "oauth" || sub === "reauth") {
-    return handleProviderOAuth(parts.slice(1).join(" "), ctx);
-  }
-  if (sub === "logout") {
-    return handleProviderLogout(parts.slice(1).join(" "), ctx);
   }
   return handleProviderSwitch(arg, ctx);
 }
@@ -391,9 +257,6 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "set-mode":
     case "set-provider":
     case "configure-provider":
-    case "start-oauth":
-    case "clear-provider-oauth":
-    case "open-provider-auth":
       return true;
     default:
       return false;

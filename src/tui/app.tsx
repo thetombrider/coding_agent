@@ -26,23 +26,8 @@ import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type Command
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { pickerModelsForProvider } from "../config/models.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
-import {
-  defaultProviderAuthIndex,
-  providerAuthPaths,
-  shouldOpenProviderAuthMenu,
-  type ProviderAuthPath,
-} from "../provider/auth-paths.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
-import {
-  ANTHROPIC_OAUTH_POLICY_NOTE,
-  beginAnthropicOAuth,
-  completeAnthropicOAuthPaste,
-  openBrowser,
-  storeAnthropicOAuthTokens,
-  type AnthropicOAuthSession,
-} from "../provider/oauth/anthropic-oauth.js";
-import { clearProviderTokens } from "../provider/oauth/tokens.js";
 import type { SessionSummary } from "../session/log.js";
 import type { SessionsPaletteState } from "./sessions-palette.js";
 import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
@@ -68,16 +53,6 @@ type PaletteState =
   | { phase: "model"; index: number }
   | { phase: "mode"; index: number }
   | { phase: "providers"; index: number; providers: ProviderSummary[] }
-  | {
-      phase: "provider-auth";
-      index: number;
-      providerId: string;
-      displayName: string;
-      paths: ProviderAuthPath[];
-      activateOnComplete: boolean;
-      providers: ProviderSummary[];
-      providersIndex: number;
-    }
   | SessionsPaletteState;
 
 type ConfigPromptState = {
@@ -88,16 +63,6 @@ type ConfigPromptState = {
   values: Record<string, string>;
   activateOnComplete: boolean;
 };
-
-type OAuthPromptState =
-  | { phase: "confirm"; providerId: string; activateOnComplete: boolean }
-  | { phase: "paste"; providerId: string; session: AnthropicOAuthSession; activateOnComplete: boolean };
-
-function providerAuthLabel(strategy: ProviderSummary["authStrategy"]): string {
-  if (strategy === "oauth") return " [oauth]";
-  if (strategy === "api-key-or-oauth") return " [api-key|oauth]";
-  return "";
-}
 
 function formatSessionDate(ts: string): string {
   try {
@@ -140,9 +105,7 @@ export function App(props: {
     provider: string,
     values: Record<string, string>,
     activate: boolean,
-    preferredAuth?: "api-key" | "oauth",
   ) => void;
-  onSetProviderAuthPreference: (provider: string, preferredAuth: "api-key" | "oauth") => void;
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -154,8 +117,6 @@ export function App(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
-  const [oauthPrompt, setOauthPrompt] = createSignal<OAuthPromptState | null>(null);
-  const [oauthRunning, setOauthRunning] = createSignal(false);
   const toolExpand = createToolExpandState();
   const renderer = useRenderer();
   onCleanup(props.controller.subscribe(setState));
@@ -261,15 +222,6 @@ export function App(props: {
     return SLASH_COMMANDS.filter((c) => c.name.startsWith(filter));
   };
 
-  const closeOAuthPrompt = () => {
-    const prompt = oauthPrompt();
-    prompt?.phase === "paste" && prompt.session.loopback?.close();
-    setOauthPrompt(null);
-    setOauthRunning(false);
-    if (inputRef) inputRef.value = "";
-    props.controller.clearInput();
-  };
-
   const commandContext = () => {
     const meta = state().meta;
     return {
@@ -290,108 +242,6 @@ export function App(props: {
     );
     props.onSetProvider(providerId, model);
     props.controller.setStatusHint(`${notePrefix}provider → ${providerId}${note}`);
-  };
-
-  const finishOAuthSetup = (providerId: string, activateOnComplete: boolean) => {
-    props.onSetProviderAuthPreference(providerId, "oauth");
-    closeOAuthPrompt();
-    if (activateOnComplete) {
-      switchToProvider(providerId, "Anthropic OAuth configured · ");
-    } else {
-      props.controller.setStatusHint("Anthropic OAuth configured — tokens saved to ~/.orin/tokens.json");
-    }
-  };
-
-  const openProviderAuthPalette = (
-    provider: ProviderSummary,
-    activateOnComplete: boolean,
-    providers: ProviderSummary[],
-    providersIndex: number,
-  ) => {
-    const paths = provider.authPaths ?? providerAuthPaths(provider.id) ?? [];
-    setPalette({
-      phase: "provider-auth",
-      index: defaultProviderAuthIndex(paths),
-      providerId: provider.id,
-      displayName: provider.displayName,
-      paths,
-      activateOnComplete,
-      providers,
-      providersIndex,
-    });
-    props.controller.setStatusHint(
-      `${provider.displayName}: choose auth method · ↑↓ Enter · Esc back · or /providers oauth ${provider.id} to sign in again`,
-    );
-  };
-
-  const beginOAuthFlow = (providerId: string, activateOnComplete: boolean) => {
-    setOauthPrompt({ phase: "confirm", providerId, activateOnComplete });
-    props.controller.setStatusHint(
-      `${ANTHROPIC_OAUTH_POLICY_NOTE} Type "yes" to continue · Esc to cancel`,
-    );
-  };
-
-  const runAnthropicOAuth = async (providerId: string, activateOnComplete: boolean) => {
-    if (providerId !== "anthropic") {
-      props.controller.setStatusHint(`OAuth is not available for ${providerId}`);
-      closeOAuthPrompt();
-      return;
-    }
-
-    setOauthRunning(true);
-    props.controller.setStatusHint("Starting OAuth — opening browser…");
-
-    try {
-      const session = await beginAnthropicOAuth("manual");
-      setOauthPrompt({ phase: "paste", providerId, session, activateOnComplete });
-      openBrowser(session.authorizeUrl);
-      props.controller.setStatusHint(
-        "Sign in via browser — copy the authorization code from the page and paste it here "
-        + "(code or code#state) · Esc to cancel",
-      );
-    } catch (err) {
-      closeOAuthPrompt();
-      const message = err instanceof Error ? err.message : String(err);
-      props.controller.setStatusHint(`OAuth failed: ${message}`);
-    } finally {
-      setOauthRunning(false);
-    }
-  };
-
-  const handleOAuthSubmit = async (raw: string) => {
-    const prompt = oauthPrompt();
-    if (!prompt) return;
-
-    const trimmed = raw.trim();
-    if (inputRef) inputRef.value = "";
-    props.controller.clearInput();
-
-    if (prompt.phase === "confirm") {
-      if (trimmed.toLowerCase() !== "yes") {
-        props.controller.setStatusHint('Type "yes" to accept the policy and continue, or Esc to cancel');
-        return;
-      }
-      void runAnthropicOAuth(prompt.providerId, prompt.activateOnComplete);
-      return;
-    }
-
-    if (!trimmed) {
-      props.controller.setStatusHint("authorization code required — Esc to cancel");
-      return;
-    }
-
-    setOauthRunning(true);
-    try {
-      const tokens = await completeAnthropicOAuthPaste(prompt.session, trimmed);
-      storeAnthropicOAuthTokens(tokens);
-      prompt.session.loopback?.close();
-      finishOAuthSetup(prompt.providerId, prompt.activateOnComplete);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      props.controller.setStatusHint(`OAuth failed: ${message} — try again or Esc to cancel`);
-    } finally {
-      setOauthRunning(false);
-    }
   };
 
   const closeConfigPrompt = () => {
@@ -459,7 +309,6 @@ export function App(props: {
       prompt.providerId,
       values,
       prompt.activateOnComplete,
-      "api-key",
     );
   };
 
@@ -494,51 +343,6 @@ export function App(props: {
     }
 
     openSessionsPalette(next);
-  };
-
-  const handleProviderAuthSelect = (auth: ProviderAuthPath, paletteState: Extract<PaletteState, { phase: "provider-auth" }>) => {
-    setPalette(null);
-    if (auth.id === "api-key") {
-      if (auth.configured) {
-        props.onSetProviderAuthPreference(paletteState.providerId, "api-key");
-        if (paletteState.activateOnComplete) {
-          switchToProvider(paletteState.providerId, "Using API key · ");
-        } else {
-          props.controller.setStatusHint("Anthropic API key is active — run /providers configure anthropic to update");
-        }
-        return;
-      }
-      const fields = providerConfigFields(paletteState.providerId);
-      if (!fields.length) {
-        props.controller.setStatusHint(`${paletteState.displayName} has no API key fields`);
-        return;
-      }
-      beginConfigPrompt({
-        providerId: paletteState.providerId,
-        displayName: paletteState.displayName,
-        fields,
-        activateOnComplete: paletteState.activateOnComplete,
-      });
-      return;
-    }
-
-    if (auth.id === "oauth-reauth") {
-      beginOAuthFlow(paletteState.providerId, paletteState.activateOnComplete);
-      return;
-    }
-
-    if (auth.configured) {
-      props.onSetProviderAuthPreference(paletteState.providerId, "oauth");
-      if (paletteState.activateOnComplete) {
-        switchToProvider(paletteState.providerId, "Using OAuth · ");
-      } else {
-        props.controller.setStatusHint(
-          "Anthropic OAuth is active — choose “Sign in again (OAuth)” or run /providers oauth anthropic",
-        );
-      }
-      return;
-    }
-    beginOAuthFlow(paletteState.providerId, paletteState.activateOnComplete);
   };
 
   const applyCommandResult = (result: CommandResult) => {
@@ -584,24 +388,6 @@ export function App(props: {
           activateOnComplete: result.activateOnComplete,
         });
         return;
-      case "start-oauth":
-        beginOAuthFlow(result.provider, result.activateOnComplete ?? false);
-        return;
-      case "clear-provider-oauth":
-        clearProviderTokens(result.provider);
-        props.controller.setStatusHint(result.message);
-        return;
-      case "open-provider-auth": {
-        const providers = providerSummaries();
-        const idx = providers.findIndex((p) => p.id === result.provider);
-        const provider = providers[idx];
-        if (!provider) {
-          props.controller.setStatusHint(`unknown provider "${result.provider}"`);
-          return;
-        }
-        openProviderAuthPalette(provider, result.activateOnComplete, providers, Math.max(0, idx));
-        return;
-      }
       case "info":
       case "error":
         props.controller.setStatusHint(result.message);
@@ -710,14 +496,9 @@ export function App(props: {
       const provider = p.providers[p.index];
       if (!provider) return;
 
-      if (shouldOpenProviderAuthMenu(provider)) {
-        openProviderAuthPalette(provider, !provider.active, p.providers, p.index);
-        return;
-      }
-
       if (!provider.active) {
         setPalette(null);
-        if (!provider.configured && provider.authStrategy === "api-key") {
+        if (!provider.configured) {
           const fields = providerConfigFields(provider.id);
           if (fields.length) {
             beginConfigPrompt({
@@ -736,12 +517,6 @@ export function App(props: {
       return;
     }
 
-    if (p.phase === "provider-auth") {
-      const auth = p.paths[p.index];
-      if (auth) handleProviderAuthSelect(auth, p);
-      return;
-    }
-
     if (p.phase === "sessions") {
       if (p.menu === "delete") {
         confirmSessionDelete();
@@ -757,11 +532,6 @@ export function App(props: {
   };
 
   const handleSubmit = async (raw: string) => {
-    if (oauthPrompt() !== null) {
-      await handleOAuthSubmit(raw);
-      return;
-    }
-
     // Provider config prompt takes priority over the command palette.
     if (configPrompt() !== null) {
       handleConfigSubmit(raw);
@@ -796,7 +566,7 @@ export function App(props: {
     }
 
     // Anything else is rejected while the agent is busy.
-    if (submitting() || oauthRunning() || state().phase !== "input") return;
+    if (submitting() || state().phase !== "input") return;
 
     if (text.startsWith("/")) {
       props.controller.clearInput();
@@ -856,11 +626,6 @@ export function App(props: {
     }
 
     if (isInterruptShortcut(key)) {
-      if (oauthPrompt() !== null) {
-        closeOAuthPrompt();
-        props.controller.setStatusHint("OAuth cancelled");
-        return;
-      }
       if (configPrompt() !== null) {
         closeConfigPrompt();
         props.controller.setStatusHint("configuration cancelled");
@@ -874,14 +639,6 @@ export function App(props: {
       if (key.name === "y") props.controller.respondApproval(true);
       if (key.name === "n") props.controller.respondApproval(false);
       if (key.name === "escape" && !renderer.hasSelection) props.controller.respondApproval(false);
-      return;
-    }
-
-    if (oauthPrompt() !== null) {
-      if (key.name === "escape") {
-        closeOAuthPrompt();
-        props.controller.setStatusHint("OAuth cancelled");
-      }
       return;
     }
 
@@ -922,9 +679,7 @@ export function App(props: {
               ? Math.max(0, pickerModels().length - 1)
               : p.phase === "providers"
                 ? Math.max(0, p.providers.length - 1)
-                : p.phase === "provider-auth"
-                  ? Math.max(0, p.paths.length - 1)
-                  : p.phase === "sessions"
+                : p.phase === "sessions"
                     ? Math.max(0, p.sessions.length - 1)
                     : APPROVAL_MODES.length - 1;
         setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
@@ -933,14 +688,6 @@ export function App(props: {
       if (key.name === "escape") {
         if (p.phase === "sessions" && p.menu === "delete") {
           setPalette({ ...p, menu: "list" });
-          return;
-        }
-        if (p.phase === "provider-auth") {
-          setPalette({
-            phase: "providers",
-            index: p.providersIndex,
-            providers: p.providers,
-          });
           return;
         }
         if (p.phase !== "commands") {
@@ -1175,33 +922,12 @@ export function App(props: {
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{provider.id}{providerAuthLabel(provider.authStrategy)}
+                          {selected() ? "▶ " : "  "}{provider.id}
                         </text>
                         <Show when={provider.active}>
                           <text fg={theme.secondary}>  (active)</text>
                         </Show>
                         <Show when={!provider.configured}>
-                          <text fg={theme.secondary}>  (needs setup)</text>
-                        </Show>
-                      </box>
-                    );
-                  }}
-                </For>
-              </Show>
-
-              <Show when={p().phase === "provider-auth"}>
-                <For each={(p() as { phase: "provider-auth"; paths: ProviderAuthPath[] }).paths}>
-                  {(path, i) => {
-                    const selected = () => (p() as { phase: "provider-auth"; index: number }).index === i();
-                    return (
-                      <box flexDirection="row">
-                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{path.label}
-                        </text>
-                        <Show when={path.configured}>
-                          <text fg={theme.secondary}>  (configured)</text>
-                        </Show>
-                        <Show when={!path.configured}>
                           <text fg={theme.secondary}>  (needs setup)</text>
                         </Show>
                       </box>

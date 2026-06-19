@@ -1,31 +1,14 @@
 /**
  * Anthropic provider — native Messages API backend via @ai-sdk/anthropic.
- * Supports API key (Console billing) and OAuth (Claude subscription) auth paths.
+ * Authenticates with a Console API key (env or ~/.orin/config.json).
  */
 import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ModelMessage } from "ai";
 import { loadConfig } from "../../config/config.js";
-import {
-  refreshAnthropicOAuthTokens,
-  type FetchImpl,
-} from "../oauth/anthropic-oauth.js";
-import {
-  hasValidOAuthTokens,
-  loadProviderTokens,
-  saveProviderTokens,
-  type ProviderOAuthTokens,
-} from "../oauth/tokens.js";
 import type { ModelMetadataProvider, Provider } from "../types.js";
 
 // ── Credentials ───────────────────────────────────────────────────────────────
-
-const REFRESH_SKEW_MS = 5 * 60 * 1000;
-/**
- * Beta flag for subscription OAuth on the Messages API.
- * Used with Authorization: Bearer (see platform.claude.com API overview).
- */
-export const ANTHROPIC_OAUTH_BETA = "oauth-2025-04-20";
 
 /** Anthropic API key from env or config; undefined when not configured. */
 export function getAnthropicApiKey(): string | undefined {
@@ -35,96 +18,15 @@ export function getAnthropicApiKey(): string | undefined {
   );
 }
 
-export function getAnthropicOAuthTokens(): ProviderOAuthTokens | undefined {
-  return loadProviderTokens("anthropic");
-}
-
-export function hasAnthropicOAuthTokens(): boolean {
-  const tokens = getAnthropicOAuthTokens();
-  if (!tokens?.accessToken) return false;
-  return hasValidOAuthTokens(tokens) || Boolean(tokens.refreshToken);
-}
-
-/** Prefer API key over OAuth unless `preferredAuth` selects OAuth when both exist. */
-export function resolveAnthropicAuth():
-  | { kind: "api-key"; apiKey: string }
-  | { kind: "oauth"; accessToken: string }
-  | undefined {
-  const apiKey = getAnthropicApiKey();
-  const tokens = getAnthropicOAuthTokens();
-  const oauthReady = hasValidOAuthTokens(tokens, REFRESH_SKEW_MS);
-  const hasOAuth = oauthReady || Boolean(tokens?.refreshToken);
-  const preferred = loadConfig().provider.anthropic?.preferredAuth;
-
-  if (apiKey && hasOAuth) {
-    if (preferred === "oauth" && tokens?.accessToken) {
-      return { kind: "oauth", accessToken: tokens.accessToken };
-    }
-    return { kind: "api-key", apiKey };
-  }
-  if (apiKey) return { kind: "api-key", apiKey };
-  if (oauthReady) return { kind: "oauth", accessToken: tokens!.accessToken };
-  if (tokens?.refreshToken && tokens.accessToken) {
-    return { kind: "oauth", accessToken: tokens.accessToken };
-  }
-  return undefined;
-}
-
-let refreshPromise: Promise<ProviderOAuthTokens> | null = null;
-
-/** Refresh OAuth tokens when near expiry; returns the active access token. */
-export async function ensureAnthropicOAuthAccessToken(
-  fetchImpl: FetchImpl = fetch,
-): Promise<string | undefined> {
-  const tokens = getAnthropicOAuthTokens();
-  if (!tokens?.accessToken) return undefined;
-  if (hasValidOAuthTokens(tokens, REFRESH_SKEW_MS)) return tokens.accessToken;
-  if (!tokens.refreshToken) return undefined;
-
-  if (!refreshPromise) {
-    refreshPromise = refreshAnthropicOAuthTokens(tokens.refreshToken, fetchImpl)
-      .then((refreshed) => {
-        saveProviderTokens("anthropic", refreshed);
-        return refreshed;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-  }
-
-  const refreshed = await refreshPromise;
-  return refreshed.accessToken;
-}
-
-/** Build createAnthropic() options for the resolved auth path. */
-export function anthropicClientOptions(
-  auth: NonNullable<ReturnType<typeof resolveAnthropicAuth>>,
-): { apiKey?: string; authToken?: string; headers?: Record<string, string> } {
-  if (auth.kind === "api-key") {
-    return { apiKey: auth.apiKey };
-  }
-  // OAuth access tokens from POST /v1/oauth/token use Authorization: Bearer per
-  // https://platform.claude.com/docs/en/api/overview — not x-api-key (Console keys only).
-  return {
-    authToken: auth.accessToken,
-    headers: { "anthropic-beta": ANTHROPIC_OAUTH_BETA },
-  };
-}
-
-function createAnthropicClient(auth: NonNullable<ReturnType<typeof resolveAnthropicAuth>>) {
-  const opts = anthropicClientOptions(auth);
-  return createAnthropic(opts);
-}
-
 export function getAnthropic() {
-  const auth = resolveAnthropicAuth();
-  if (!auth) {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) {
     throw new Error(
       "Anthropic is not configured — set ANTHROPIC_API_KEY (env or ~/.orin/config.json) "
-      + "or authenticate via /providers oauth anthropic",
+      + "or run /providers configure anthropic",
     );
   }
-  return createAnthropicClient(auth);
+  return createAnthropic({ apiKey });
 }
 
 // ── Model id normalization ────────────────────────────────────────────────────
@@ -203,18 +105,9 @@ async function fetchWithTimeout(
 }
 
 function anthropicRequestInit(): RequestInit {
-  const auth = resolveAnthropicAuth();
-  if (!auth) return {};
-  if (auth.kind === "api-key") {
-    return { headers: { "x-api-key": auth.apiKey, "anthropic-version": "2023-06-01" } };
-  }
-  return {
-    headers: {
-      Authorization: `Bearer ${auth.accessToken}`,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": ANTHROPIC_OAUTH_BETA,
-    },
-  };
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) return {};
+  return { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } };
 }
 
 function lookupKeys(modelId: string): string[] {
@@ -373,7 +266,7 @@ const metadata: ModelMetadataProvider = {
 export const anthropicProvider: Provider = {
   id: "anthropic",
   displayName: "Anthropic",
-  authStrategy: "api-key-or-oauth",
+  authStrategy: "api-key",
   configFields: [
     {
       key: "apiKey",
@@ -382,15 +275,8 @@ export const anthropicProvider: Provider = {
       envVar: "ANTHROPIC_API_KEY",
     },
   ],
-  async prepareCredentials() {
-    if (!hasAnthropicOAuthTokens()) return;
-    const preferred = loadConfig().provider.anthropic?.preferredAuth;
-    if (!getAnthropicApiKey() || preferred === "oauth") {
-      await ensureAnthropicOAuthAccessToken();
-    }
-  },
   isConfigured() {
-    return Boolean(getAnthropicApiKey()) || hasAnthropicOAuthTokens();
+    return Boolean(getAnthropicApiKey());
   },
   normalizeModelId(modelId) {
     return resolveAnthropicModelId(modelId);
