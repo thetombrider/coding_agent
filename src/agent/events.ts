@@ -2,6 +2,7 @@ import type { AssistantMessage } from "../provider/types.js";
 import type { TodoItem } from "../todos/types.js";
 
 export type AgentEvent =
+  | { type: "turn_start"; id: string }
   | { type: "text_delta"; text: string; subagentId?: string }
   | { type: "reasoning_delta"; text: string; subagentId?: string }
   | { type: "llm_start"; id: string; model: string; subagentId?: string }

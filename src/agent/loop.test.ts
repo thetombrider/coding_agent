@@ -79,9 +79,12 @@ describe("runLoop", () => {
 
     const starts = observed.filter((e) => e.type === "llm_start");
     const messages = observed.filter((e) => e.type === "assistant_message");
+    const turnStarts = observed.filter((e) => e.type === "turn_start");
     // Two LLM calls: the tool-call turn and the final text turn.
     expect(starts).toHaveLength(2);
     expect(messages).toHaveLength(2);
+    expect(turnStarts).toHaveLength(1);
+    expect(observed[0].type).toBe("turn_start");
 
     // Each assistant_message is preceded by an llm_start with the matching id.
     for (const msg of messages) {

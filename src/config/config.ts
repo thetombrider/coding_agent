@@ -23,6 +23,8 @@ export interface OtelConfig {
   /** Capture prompt/response content on spans (privacy-sensitive; tuned in 7/8). */
   captureContent: boolean;
   sampleRatio: number;
+  /** Stable anonymous OTLP user id — auto-generated on first export when absent. */
+  userId?: string;
 }
 
 export interface Config {

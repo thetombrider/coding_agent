@@ -1,14 +1,16 @@
 /**
- * AgentEvent → OTel span lifecycle consumer (issue 5/8). Plugged into
- * `installTelemetry`: session_start/end open and close the trace root, paired
- * `llm_start`/`assistant_message` become generation spans, and tool_start/end
- * become tool spans.
+ * AgentEvent → OTel span lifecycle consumer (issue 5/8, revised #113). Plugged
+ * into `installTelemetry`: each `turn_start`/`loop_end` pair opens and closes a
+ * per-Q&A trace root; paired `llm_start`/`assistant_message` become generation
+ * spans, and tool_start/end become tool spans. Orin sessions map to Langfuse
+ * Sessions via `session.id` / `langfuse.session.id` on every trace root — not a
+ * span.
  *
  * Concurrency: `hooks.emit` dispatches observers via `Promise.resolve().then()`
  * (registry.ts), which detaches async context, and tools run under
  * `Promise.all`. So this consumer does NOT use `context.with()` — it keeps
  * explicit `Map<id, Span>` tables and parents every span on an explicit
- * `Context` derived from the session root. A missing parent never drops a span:
+ * `Context` derived from the turn root. A missing parent never drops a span:
  * it falls back to the root (or ROOT_CONTEXT).
  *
  * The OTel SDK loads asynchronously, but events can arrive before it is ready,
@@ -21,7 +23,7 @@ import type { ModelPricing } from "../../config/config.js";
 import type { AgentEvent } from "../../agent/events.js";
 import type { AssistantMessage } from "../../provider/types.js";
 import { calcCost } from "../cost.js";
-import { resolveOtelConfig, type OtelConfig } from "./config.js";
+import { resolveOtelConfig, resolveOtelUserId, type OtelConfig } from "./config.js";
 import { loadOtelRuntime, type OtelRuntime, type ProviderDeps } from "./provider.js";
 import {
   llmRequestAttributes,
@@ -37,15 +39,17 @@ export interface OtelConsumerOptions {
   pricing: Record<string, ModelPricing>;
   /** Pre-resolved config (defaults to `resolveOtelConfig()`). */
   cfg?: OtelConfig;
+  /** Pre-resolved user id (defaults to `resolveOtelUserId()`). */
+  userId?: string;
   /** Provider injection for tests (InMemory exporter). */
   deps?: ProviderDeps;
 }
 
 /** The lifecycle surface `installTelemetry` drives. */
 export interface OtelSpanConsumer {
-  startSession(attributes?: Record<string, string>): void;
   handleEvent(event: AgentEvent): void;
-  endSession(reason: string): void;
+  /** Close any open turn trace without flushing (e.g. dispose mid-turn). */
+  endOpenTurn(reason: string): void;
   /** Await SDK init, end any open spans, and flush the exporter. Best-effort. */
   flush(): Promise<void>;
 }
@@ -58,7 +62,9 @@ export interface OtelSpanConsumer {
 export function createOtelSpanConsumer(opts: OtelConsumerOptions): OtelSpanConsumer | undefined {
   const cfg = resolveOtelConfig(opts.cfg);
   if (!cfg.enabled) return undefined;
-  return new SpanConsumer(cfg, opts);
+  const userId =
+    opts.userId !== undefined ? opts.userId.trim() || undefined : resolveOtelUserId(cfg);
+  return new SpanConsumer(cfg, { ...opts, userId });
 }
 
 class SpanConsumer implements OtelSpanConsumer {
@@ -66,13 +72,13 @@ class SpanConsumer implements OtelSpanConsumer {
   private readonly initPromise: Promise<void>;
   private queue: Array<(rt: OtelRuntime) => void> = [];
 
-  private root: Span | undefined;
+  private turnRoot: Span | undefined;
   private readonly llmSpans = new Map<string, Span>();
   private readonly toolSpans = new Map<string, Span>();
 
   constructor(
     private readonly cfg: OtelConfig,
-    private readonly opts: OtelConsumerOptions,
+    private readonly opts: OtelConsumerOptions & { userId?: string },
   ) {
     this.initPromise = this.init();
   }
@@ -109,28 +115,33 @@ class SpanConsumer implements OtelSpanConsumer {
     }
   }
 
-  /** Parent context for a child span: the session root, or ROOT when absent. */
+  /** Parent context for a child span: the turn root, or ROOT when absent. */
   private parentContext(rt: OtelRuntime) {
-    return this.root ? rt.api.trace.setSpan(rt.api.ROOT_CONTEXT, this.root) : rt.api.ROOT_CONTEXT;
+    return this.turnRoot
+      ? rt.api.trace.setSpan(rt.api.ROOT_CONTEXT, this.turnRoot)
+      : rt.api.ROOT_CONTEXT;
   }
 
-  startSession(attributes: Record<string, string> = {}): void {
-    const startTime = Date.now();
-    this.apply((rt) => {
-      this.root = rt.tracer.startSpan(
-        `session ${this.opts.sessionId}`,
-        {
-          startTime,
-          kind: rt.api.SpanKind.INTERNAL,
-          attributes: { "orin.session.id": this.opts.sessionId, ...attributes },
-        },
-        rt.api.ROOT_CONTEXT,
-      );
-    });
+  private turnRootAttributes(): Record<string, string> {
+    const attrs: Record<string, string> = {};
+    const sessionId = this.opts.sessionId?.trim();
+    if (sessionId) {
+      attrs["session.id"] = sessionId;
+      attrs["langfuse.session.id"] = sessionId;
+    }
+    if (this.opts.userId) {
+      attrs["user.id"] = this.opts.userId;
+      attrs["langfuse.user.id"] = this.opts.userId;
+    }
+    return attrs;
   }
 
   handleEvent(event: AgentEvent): void {
     switch (event.type) {
+      case "turn_start":
+        return this.onTurnStart(event.id);
+      case "loop_end":
+        return this.onLoopEnd(event.reason);
       case "llm_start":
         return this.onLlmStart(event.id, event.model);
       case "assistant_message":
@@ -142,6 +153,53 @@ class SpanConsumer implements OtelSpanConsumer {
       default:
         return;
     }
+  }
+
+  private onTurnStart(turnId: string): void {
+    const startTime = Date.now();
+    this.apply((rt) => {
+      this.turnRoot = rt.tracer.startSpan(
+        "turn",
+        {
+          startTime,
+          kind: rt.api.SpanKind.INTERNAL,
+          attributes: { "orin.turn.id": turnId, ...this.turnRootAttributes() },
+        },
+        rt.api.ROOT_CONTEXT,
+      );
+    });
+  }
+
+  private onLoopEnd(reason: "complete" | "terminate" | "error"): void {
+    const endTime = Date.now();
+    this.apply((rt) => {
+      this.closeOpenChildren(endTime);
+      if (this.turnRoot) {
+        if (reason === "error") this.turnRoot.setStatus({ code: rt.api.SpanStatusCode.ERROR });
+        this.turnRoot.end(endTime);
+        this.turnRoot = undefined;
+      }
+      void this.runtime?.forceFlush();
+    });
+  }
+
+  endOpenTurn(reason: string): void {
+    const endTime = Date.now();
+    this.apply((rt) => {
+      this.closeOpenChildren(endTime);
+      if (this.turnRoot) {
+        if (reason === "error") this.turnRoot.setStatus({ code: rt.api.SpanStatusCode.ERROR });
+        this.turnRoot.end(endTime);
+        this.turnRoot = undefined;
+      }
+    });
+  }
+
+  private closeOpenChildren(endTime: number): void {
+    for (const span of this.llmSpans.values()) span.end(endTime);
+    for (const span of this.toolSpans.values()) span.end(endTime);
+    this.llmSpans.clear();
+    this.toolSpans.clear();
   }
 
   private onLlmStart(id: string, model: string): void {
@@ -205,22 +263,6 @@ class SpanConsumer implements OtelSpanConsumer {
         span.setStatus({ code: rt.api.SpanStatusCode.ERROR });
       }
       span.end(endTime);
-    });
-  }
-
-  endSession(reason: string): void {
-    const endTime = Date.now();
-    this.apply((rt) => {
-      // Close any spans still open (interrupted call, abandoned tool).
-      for (const span of this.llmSpans.values()) span.end(endTime);
-      for (const span of this.toolSpans.values()) span.end(endTime);
-      this.llmSpans.clear();
-      this.toolSpans.clear();
-      if (this.root) {
-        if (reason === "error") this.root.setStatus({ code: rt.api.SpanStatusCode.ERROR });
-        this.root.end(endTime);
-        this.root = undefined;
-      }
     });
   }
 
