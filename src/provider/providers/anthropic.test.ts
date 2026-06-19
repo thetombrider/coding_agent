@@ -10,6 +10,8 @@ import {
   markAnthropicCacheBreakpoints,
   resetAnthropicModelsCache,
   resolveAnthropicModelId,
+  anthropicClientOptions,
+  ANTHROPIC_OAUTH_BETA,
 } from "./anthropic.js";
 
 describe("anthropic provider", () => {
@@ -75,6 +77,31 @@ describe("anthropic provider", () => {
     });
     process.env.ANTHROPIC_API_KEY = "sk-ant-priority";
     saveConfig({ provider: { anthropic: { preferredAuth: "oauth" } } });
+    expect(resolveAnthropicAuth()?.kind).toBe("oauth");
+  });
+
+  it("uses x-api-key transport and oauth beta header for OAuth tokens", async () => {
+    const { resolveAnthropicAuth } = await import("./anthropic.js");
+    expect(
+      anthropicClientOptions({ kind: "oauth", accessToken: "sk-ant-oat01-test" }),
+    ).toEqual({
+      apiKey: "sk-ant-oat01-test",
+      headers: { "anthropic-beta": ANTHROPIC_OAUTH_BETA },
+    });
+    expect(anthropicClientOptions({ kind: "api-key", apiKey: "sk-ant-api03-test" })).toEqual({
+      apiKey: "sk-ant-api03-test",
+    });
+    expect(resolveAnthropicAuth()).toBeUndefined();
+  });
+
+  it("resolves OAuth auth when access token expired but refresh token exists", async () => {
+    const { saveProviderTokens } = await import("../oauth/tokens.js");
+    const { resolveAnthropicAuth } = await import("./anthropic.js");
+    saveProviderTokens("anthropic", {
+      accessToken: "expired-access",
+      refreshToken: "oauth-refresh",
+      expiresAt: Date.now() - 60_000,
+    });
     expect(resolveAnthropicAuth()?.kind).toBe("oauth");
   });
 
