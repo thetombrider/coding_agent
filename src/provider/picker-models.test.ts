@@ -75,6 +75,31 @@ describe("picker-models", () => {
     expect(result.note).toBe("");
   });
 
+  it("includes bundled models even when config has a legacy picker override", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    const { OPENROUTER_PICKER_MODELS } = await import("./providers/openrouter.js");
+    saveConfig({
+      models: {
+        picker: {
+          openrouter: [
+            "anthropic/claude-opus-4.8",
+            "anthropic/claude-sonnet-4.6",
+            "google/gemini-3.5-flash",
+            "google/gemini-3.1-flash-lite",
+            "deepseek/deepseek-v4-pro",
+            "minimax/minimax-m3",
+            "z-ai/glm-5.1",
+            "inception/mercury-2",
+            "arcee-ai/trinity-large-thinking",
+            "mistralai/mistral-large-2512",
+          ],
+        },
+      },
+    });
+    const { loadPickerModels } = await import("./picker-models.js");
+    await expect(loadPickerModels("openrouter")).resolves.toEqual([...OPENROUTER_PICKER_MODELS]);
+  });
+
   it("filters curated picker models against the live catalog", async () => {
     const { registerProvider, getProvider } = await import("./registry.js");
     const { loadPickerModels: loadPicker } = await import("./picker-models.js");

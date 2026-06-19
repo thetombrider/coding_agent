@@ -136,13 +136,40 @@ describe("provider registry", () => {
     expect(resolvePickerModels()).toEqual(REGOLO_PICKER_MODELS);
   });
 
-  it("prefers config picker overrides over bundled defaults", async () => {
+  it("appends config picker extras after bundled defaults", async () => {
     const { saveConfig } = await import("../config/config.js");
     saveConfig({
       provider: { active: "openrouter" },
       models: { picker: { openrouter: ["custom/model-a", "custom/model-b"] } },
     });
     const { resolvePickerModels } = await import("./registry.js");
-    expect(resolvePickerModels()).toEqual(["custom/model-a", "custom/model-b"]);
+    const { OPENROUTER_PICKER_MODELS } = await import("./providers/openrouter.js");
+    expect(resolvePickerModels()).toEqual([...OPENROUTER_PICKER_MODELS, "custom/model-a", "custom/model-b"]);
+  });
+
+  it("keeps bundled picker models when config only has a legacy subset", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({
+      provider: { active: "openrouter" },
+      models: {
+        picker: {
+          openrouter: [
+            "anthropic/claude-opus-4.8",
+            "anthropic/claude-sonnet-4.6",
+            "google/gemini-3.5-flash",
+            "google/gemini-3.1-flash-lite",
+            "deepseek/deepseek-v4-pro",
+            "minimax/minimax-m3",
+            "z-ai/glm-5.1",
+            "inception/mercury-2",
+            "arcee-ai/trinity-large-thinking",
+            "mistralai/mistral-large-2512",
+          ],
+        },
+      },
+    });
+    const { resolvePickerModels } = await import("./registry.js");
+    const { OPENROUTER_PICKER_MODELS } = await import("./providers/openrouter.js");
+    expect(resolvePickerModels()).toEqual(OPENROUTER_PICKER_MODELS);
   });
 });

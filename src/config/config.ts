@@ -41,7 +41,7 @@ export interface Config {
   models: {
     main: string;
     cheap: string;
-    /** Per-provider overrides for the `/model` picker; falls back to each provider's bundled list. */
+    /** Per-provider extras for the `/model` picker; bundled provider lists stay authoritative. */
     picker: Record<string, string[]>;
     /** Last main model used per provider — restored when switching back. */
     lastUsed: Record<string, { main: string; cheap?: string }>;
@@ -106,6 +106,7 @@ const DEFAULT_CONFIG: Config = {
       "google/gemini-3.1-flash-lite": { inputPerM: 0.075, outputPerM: 0.30, cacheReadPerM: 0.01875 },
       "moonshotai/kimi-k2.7-code": { inputPerM: 0.15, outputPerM: 0.6, cacheReadPerM: 0.075 },
       "z-ai/glm-5.2": { inputPerM: 0.40, outputPerM: 1.60 },
+      "z-ai/glm-5.1": { inputPerM: 0.40, outputPerM: 1.60 },
       "qwen/qwen3.7-plus": { inputPerM: 0.40, outputPerM: 2.40 },
       "xiaomi/mimo-v2.5-pro": { inputPerM: 0.10, outputPerM: 0.30 },
       "inception/mercury-2": { inputPerM: 0.25, outputPerM: 1.00 },
@@ -208,6 +209,52 @@ function normalizePickerConfig(raw: unknown): Record<string, string[]> {
   return {};
 }
 
+/** Picker lists shipped in older releases; cleared so bundled provider defaults apply. */
+const LEGACY_OPENROUTER_PICKER_LISTS: ReadonlyArray<readonly string[]> = [
+  [
+    "anthropic/claude-opus-4.8",
+    "anthropic/claude-sonnet-4.6",
+    "google/gemini-3.5-flash",
+    "google/gemini-3.1-flash-lite",
+    "deepseek/deepseek-v4-pro",
+    "minimax/minimax-m3",
+    "z-ai/glm-5.1",
+    "inception/mercury-2",
+    "arcee-ai/trinity-large-thinking",
+    "mistralai/mistral-large-2512",
+  ],
+  [
+    "anthropic/claude-opus-4.8",
+    "anthropic/claude-sonnet-4.6",
+    "google/gemini-3.5-flash",
+    "google/gemini-3.1-flash-lite",
+    "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-v4-flash",
+    "minimax/minimax-m3",
+    "z-ai/glm-5.1",
+    "inception/mercury-2",
+    "arcee-ai/trinity-large-thinking",
+    "mistralai/mistral-large-2512",
+  ],
+];
+
+function pickerMatchesLegacyList(models: string[], legacy: readonly string[]): boolean {
+  if (models.length !== legacy.length) return false;
+  const set = new Set(models);
+  return legacy.every((id) => set.has(id));
+}
+
+function dropLegacyPickerOverrides(picker: Record<string, string[]>): Record<string, string[]> {
+  const openrouter = picker.openrouter;
+  if (!openrouter?.length) return picker;
+  const isLegacy = LEGACY_OPENROUTER_PICKER_LISTS.some((legacy) =>
+    pickerMatchesLegacyList(openrouter, legacy),
+  );
+  if (!isLegacy) return picker;
+  const { openrouter: _removed, ...rest } = picker;
+  return rest;
+}
+
 /** Load config: file merged with defaults, then env var overrides applied on top. */
 export function loadConfig(): Config {
   const raw = readRawConfig();
@@ -216,8 +263,10 @@ export function loadConfig(): Config {
     raw,
   ) as unknown as Config;
 
-  merged.models.picker = normalizePickerConfig(
-    (raw.models as { picker?: unknown } | undefined)?.picker ?? merged.models.picker,
+  merged.models.picker = dropLegacyPickerOverrides(
+    normalizePickerConfig(
+      (raw.models as { picker?: unknown } | undefined)?.picker ?? merged.models.picker,
+    ),
   );
 
   if (process.env.ORIN_MODEL?.trim()) merged.models.main = process.env.ORIN_MODEL.trim();

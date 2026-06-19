@@ -36,6 +36,7 @@ import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from
 
 const BOLD = createTextAttributes({ bold: true });
 const SESSION_LIST_MAX_VISIBLE = 10;
+const MODEL_LIST_MAX_VISIBLE = 10;
 
 const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
@@ -187,10 +188,15 @@ export function App(props: {
 
   let scrollRef: ScrollBoxRenderable | undefined;
   let sessionListScrollRef: ScrollBoxRenderable | undefined;
+  let modelListScrollRef: ScrollBoxRenderable | undefined;
   let inputRef: InputRenderable | undefined;
 
   const scrollSessionIntoView = (index: number) => {
     sessionListScrollRef?.scrollChildIntoView(`session-row-${index}`);
+  };
+
+  const scrollModelIntoView = (index: number) => {
+    modelListScrollRef?.scrollChildIntoView(`model-row-${index}`);
   };
 
   createEffect(() => {
@@ -198,6 +204,13 @@ export function App(props: {
     if (p?.phase !== "sessions" || p.menu !== "list") return;
     const index = p.index;
     queueMicrotask(() => scrollSessionIntoView(index));
+  });
+
+  createEffect(() => {
+    const p = palette();
+    if (p?.phase !== "model") return;
+    const index = p.index;
+    queueMicrotask(() => scrollModelIntoView(index));
   });
 
   const live = () => currentTurn(state());
@@ -969,32 +982,39 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "model"}>
-                <For each={[...pickerModels()]}>
-                  {(model, i) => {
-                    const selected = () => (p() as { phase: "model"; index: number }).index === i();
-                    const isCurrent = () => model === state().meta.model;
-                    const providerId = () => state().meta.provider ?? activeProviderId();
-                    const pricingLabel = () =>
-                      formatModelPricingLabel(
-                        resolveDisplayModelPricing(
-                          model,
-                          providerId(),
-                          loadConfig().models.pricing,
-                        ),
+                <scrollbox
+                  ref={modelListScrollRef}
+                  height={Math.min(pickerModels().length, MODEL_LIST_MAX_VISIBLE)}
+                  scrollY
+                  contentOptions={{ flexDirection: "column" }}
+                >
+                  <For each={[...pickerModels()]}>
+                    {(model, i) => {
+                      const selected = () => (p() as { phase: "model"; index: number }).index === i();
+                      const isCurrent = () => model === state().meta.model;
+                      const providerId = () => state().meta.provider ?? activeProviderId();
+                      const pricingLabel = () =>
+                        formatModelPricingLabel(
+                          resolveDisplayModelPricing(
+                            model,
+                            providerId(),
+                            loadConfig().models.pricing,
+                          ),
+                        );
+                      return (
+                        <box id={`model-row-${i()}`} flexDirection="row">
+                          <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                            {selected() ? "▶ " : "  "}{model}
+                          </text>
+                          <text fg={theme.secondary}>  {pricingLabel()}</text>
+                          <Show when={isCurrent()}>
+                            <text fg={theme.secondary}>  (current)</text>
+                          </Show>
+                        </box>
                       );
-                    return (
-                      <box flexDirection="row">
-                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{model}
-                        </text>
-                        <text fg={theme.secondary}>  {pricingLabel()}</text>
-                        <Show when={isCurrent()}>
-                          <text fg={theme.secondary}>  (current)</text>
-                        </Show>
-                      </box>
-                    );
-                  }}
-                </For>
+                    }}
+                  </For>
+                </scrollbox>
               </Show>
 
               <Show when={p().phase === "providers"}>
