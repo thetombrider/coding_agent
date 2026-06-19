@@ -39,8 +39,6 @@ echo "Building orin..."
 bun run build
 
 echo "Initializing ~/.orin/config.json..."
-# Prompts for OpenRouter and E2B API keys (if not already configured) and stores
-# them in ~/.orin/config.json so orin works from any directory.
 bun run init-config
 
 echo "Linking orin command..."
@@ -52,10 +50,10 @@ echo
 echo "Start the agent:"
 echo "  orin"
 echo
-echo "API keys live in ~/.orin/config.json:"
-echo "  provider.openrouter.apiKey  (required for real agent use)"
-echo "  sandbox.e2b.apiKey          (optional — set sandbox.active to e2b for whole-session E2B)"
-echo "Edit that file to change them, or override per-shell with OPENROUTER_API_KEY / E2B_API_KEY."
+echo "Configure API keys in the TUI after starting:"
+echo "  /providers configure openrouter   LLM provider (required for real agent use)"
+echo "  /settings e2b                     E2B key for the task tool (optional)"
+echo "Keys are saved to ~/.orin/config.json (or set OPENROUTER_API_KEY / E2B_API_KEY)."
 echo
 echo "Offline demo (no API key):"
 echo "  orin --faux"

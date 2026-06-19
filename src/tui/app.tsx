@@ -39,6 +39,7 @@ const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
   { name: "mode",      label: "/mode",      description: "set approval mode" },
   { name: "providers", label: "/providers", description: "switch LLM provider" },
+  { name: "settings",  label: "/settings",  description: "configure E2B API key" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
   { name: "new",       label: "/new",       description: "archive & start new session" },
   { name: "clear",     label: "/clear",     description: "clear conversation" },
@@ -106,6 +107,7 @@ export function App(props: {
     values: Record<string, string>,
     activate: boolean,
   ) => void;
+  onConfigureE2b: (apiKey: string) => void;
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -117,6 +119,7 @@ export function App(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
+  const [e2bPrompt, setE2bPrompt] = createSignal(false);
   const toolExpand = createToolExpandState();
   const renderer = useRenderer();
   onCleanup(props.controller.subscribe(setState));
@@ -126,6 +129,7 @@ export function App(props: {
     state().phase === "input"
     && palette() === null
     && configPrompt() === null
+    && !e2bPrompt()
     && !submitting();
 
   const pasteShortcutEnabled = () =>
@@ -244,6 +248,12 @@ export function App(props: {
     props.controller.setStatusHint(`${notePrefix}provider → ${providerId}${note}`);
   };
 
+  const closeE2bPrompt = () => {
+    setE2bPrompt(false);
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+  };
+
   const closeConfigPrompt = () => {
     setConfigPrompt(null);
     if (inputRef) inputRef.value = "";
@@ -276,6 +286,19 @@ export function App(props: {
       + (opts.fields[0]?.envVar ? ` (or set ${opts.fields[0].envVar})` : "")
       + " · Esc to cancel",
     );
+  };
+
+  const handleE2bSubmit = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      props.controller.setStatusHint("API key required — Esc to cancel");
+      return;
+    }
+
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+    closeE2bPrompt();
+    props.onConfigureE2b(trimmed);
   };
 
   const handleConfigSubmit = (raw: string) => {
@@ -387,6 +410,10 @@ export function App(props: {
           fields: result.fields,
           activateOnComplete: result.activateOnComplete,
         });
+        return;
+      case "configure-e2b":
+        setE2bPrompt(true);
+        props.controller.setStatusHint(result.message);
         return;
       case "info":
       case "error":
@@ -532,9 +559,13 @@ export function App(props: {
   };
 
   const handleSubmit = async (raw: string) => {
-    // Provider config prompt takes priority over the command palette.
+    // Provider/E2B config prompts take priority over the command palette.
     if (configPrompt() !== null) {
       handleConfigSubmit(raw);
+      return;
+    }
+    if (e2bPrompt()) {
+      handleE2bSubmit(raw);
       return;
     }
 
@@ -585,7 +616,7 @@ export function App(props: {
 
   const handleInput = (value: string) => {
     props.controller.setInput(value);
-    if (configPrompt() !== null) return;
+    if (configPrompt() !== null || e2bPrompt()) return;
 
     const p = palette();
 
@@ -631,6 +662,11 @@ export function App(props: {
         props.controller.setStatusHint("configuration cancelled");
         return;
       }
+      if (e2bPrompt()) {
+        closeE2bPrompt();
+        props.controller.setStatusHint("configuration cancelled");
+        return;
+      }
       props.onExit();
       return;
     }
@@ -645,6 +681,14 @@ export function App(props: {
     if (configPrompt() !== null) {
       if (key.name === "escape") {
         closeConfigPrompt();
+        props.controller.setStatusHint("configuration cancelled");
+      }
+      return;
+    }
+
+    if (e2bPrompt()) {
+      if (key.name === "escape") {
+        closeE2bPrompt();
         props.controller.setStatusHint("configuration cancelled");
       }
       return;
@@ -740,6 +784,7 @@ export function App(props: {
       && phase === "input"
       && palette() === null
       && configPrompt() === null
+      && !e2bPrompt()
       && !submitting()
     ) {
       toolExpand.toggleHovered();
@@ -863,6 +908,27 @@ export function App(props: {
               </text>
             </box>
           )}
+        </Show>
+
+        <Show when={e2bPrompt()}>
+          <box
+            flexShrink={0}
+            flexDirection="column"
+            marginBottom={1}
+            paddingLeft={1}
+            paddingRight={1}
+            borderStyle="rounded"
+            border
+            borderColor={theme.accent}
+            backgroundColor={theme.codeBg}
+          >
+            <text fg={theme.accent} attributes={BOLD}>
+              E2B setup
+            </text>
+            <text fg={theme.secondary}>
+              Paste your E2B API key (saved to ~/.orin/config.json, enables the task tool)
+            </text>
+          </box>
         </Show>
 
         <Show when={palette()}>

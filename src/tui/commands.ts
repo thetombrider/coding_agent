@@ -5,6 +5,7 @@ import {
   nextApprovalMode,
   type ApprovalMode,
 } from "../approval/policy.js";
+import { hasE2BApiKey } from "../config/config.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import type { ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
@@ -35,6 +36,7 @@ export type CommandResult =
       activateOnComplete: boolean;
       message: string;
     }
+  | { type: "configure-e2b"; message: string }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
@@ -48,6 +50,7 @@ const HELP_LINES = [
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
+  "/settings [e2b]               configure E2B API key for the task tool",
   "/sessions                     browse and resume saved sessions",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
@@ -234,6 +237,29 @@ function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
   return { type: "set-provider", provider: match.id, model, message };
 }
 
+function handleSettings(arg: string): CommandResult {
+  const sub = arg.trim().toLowerCase();
+  if (sub && sub !== "e2b") {
+    return { type: "error", message: `unknown setting "${sub}" — try /settings e2b` };
+  }
+
+  if (hasE2BApiKey()) {
+    return {
+      type: "info",
+      message:
+        "E2B API key is configured — the task tool can spawn isolated subagents. "
+        + "Run /settings e2b to replace it.",
+    };
+  }
+
+  return {
+    type: "configure-e2b",
+    message:
+      "Configure E2B: paste your API key (required for the task tool — get one at "
+      + "https://e2b.dev/docs/api-key) · Esc to cancel",
+  };
+}
+
 function handleProviders(arg: string, ctx: CommandContext): CommandResult {
   const parts = arg.trim().split(/\s+/).filter(Boolean);
   const sub = parts[0]?.toLowerCase();
@@ -257,6 +283,8 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "set-mode":
     case "set-provider":
     case "configure-provider":
+      return true;
+    case "configure-e2b":
       return true;
     default:
       return false;
@@ -294,6 +322,9 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
     case "/providers":
     case "/provider":
       return handleProviders(arg, ctx);
+    case "/settings":
+    case "/setting":
+      return handleSettings(arg);
     default:
       return { type: "error", message: `unknown command ${name} — try /help` };
   }

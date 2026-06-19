@@ -242,6 +242,13 @@ export function hasE2BApiKey(): boolean {
   return Boolean(fromEnv || fromConfig);
 }
 
+/** Persist an E2B API key under `sandbox.e2b.apiKey` in config.json. */
+export function saveE2BApiKey(apiKey: string): void {
+  const trimmed = apiKey.trim();
+  if (!trimmed) return;
+  saveConfig({ sandbox: { e2b: { apiKey: trimmed } } });
+}
+
 /** Persist provider-specific settings under `provider.<id>.<key>` in config.json. */
 export function saveProviderConfig(providerId: string, values: Record<string, string>): void {
   const section: Record<string, string> = {};

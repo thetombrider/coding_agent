@@ -1,3 +1,4 @@
+import { hasE2BApiKey } from "../config/config.js";
 import { bashTool } from "./bash.js";
 import { delegateReadTool } from "./delegate-read.js";
 import { editTool } from "./edit.js";
@@ -29,7 +30,8 @@ const ALL_TOOLS: AnyTool[] = [
 const CHILD_EXCLUDED = new Set(["todowrite", "task"]);
 
 export function getCoreTools(): AnyTool[] {
-  return [...ALL_TOOLS];
+  if (hasE2BApiKey()) return [...ALL_TOOLS];
+  return ALL_TOOLS.filter((t) => t.name !== "task");
 }
 
 /** Tool preset for subagent child loops (excludes planning tools). */
