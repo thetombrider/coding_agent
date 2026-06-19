@@ -189,6 +189,11 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   // compaction) resolve the active provider from config on each turn, so the
   // switch takes effect on the next turn without rewiring the loop.
   const setProvider = (provider: string, model?: string) => {
+    const impl = getProvider(provider);
+    if (impl && !impl.isConfigured()) {
+      controller.setStatusHint(`${provider} is not configured — complete setup first`);
+      return;
+    }
     const fromProvider = config.meta.provider ?? "openrouter";
     const patch = lastUsedPatchForProviderSwitch(fromProvider, activeModel, defaultCheapModel(fromProvider));
     controller.updateMeta({ provider });

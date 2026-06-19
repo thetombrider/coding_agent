@@ -22,7 +22,7 @@ import {
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
 import { selectionCopyHint } from "./terminal-env.js";
-import { KEYBOARD_HINTS, processCommand, type CommandResult } from "./commands.js";
+import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { pickerModelsForProvider } from "../config/models.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
@@ -770,12 +770,12 @@ export function App(props: {
       return;
     }
 
-    // If palette is open, Enter selects unless the input is a complete slash command.
+    // If palette is open, Enter selects unless the input is an actionable slash command.
     if (palette() !== null) {
       const text = raw.trim();
       if (text.startsWith("/")) {
         const result = processCommand(text, commandContext());
-        if (result.type !== "not-command") {
+        if (isActionableCommandResult(result)) {
           if (inputRef) inputRef.value = "";
           props.controller.clearInput();
           closePalette();

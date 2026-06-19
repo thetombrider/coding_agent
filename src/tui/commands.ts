@@ -334,6 +334,28 @@ function handleProviders(arg: string, ctx: CommandContext): CommandResult {
 }
 
 /**
+ * Slash commands that mutate state or open a TUI flow. Informational results
+ * (help text, errors) are not actionable — the command palette should handle Enter.
+ */
+export function isActionableCommandResult(result: CommandResult): boolean {
+  switch (result.type) {
+    case "exit":
+    case "clear":
+    case "new":
+    case "sessions":
+    case "set-model":
+    case "set-mode":
+    case "set-provider":
+    case "configure-provider":
+    case "start-oauth":
+    case "open-provider-auth":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Parse and resolve a submitted line. Returns `not-command` for anything that
  * is not a recognized `/command`, so the caller can run it as a normal turn.
  */

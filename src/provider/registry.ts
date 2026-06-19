@@ -1,5 +1,5 @@
 import type { LanguageModel } from "ai";
-import { loadConfig } from "../config/config.js";
+import { loadConfig, saveConfig } from "../config/config.js";
 import { providerAuthPaths } from "./auth-paths.js";
 import { anthropicProvider } from "./providers/anthropic.js";
 import { openRouterProvider } from "./providers/openrouter.js";
@@ -52,6 +52,33 @@ export function resolveActiveProvider(): Provider {
   const fallback = registry.get(DEFAULT_PROVIDER_ID);
   if (fallback) return fallback;
   throw new Error(`No provider registered (active="${activeProviderId()}")`);
+}
+
+/**
+ * Prefer the configured `provider.active` entry; otherwise the first configured
+ * backend; otherwise the requested/default provider (possibly unconfigured).
+ */
+export function resolveConfiguredActiveProvider(): Provider {
+  const requested = resolveActiveProvider();
+  if (requested.isConfigured()) return requested;
+
+  for (const provider of listProviders()) {
+    if (provider.isConfigured()) return provider;
+  }
+  return requested;
+}
+
+/**
+ * Ensure `provider.active` points at a configured backend. Persists a fix when
+ * the saved active provider lost credentials (e.g. anthropic with no auth).
+ */
+export function repairActiveProviderIfNeeded(): Provider {
+  const requestedId = activeProviderId();
+  const resolved = resolveConfiguredActiveProvider();
+  if (resolved.id !== requestedId && resolved.isConfigured()) {
+    saveConfig({ provider: { active: resolved.id } });
+  }
+  return resolved;
 }
 
 /**

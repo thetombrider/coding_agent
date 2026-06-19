@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { processCommand, type CommandContext } from "./commands.js";
+import { processCommand, isActionableCommandResult, type CommandContext } from "./commands.js";
 import type { ProviderSummary } from "../provider/registry.js";
 
 const ctx: CommandContext = {
@@ -29,6 +29,12 @@ const provCtx: CommandContext = {
 };
 
 describe("processCommand", () => {
+  it("treats bare / as non-actionable so the palette can handle Enter", () => {
+    const r = processCommand("/", provCtx);
+    expect(r.type).toBe("error");
+    expect(isActionableCommandResult(r)).toBe(false);
+  });
+
   it("treats non-slash input as a normal turn", () => {
     expect(processCommand("hello world", ctx)).toEqual({ type: "not-command" });
   });
