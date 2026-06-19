@@ -37,6 +37,7 @@ export type CommandResult =
       message: string;
     }
   | { type: "start-oauth"; provider: string; message: string; activateOnComplete?: boolean }
+  | { type: "clear-provider-oauth"; provider: string; message: string }
   | {
       type: "open-provider-auth";
       provider: string;
@@ -56,7 +57,8 @@ const HELP_LINES = [
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
-  "/providers oauth [id]         authenticate via OAuth (subscription)",
+  "/providers oauth [id]         authenticate or re-authenticate via OAuth",
+  "/providers logout [id]        clear saved OAuth tokens for a provider",
   "/sessions                     browse and resume saved sessions",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
@@ -144,7 +146,7 @@ function providerInfo(ctx: CommandContext): string {
     const status = p.configured ? "" : "  (needs setup)";
     return `${i + 1}. ${p.id}${auth}${status}${marker}`;
   });
-  return `provider: ${ctx.currentProvider ?? "?"}\n${lines.join("\n")}\n/providers <number|id> to switch · /providers configure <id> · /providers oauth <id>`;
+  return `provider: ${ctx.currentProvider ?? "?"}\n${lines.join("\n")}\n/providers <number|id> to switch · /providers configure <id> · /providers oauth <id> · /providers logout <id>`;
 }
 
 function resolveProviderTarget(
@@ -229,6 +231,45 @@ function handleProviderConfigure(arg: string, ctx: CommandContext): CommandResul
   };
 }
 
+function handleProviderLogout(arg: string, ctx: CommandContext): CommandResult {
+  const providers = ctx.providers ?? [];
+  if (!providers.length) {
+    return { type: "error", message: "no providers registered" };
+  }
+
+  if (!arg) {
+    const oauthProviders = providers.filter(
+      (p) => p.authStrategy === "oauth" || p.authStrategy === "api-key-or-oauth",
+    );
+    if (!oauthProviders.length) {
+      return { type: "info", message: "no OAuth-capable providers registered" };
+    }
+    const lines = oauthProviders.map((p, i) => `${i + 1}. ${p.id}`);
+    return {
+      type: "info",
+      message: `Clear OAuth tokens for:\n${lines.join("\n")}\n/providers logout <number|id>`,
+    };
+  }
+
+  const resolved = resolveProviderTarget(arg, providers);
+  if ("error" in resolved) {
+    return { type: "error", message: `${resolved.error}. ${providerInfo(ctx)}` };
+  }
+
+  if (resolved.authStrategy !== "oauth" && resolved.authStrategy !== "api-key-or-oauth") {
+    return {
+      type: "error",
+      message: `${resolved.id} does not use OAuth — nothing to clear`,
+    };
+  }
+
+  return {
+    type: "clear-provider-oauth",
+    provider: resolved.id,
+    message: `Cleared OAuth tokens for ${resolved.displayName} — run /providers oauth ${resolved.id} to sign in again`,
+  };
+}
+
 function handleProviderOAuth(arg: string, ctx: CommandContext): CommandResult {
   const providers = ctx.providers ?? [];
   if (!providers.length) {
@@ -265,7 +306,7 @@ function handleProviderOAuth(arg: string, ctx: CommandContext): CommandResult {
     type: "start-oauth",
     provider: resolved.id,
     activateOnComplete: false,
-    message: `Starting OAuth for ${resolved.displayName} — confirm policy note, then authenticate · Esc to cancel`,
+    message: `Starting OAuth for ${resolved.displayName} — confirm policy note, then sign in (replaces saved tokens) · Esc to cancel`,
   };
 }
 
@@ -327,8 +368,11 @@ function handleProviders(arg: string, ctx: CommandContext): CommandResult {
   if (sub === "configure" || sub === "config") {
     return handleProviderConfigure(parts.slice(1).join(" "), ctx);
   }
-  if (sub === "oauth") {
+  if (sub === "oauth" || sub === "reauth") {
     return handleProviderOAuth(parts.slice(1).join(" "), ctx);
+  }
+  if (sub === "logout") {
+    return handleProviderLogout(parts.slice(1).join(" "), ctx);
   }
   return handleProviderSwitch(arg, ctx);
 }
@@ -348,6 +392,7 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "set-provider":
     case "configure-provider":
     case "start-oauth":
+    case "clear-provider-oauth":
     case "open-provider-auth":
       return true;
     default:
