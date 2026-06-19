@@ -127,6 +127,11 @@ export function getAnthropic() {
   return createAnthropicClient(auth);
 }
 
+/** True when the active Anthropic credential path is subscription OAuth. */
+export function isAnthropicOAuthActive(): boolean {
+  return resolveAnthropicAuth()?.kind === "oauth";
+}
+
 // ── Model id normalization ────────────────────────────────────────────────────
 
 /**
@@ -386,7 +391,12 @@ export const anthropicProvider: Provider = {
     if (!hasAnthropicOAuthTokens()) return;
     const preferred = loadConfig().provider.anthropic?.preferredAuth;
     if (!getAnthropicApiKey() || preferred === "oauth") {
-      await ensureAnthropicOAuthAccessToken();
+      const token = await ensureAnthropicOAuthAccessToken();
+      if (!token && !getAnthropicApiKey()) {
+        throw new Error(
+          "Anthropic OAuth token expired and refresh failed — sign in again via /providers oauth anthropic",
+        );
+      }
     }
   },
   isConfigured() {

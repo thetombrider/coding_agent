@@ -1,5 +1,7 @@
 import { streamText, type ModelMessage, type ToolSet } from "ai";
+import { formatStreamError } from "./format-stream-error.js";
 import { resolveActiveProvider } from "./registry.js";
+import { isAnthropicOAuthActive } from "./providers/anthropic.js";
 import { enrichAssistantMessage } from "./tool-call-parser.js";
 import type { Message } from "../types.js";
 import type {
@@ -87,94 +89,101 @@ export const streamAssistant: StreamAssistantFn = async (
   provider.markCacheBreakpoints?.(aiMessages, options.model);
   await provider.prepareCredentials?.();
 
-  const result = streamText({
-    model: provider.languageModel(options.model),
-    system: options.system,
-    messages: aiMessages,
-    tools: options.tools ?? ({} as ToolSet),
-    abortSignal: options.signal,
-    providerOptions: provider.streamProviderOptions?.(options.model, options.sessionId),
-  });
-
-  for await (const part of result.fullStream) {
-    switch (part.type) {
-      case "error": {
-        const err = part.error;
-        throw err instanceof Error ? err : new Error(String(err));
-      }
-      case "text-delta": {
-        textBuffer += part.text;
-        emit({ type: "text_delta", text: part.text });
-        break;
-      }
-      case "reasoning-delta": {
-        reasoningBuffer += part.text;
-        emit({ type: "reasoning_delta", text: part.text });
-        break;
-      }
-      case "tool-call": {
-        const entry = {
-          id: part.toolCallId,
-          name: part.toolName,
-          arguments: JSON.stringify(part.input),
-        };
-        toolCalls.set(part.toolCallId, entry);
-        emit({
-          type: "tool_call_delta",
-          id: part.toolCallId,
-          name: part.toolName,
-          argumentsDelta: entry.arguments,
-        });
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  if (reasoningBuffer) {
-    content.push({ type: "reasoning", text: reasoningBuffer });
-  }
-
-  if (textBuffer) {
-    content.push({ type: "text", text: textBuffer });
-  }
-
-  for (const tc of toolCalls.values()) {
-    content.push({
-      type: "toolCall",
-      id: tc.id,
-      name: tc.name,
-      arguments: JSON.parse(tc.arguments),
+  try {
+    const result = streamText({
+      model: provider.languageModel(options.model),
+      system: options.system,
+      messages: aiMessages,
+      tools: options.tools ?? ({} as ToolSet),
+      abortSignal: options.signal,
+      maxRetries: isAnthropicOAuthActive() ? 0 : undefined,
+      providerOptions: provider.streamProviderOptions?.(options.model, options.sessionId),
     });
-  }
 
-  const usage = await result.usage;
-  const finishReason = await result.finishReason;
-
-  const message: AssistantMessage = {
-    role: "assistant",
-    content,
-    model: options.model,
-    usage: usage
-      ? {
-          input: usage.inputTokens ?? 0,
-          output: usage.outputTokens ?? 0,
-          cacheRead: usage.inputTokenDetails?.cacheReadTokens,
-          cacheWrite: usage.inputTokenDetails?.cacheWriteTokens,
-          totalTokens:
-            usage.totalTokens ??
-            (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case "error": {
+          throw part.error;
         }
-      : undefined,
-    stopReason: finishReason ?? undefined,
-  };
+        case "text-delta": {
+          textBuffer += part.text;
+          emit({ type: "text_delta", text: part.text });
+          break;
+        }
+        case "reasoning-delta": {
+          reasoningBuffer += part.text;
+          emit({ type: "reasoning_delta", text: part.text });
+          break;
+        }
+        case "tool-call": {
+          const entry = {
+            id: part.toolCallId,
+            name: part.toolName,
+            arguments: JSON.stringify(part.input),
+          };
+          toolCalls.set(part.toolCallId, entry);
+          emit({
+            type: "tool_call_delta",
+            id: part.toolCallId,
+            name: part.toolName,
+            argumentsDelta: entry.arguments,
+          });
+          break;
+        }
+        default:
+          break;
+      }
+    }
 
-  const knownTools = options.tools ? new Set(Object.keys(options.tools)) : undefined;
-  const { message: enriched } = enrichAssistantMessage(message, knownTools);
+    if (reasoningBuffer) {
+      content.push({ type: "reasoning", text: reasoningBuffer });
+    }
 
-  emit({ type: "done", message: enriched });
-  return enriched;
+    if (textBuffer) {
+      content.push({ type: "text", text: textBuffer });
+    }
+
+    for (const tc of toolCalls.values()) {
+      content.push({
+        type: "toolCall",
+        id: tc.id,
+        name: tc.name,
+        arguments: JSON.parse(tc.arguments),
+      });
+    }
+
+    const usage = await result.usage;
+    const finishReason = await result.finishReason;
+
+    const message: AssistantMessage = {
+      role: "assistant",
+      content,
+      model: options.model,
+      usage: usage
+        ? {
+            input: usage.inputTokens ?? 0,
+            output: usage.outputTokens ?? 0,
+            cacheRead: usage.inputTokenDetails?.cacheReadTokens,
+            cacheWrite: usage.inputTokenDetails?.cacheWriteTokens,
+            totalTokens:
+              usage.totalTokens ??
+              (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+          }
+        : undefined,
+      stopReason: finishReason ?? undefined,
+    };
+
+    const knownTools = options.tools ? new Set(Object.keys(options.tools)) : undefined;
+    const { message: enriched } = enrichAssistantMessage(message, knownTools);
+
+    emit({ type: "done", message: enriched });
+    return enriched;
+  } catch (err) {
+    throw new Error(
+      formatStreamError(err, { anthropicOAuth: isAnthropicOAuthActive() }),
+      { cause: err },
+    );
+  }
 };
 
 export function collectStreamEvents(

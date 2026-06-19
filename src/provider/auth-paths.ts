@@ -19,7 +19,7 @@ export function providerAuthPaths(providerId: string): ProviderAuthPath[] | unde
     const oauthConfigured = hasAnthropicOAuthTokens();
     const paths: ProviderAuthPath[] = [
       { id: "api-key", label: "API key (Console)", configured: Boolean(getAnthropicApiKey()) },
-      { id: "oauth", label: "OAuth (subscription)", configured: oauthConfigured },
+      { id: "oauth", label: "OAuth (subscription — may not work for chat)", configured: oauthConfigured },
     ];
     if (oauthConfigured) {
       paths.push({

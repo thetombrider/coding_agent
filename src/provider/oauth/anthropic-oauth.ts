@@ -198,6 +198,6 @@ export function storeAnthropicOAuthTokens(tokens: ProviderOAuthTokens): void {
 
 /** Policy note shown before subscription OAuth in the TUI. */
 export const ANTHROPIC_OAUTH_POLICY_NOTE =
-  "Anthropic subscription OAuth is intended for personal experimentation. "
-  + "For production use, prefer an Anthropic Console API key (sk-ant-…). "
-  + "Third-party OAuth may violate Anthropic consumer terms — confirm current policy before proceeding.";
+  "Anthropic subscription OAuth (Pro/Max) is for Claude Code and claude.ai only. "
+  + "Orin calls the Messages API directly, which requires a Console API key (sk-ant-api03-…) for chat. "
+  + "OAuth sign-in may succeed but chat can still fail — use /providers configure anthropic for an API key.";
