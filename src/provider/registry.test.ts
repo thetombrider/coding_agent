@@ -72,6 +72,15 @@ describe("provider registry", () => {
     expect(resolveActiveProvider().id).toBe(DEFAULT_PROVIDER_ID);
   });
 
+  it("repairs an unconfigured active provider to the first configured backend", async () => {
+    const { saveConfig, loadConfig } = await import("../config/config.js");
+    saveConfig({ provider: { active: "anthropic" } });
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    const { repairActiveProviderIfNeeded } = await import("./registry.js");
+    expect(repairActiveProviderIfNeeded().id).toBe("openrouter");
+    expect(loadConfig().provider.active).toBe("openrouter");
+  });
+
   it("resolves the language model handle from the active provider", async () => {
     const { saveConfig } = await import("../config/config.js");
     saveConfig({ provider: { active: "fake" } });

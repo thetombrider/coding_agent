@@ -9,7 +9,7 @@ import { loadConfig, ensureConfigFile } from "./config/config.js";
 import { resolveSystemPrompt } from "./prompt/system.js";
 import { defaultCheapModel, defaultMainModel, loadModelConfig } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
-import { resolveActiveProvider } from "./provider/registry.js";
+import { resolveActiveProvider, repairActiveProviderIfNeeded, activeProviderId } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
 import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, resolveStartupSessionId, sessionPath } from "./session/log.js";
 import { rebuildTodosFromMessages } from "./todos/store.js";
@@ -97,13 +97,19 @@ function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model
     };
   }
 
-  const active = resolveActiveProvider();
+  const requestedId = activeProviderId();
+  const active = repairActiveProviderIfNeeded();
   if (!active.isConfigured()) {
     console.error(
       `Provider "${active.id}" (${active.displayName}) is not configured. `
       + "Use --faux for an offline demo, set its API key env var, or add it to ~/.orin/config.json.",
     );
     process.exit(1);
+  }
+  if (active.id !== requestedId) {
+    console.warn(
+      `Active provider "${requestedId}" is not configured — using ${active.id} instead.`,
+    );
   }
 
   return { provider: streamAssistant, model: defaultMainModel() };
@@ -288,13 +294,19 @@ async function runOneShotMode(opts: { prompt: string; useFaux: boolean }): Promi
     );
     model = "faux:test";
   } else {
-    const active = resolveActiveProvider();
+    const requestedId = activeProviderId();
+    const active = repairActiveProviderIfNeeded();
     if (!active.isConfigured()) {
       console.error(
         `Provider "${active.id}" (${active.displayName}) is not configured. `
         + "Use --faux for an offline demo, or configure it in ~/.orin/config.json.",
       );
       process.exit(1);
+    }
+    if (active.id !== requestedId) {
+      console.warn(
+        `Active provider "${requestedId}" is not configured — using ${active.id} instead.`,
+      );
     }
     provider = streamAssistant;
     model = defaultMainModel();
