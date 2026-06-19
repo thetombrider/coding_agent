@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { showTodoSidebar } from "./views.js";
+import {
+  costBadge,
+  formatCostUsd,
+  formatSessionCost,
+  formatTokenCount,
+  showTodoSidebar,
+} from "./views.js";
 import type { TodoItem } from "../todos/types.js";
 
 const todos: TodoItem[] = [
@@ -30,5 +36,43 @@ describe("showTodoSidebar", () => {
 
   it("hides when there is no task list", () => {
     expect(showTodoSidebar([], "running")).toBe(false);
+  });
+});
+
+describe("cost formatting", () => {
+  it("formats sub-dollar costs with more precision", () => {
+    expect(formatCostUsd(0.042)).toBe("$0.042");
+    expect(formatCostUsd(1.5)).toBe("$1.50");
+  });
+
+  it("formats token counts compactly", () => {
+    expect(formatTokenCount(512)).toBe("512");
+    expect(formatTokenCount(12_300)).toBe("12.3k");
+    expect(formatTokenCount(1_500_000)).toBe("1.5M");
+  });
+
+  it("renders a per-session cost label, falling back to a dash", () => {
+    expect(formatSessionCost(0.04)).toBe("$0.040");
+    expect(formatSessionCost(null)).toBe("—");
+    expect(formatSessionCost(undefined)).toBe("—");
+  });
+});
+
+describe("costBadge", () => {
+  it("shows the dollar amount when pricing is known", () => {
+    expect(costBadge({ costUsd: 0.042, tokenTotals: 1000 })).toBe("· $0.042");
+  });
+
+  it("falls back to a token count when pricing is unknown", () => {
+    expect(costBadge({ costUsd: null, tokenTotals: 12_300 })).toBe("· 12.3k tok");
+  });
+
+  it("shows $0.00 under --faux regardless of cost", () => {
+    expect(costBadge({ costUsd: 5, tokenTotals: 999, faux: true })).toBe("· $0.00");
+  });
+
+  it("is empty before the first turn lands", () => {
+    expect(costBadge({ costUsd: null, tokenTotals: 0 })).toBe("");
+    expect(costBadge({})).toBe("");
   });
 });

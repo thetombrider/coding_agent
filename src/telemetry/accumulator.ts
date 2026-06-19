@@ -26,7 +26,15 @@ export class SessionCostAccumulator {
     this.sessionId = sessionId;
   }
 
-  recordTurn(breakdown: CostBreakdown, source: TurnSource): void {
+  /**
+   * Fold one LLM call into the totals. Accepts a full {@link CostBreakdown} (the
+   * live path) or the slimmer shape persisted in a `turn` metric event, so
+   * `rebuildSessionCost` can replay a session log straight back into an accumulator.
+   */
+  recordTurn(
+    breakdown: Pick<CostBreakdown, "model" | "usage" | "costUsd" | "pricingMissing">,
+    source: TurnSource,
+  ): void {
     const { model, usage, costUsd, pricingMissing } = breakdown;
     this.turns += 1;
 

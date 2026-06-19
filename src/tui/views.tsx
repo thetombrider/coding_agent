@@ -106,6 +106,35 @@ export function shortModel(model: string): string {
   return slash >= 0 ? model.slice(slash + 1) : model;
 }
 
+/** Format a USD cost compactly: more precision for sub-dollar amounts. */
+export function formatCostUsd(cost: number): string {
+  return `$${cost.toFixed(cost < 1 ? 3 : 2)}`;
+}
+
+/** Compact token count, e.g. 512, 12.3k, 1.5M. */
+export function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return `${tokens}`;
+}
+
+/**
+ * Muted header badge for the running session cost. Shows the dollar amount when
+ * pricing is known, a token count when it isn't, `$0.00` under `--faux` (no real
+ * spend), and nothing before the first turn lands.
+ */
+export function costBadge(opts: { costUsd?: number | null; tokenTotals?: number; faux?: boolean }): string {
+  if (opts.faux) return "· $0.00";
+  if (opts.costUsd != null) return `· ${formatCostUsd(opts.costUsd)}`;
+  if (opts.tokenTotals && opts.tokenTotals > 0) return `· ${formatTokenCount(opts.tokenTotals)} tok`;
+  return "";
+}
+
+/** Per-session cost label for the /sessions palette; `—` when unpriced. */
+export function formatSessionCost(costUsd?: number | null): string {
+  return costUsd != null ? formatCostUsd(costUsd) : "—";
+}
+
 export function toolSummary(_name: string, args: unknown): string {
   if (args && typeof args === "object") {
     const record = args as Record<string, unknown>;
@@ -362,7 +391,16 @@ export function TurnView(props: {
   );
 }
 
-export function Header(props: { model: string; approval: string; cwd: string; provider?: string; sandbox?: string }) {
+export function Header(props: {
+  model: string;
+  approval: string;
+  cwd: string;
+  provider?: string;
+  sandbox?: string;
+  costUsd?: number | null;
+  tokenTotals?: number;
+  faux?: boolean;
+}) {
   const path = () => {
     const home = process.env.HOME;
     return home && props.cwd.startsWith(home) ? `~${props.cwd.slice(home.length)}` : props.cwd;
@@ -371,10 +409,13 @@ export function Header(props: { model: string; approval: string; cwd: string; pr
 
   const sandboxLabel = () => (props.sandbox && props.sandbox !== "local" ? `  ${props.sandbox}` : "");
 
+  const badge = () =>
+    costBadge({ costUsd: props.costUsd, tokenTotals: props.tokenTotals, faux: props.faux });
+
   return (
     <box paddingBottom={1}>
       <text fg={theme.muted} attributes={BOLD}>
-        Orin  {prefix()}{shortModel(props.model)}  {props.approval}{sandboxLabel()}  {path()}
+        Orin  {prefix()}{shortModel(props.model)}  {props.approval}{sandboxLabel()}  {path()}{badge() ? `  ${badge()}` : ""}
       </text>
     </box>
   );
