@@ -10,7 +10,7 @@ const ctx: CommandContext = {
 
 const providers: ProviderSummary[] = [
   { id: "openrouter", displayName: "OpenRouter", authStrategy: "api-key", active: true, configured: true },
-  { id: "anthropic", displayName: "Anthropic", authStrategy: "oauth", active: false, configured: false },
+  { id: "anthropic", displayName: "Anthropic", authStrategy: "api-key-or-oauth", active: false, configured: false },
   { id: "regolo", displayName: "Regolo", authStrategy: "api-key", active: false, configured: false },
 ];
 
@@ -23,7 +23,9 @@ const provCtx: CommandContext = {
       ? [{ key: "apiKey", label: "OpenRouter API key", secret: true }]
       : id === "regolo"
         ? [{ key: "apiKey", label: "Regolo AI API key", secret: true, envVar: "REGOLO_API_KEY" }]
-        : [],
+        : id === "anthropic"
+          ? [{ key: "apiKey", label: "Anthropic API key", secret: true, envVar: "ANTHROPIC_API_KEY" }]
+          : [],
 };
 
 describe("processCommand", () => {
@@ -118,7 +120,7 @@ describe("processCommand", () => {
       if (r.type === "info") {
         expect(r.message).toContain("openrouter");
         expect(r.message).toContain("anthropic");
-        expect(r.message).toContain("[oauth]");
+        expect(r.message).toContain("[api-key|oauth]");
         expect(r.message).toContain("needs setup");
       }
     });
@@ -182,10 +184,30 @@ describe("processCommand", () => {
       });
     });
 
-    it("reports oauth providers as not yet configurable in the TUI", () => {
-      const r = processCommand("/providers configure anthropic", provCtx);
+    it("starts OAuth flow for anthropic", () => {
+      expect(processCommand("/providers oauth anthropic", provCtx)).toMatchObject({
+        type: "start-oauth",
+        provider: "anthropic",
+      });
+    });
+
+    it("reports oauth-only providers via configure hint", () => {
+      const oauthOnly: ProviderSummary[] = [
+        { id: "oauth-only", displayName: "OAuth Only", authStrategy: "oauth", active: false, configured: false },
+      ];
+      const r = processCommand("/providers configure oauth-only", {
+        ...provCtx,
+        providers: oauthOnly,
+      });
       expect(r.type).toBe("info");
-      if (r.type === "info") expect(r.message).toMatch(/OAuth/i);
+      if (r.type === "info") expect(r.message).toMatch(/\/providers oauth oauth-only/);
+    });
+
+    it("starts configure flow for anthropic api key", () => {
+      expect(processCommand("/providers configure anthropic", provCtx)).toMatchObject({
+        type: "configure-provider",
+        provider: "anthropic",
+      });
     });
 
     it("points unconfigured api-key switches at /providers configure", () => {

@@ -18,6 +18,7 @@ const baseState = (): SessionState => ({
   pendingApproval: null,
   input: "",
   statusHint: "",
+  todos: [],
 });
 
 describe("plaintext", () => {

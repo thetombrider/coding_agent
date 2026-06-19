@@ -85,6 +85,7 @@ export const streamAssistant: StreamAssistantFn = async (
 
   const aiMessages = toAiMessages(messages);
   provider.markCacheBreakpoints?.(aiMessages, options.model);
+  await provider.prepareCredentials?.();
 
   const result = streamText({
     model: provider.languageModel(options.model),

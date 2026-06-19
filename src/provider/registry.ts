@@ -1,5 +1,6 @@
 import type { LanguageModel } from "ai";
 import { loadConfig } from "../config/config.js";
+import { anthropicProvider } from "./providers/anthropic.js";
 import { openRouterProvider } from "./providers/openrouter.js";
 import { regoloProvider } from "./providers/regolo.js";
 import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
@@ -60,6 +61,11 @@ export function resolveLanguageModel(modelId: string): LanguageModel {
   return resolveActiveProvider().languageModel(modelId);
 }
 
+/** Refresh credentials (e.g. OAuth tokens) for the active provider before an LLM call. */
+export async function prepareActiveProviderCredentials(): Promise<void> {
+  await resolveActiveProvider().prepareCredentials?.();
+}
+
 /** Metadata providers for every registered backend (the registry owns this list). */
 export function metadataProviders(): ModelMetadataProvider[] {
   return listProviders().map((provider) => provider.metadata);
@@ -92,3 +98,4 @@ export function providerSummaries(): ProviderSummary[] {
 // Vercel/Cloudflare gateways, OAuth) register here in follow-up PRs.
 registerProvider(openRouterProvider);
 registerProvider(regoloProvider);
+registerProvider(anthropicProvider);

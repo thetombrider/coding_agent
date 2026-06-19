@@ -28,6 +28,15 @@ import { pickerModelsForProvider } from "../config/models.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
+import {
+  ANTHROPIC_OAUTH_POLICY_NOTE,
+  beginAnthropicOAuth,
+  completeAnthropicOAuthPaste,
+  exchangeAnthropicOAuthCode,
+  openBrowser,
+  storeAnthropicOAuthTokens,
+  type AnthropicOAuthSession,
+} from "../provider/oauth/anthropic-oauth.js";
 import type { SessionSummary } from "../session/log.js";
 import type { SessionsPaletteState } from "./sessions-palette.js";
 import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
@@ -63,6 +72,16 @@ type ConfigPromptState = {
   values: Record<string, string>;
   activateOnComplete: boolean;
 };
+
+type OAuthPromptState =
+  | { phase: "confirm"; providerId: string }
+  | { phase: "paste"; providerId: string; session: AnthropicOAuthSession };
+
+function providerAuthLabel(strategy: ProviderSummary["authStrategy"]): string {
+  if (strategy === "oauth") return " [oauth]";
+  if (strategy === "api-key-or-oauth") return " [api-key|oauth]";
+  return "";
+}
 
 function formatSessionDate(ts: string): string {
   try {
@@ -113,6 +132,8 @@ export function App(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
+  const [oauthPrompt, setOauthPrompt] = createSignal<OAuthPromptState | null>(null);
+  const [oauthRunning, setOauthRunning] = createSignal(false);
   const toolExpand = createToolExpandState();
   const renderer = useRenderer();
   onCleanup(props.controller.subscribe(setState));
@@ -216,6 +237,95 @@ export function App(props: {
     const filter = input.slice(1).toLowerCase();
     if (!filter) return [...SLASH_COMMANDS];
     return SLASH_COMMANDS.filter((c) => c.name.startsWith(filter));
+  };
+
+  const closeOAuthPrompt = () => {
+    const prompt = oauthPrompt();
+    prompt?.phase === "paste" && prompt.session.loopback?.close();
+    setOauthPrompt(null);
+    setOauthRunning(false);
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+  };
+
+  const runAnthropicOAuth = async (providerId: string) => {
+    if (providerId !== "anthropic") {
+      props.controller.setStatusHint(`OAuth is not available for ${providerId}`);
+      closeOAuthPrompt();
+      return;
+    }
+
+    setOauthRunning(true);
+    props.controller.setStatusHint("Starting OAuth — opening browser…");
+
+    try {
+      const session = await beginAnthropicOAuth("loopback");
+      openBrowser(session.authorizeUrl);
+      props.controller.setStatusHint("Complete sign-in in your browser (loopback)…");
+      const callback = await session.loopback!.waitForCallback(120_000);
+      const tokens = await exchangeAnthropicOAuthCode(
+        callback.code,
+        session.verifier,
+        session.redirectUri,
+        callback.state,
+      );
+      storeAnthropicOAuthTokens(tokens);
+      session.loopback!.close();
+      closeOAuthPrompt();
+      props.controller.setStatusHint("Anthropic OAuth configured — tokens saved to ~/.orin/tokens.json");
+    } catch {
+      try {
+        const session = await beginAnthropicOAuth("manual");
+        setOauthPrompt({ phase: "paste", providerId, session });
+        openBrowser(session.authorizeUrl);
+        props.controller.setStatusHint(
+          "Loopback unavailable — paste authorization code (code or code#state) · Esc to cancel",
+        );
+      } catch (err) {
+        closeOAuthPrompt();
+        const message = err instanceof Error ? err.message : String(err);
+        props.controller.setStatusHint(`OAuth failed: ${message}`);
+      }
+    } finally {
+      setOauthRunning(false);
+    }
+  };
+
+  const handleOAuthSubmit = async (raw: string) => {
+    const prompt = oauthPrompt();
+    if (!prompt) return;
+
+    const trimmed = raw.trim();
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+
+    if (prompt.phase === "confirm") {
+      if (trimmed.toLowerCase() !== "yes") {
+        props.controller.setStatusHint('Type "yes" to accept the policy and continue, or Esc to cancel');
+        return;
+      }
+      void runAnthropicOAuth(prompt.providerId);
+      return;
+    }
+
+    if (!trimmed) {
+      props.controller.setStatusHint("authorization code required — Esc to cancel");
+      return;
+    }
+
+    setOauthRunning(true);
+    try {
+      const tokens = await completeAnthropicOAuthPaste(prompt.session, trimmed);
+      storeAnthropicOAuthTokens(tokens);
+      prompt.session.loopback?.close();
+      closeOAuthPrompt();
+      props.controller.setStatusHint("Anthropic OAuth configured — tokens saved to ~/.orin/tokens.json");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      props.controller.setStatusHint(`OAuth failed: ${message} — try again or Esc to cancel`);
+    } finally {
+      setOauthRunning(false);
+    }
   };
 
   const closeConfigPrompt = () => {
@@ -426,6 +536,18 @@ export function App(props: {
             return;
           }
         }
+        if (!provider.configured && provider.authStrategy === "api-key-or-oauth") {
+          const { model, note } = resolveModelOnProviderSwitch(
+            state().meta.provider ?? activeProviderId(),
+            provider.id,
+            state().meta.model,
+          );
+          props.onSetProvider(provider.id, model);
+          props.controller.setStatusHint(
+            `provider → ${provider.id} (needs setup — /providers configure ${provider.id} or /providers oauth ${provider.id})${note}`,
+          );
+          return;
+        }
         const { model, note } = resolveModelOnProviderSwitch(
           state().meta.provider ?? activeProviderId(),
           provider.id,
@@ -455,6 +577,11 @@ export function App(props: {
   };
 
   const handleSubmit = async (raw: string) => {
+    if (oauthPrompt() !== null) {
+      await handleOAuthSubmit(raw);
+      return;
+    }
+
     // Provider config prompt takes priority over the command palette.
     if (configPrompt() !== null) {
       handleConfigSubmit(raw);
@@ -478,7 +605,7 @@ export function App(props: {
     }
 
     // Anything else is rejected while the agent is busy.
-    if (submitting() || state().phase !== "input") return;
+    if (submitting() || oauthRunning() || state().phase !== "input") return;
 
     if (text.startsWith("/")) {
       const meta = state().meta;
@@ -533,6 +660,12 @@ export function App(props: {
             fields: result.fields,
             activateOnComplete: result.activateOnComplete,
           });
+          return;
+        case "start-oauth":
+          setOauthPrompt({ phase: "confirm", providerId: result.provider });
+          props.controller.setStatusHint(
+            `${ANTHROPIC_OAUTH_POLICY_NOTE} Type "yes" to continue · Esc to cancel`,
+          );
           return;
         case "info":
         case "error":
@@ -595,6 +728,11 @@ export function App(props: {
     }
 
     if (isInterruptShortcut(key)) {
+      if (oauthPrompt() !== null) {
+        closeOAuthPrompt();
+        props.controller.setStatusHint("OAuth cancelled");
+        return;
+      }
       if (configPrompt() !== null) {
         closeConfigPrompt();
         props.controller.setStatusHint("configuration cancelled");
@@ -608,6 +746,14 @@ export function App(props: {
       if (key.name === "y") props.controller.respondApproval(true);
       if (key.name === "n") props.controller.respondApproval(false);
       if (key.name === "escape" && !renderer.hasSelection) props.controller.respondApproval(false);
+      return;
+    }
+
+    if (oauthPrompt() !== null) {
+      if (key.name === "escape") {
+        closeOAuthPrompt();
+        props.controller.setStatusHint("OAuth cancelled");
+      }
       return;
     }
 
@@ -891,7 +1037,7 @@ export function App(props: {
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{provider.id}{provider.authStrategy === "oauth" ? " [oauth]" : ""}
+                          {selected() ? "▶ " : "  "}{provider.id}{providerAuthLabel(provider.authStrategy)}
                         </text>
                         <Show when={provider.active}>
                           <text fg={theme.secondary}>  (active)</text>
