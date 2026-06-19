@@ -107,6 +107,72 @@ Your config, sessions, and keys all live under `~/.orin/` and are untouched by
 upgrades. OAuth-based providers (when implemented) store tokens in
 `~/.orin/tokens.json` (mode `0600`), never in the config file.
 
+### Telemetry
+
+Orin records per-call **cost and token metrics** (turn cost, tool durations, a
+session summary) locally. They append as JSON lines to `~/.orin/metrics.jsonl`
+and are mirrored into the session log. This is on by default and never leaves
+your machine.
+
+| Setting | Env var | Notes |
+| --- | --- | --- |
+| Disable local metrics | `ORIN_NO_TELEMETRY=1` | Suppresses the JSONL/stdout sinks. Also `telemetry.enabled: false` in config. |
+| Echo metrics to stdout | `ORIN_TELEMETRY_STDOUT=1` | Prints each metric event (debugging). |
+| Metrics file path | — | `telemetry.metricsFile` in config (default `~/.orin/metrics.jsonl`). |
+
+#### OpenTelemetry trace export (OTLP)
+
+Orin can also export **OTLP traces** following the OpenTelemetry
+[GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/),
+so a session shows up in **Langfuse, Arize Phoenix, Grafana Tempo, Jaeger, or any
+OTLP/HTTP backend** as a trace: a session root span with child **LLM generation
+spans** (model, token usage, cost) and **tool spans** (duration, ok/error).
+
+It is **off by default** and the OpenTelemetry SDK is **lazy-loaded only when an
+endpoint is configured** — there's no startup or bundle cost when off.
+`ORIN_NO_TELEMETRY` does *not* affect OTLP export; it has its own switch.
+
+Enable it by setting an endpoint, either via the standard `OTEL_*` env vars
+(which win over the config file) or under `telemetry.otel` in
+`~/.orin/config.json`:
+
+| Setting | Env var | Notes |
+| --- | --- | --- |
+| Traces endpoint | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL; `/v1/traces` is appended if missing. Setting it auto-enables export. Also `telemetry.otel.endpoint`. |
+| Traces endpoint (exact) | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used verbatim (wins over the base endpoint). |
+| Headers | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2` — e.g. an `Authorization` token. Also `telemetry.otel.headers`. |
+| Protocol | `OTEL_EXPORTER_OTLP_PROTOCOL` | Default `http/protobuf`. Also `telemetry.otel.protocol`. |
+| Service name | `OTEL_SERVICE_NAME` | Resource `service.name` (default `orin`). Also `telemetry.otel.serviceName`. |
+| Sample ratio | `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | e.g. `traceidratio` + `0.25`. Also `telemetry.otel.sampleRatio`. |
+
+Example — export to Langfuse via env vars:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://cloud.langfuse.com/api/public/otel"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 pk:sk>"
+orin "summarise src/agent/loop.ts"
+```
+
+Or in `~/.orin/config.json`:
+
+```jsonc
+{
+  "telemetry": {
+    "otel": {
+      "endpoint": "http://localhost:4318/v1/traces",
+      "headers": { "Authorization": "Bearer <token>" },
+      "serviceName": "orin",
+      "sampleRatio": 1.0
+    }
+  }
+}
+```
+
+Export is best-effort: an unreachable endpoint or exporter failure never throws
+into or stalls the agent loop. Prompt/response **content** is not attached to
+spans yet (`captureContent`, default `false`); only metadata, token counts, and
+cost are exported.
+
 ## Usage
 
 ### CLI flags
@@ -188,6 +254,7 @@ src/
   delegate/       # delegate_read implementation
   hooks/          # lifecycle hook registry + core hooks (incl. RTK rewrite)
   session/        # append-only JSONL session log
+  telemetry/      # cost/token metrics + sinks; otel/ OTLP trace export (gen_ai spans)
   workspace/      # Workspace backends: local + E2B sandbox
   tui/            # SolidJS/@opentui terminal UI, slash commands, views
   config/         # config.json loading, model + init config
