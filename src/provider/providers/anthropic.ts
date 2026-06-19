@@ -101,13 +101,23 @@ export function getAnthropic() {
 
 // ── Model id normalization ────────────────────────────────────────────────────
 
-/** Map legacy OpenRouter-style ids to native Anthropic slugs. */
+/**
+ * Map legacy OpenRouter-style ids (and retired native ids) to current Anthropic API ids.
+ * @see https://platform.claude.com/docs/en/about-claude/models/overview
+ * @see https://platform.claude.com/docs/en/about-claude/model-deprecations
+ */
 export const ANTHROPIC_MODEL_ALIASES: Record<string, string> = {
-  "anthropic/claude-opus-4.8": "claude-opus-4-20250514",
-  "anthropic/claude-sonnet-4.6": "claude-sonnet-4-20250514",
-  "anthropic/claude-sonnet-4": "claude-sonnet-4-20250514",
-  "anthropic/claude-3-5-haiku": "claude-3-5-haiku-20241022",
-  "anthropic/claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+  // OpenRouter-style ids (provider/model with dotted minor versions)
+  "anthropic/claude-opus-4.8": "claude-opus-4-8",
+  "anthropic/claude-sonnet-4.6": "claude-sonnet-4-6",
+  "anthropic/claude-sonnet-4": "claude-sonnet-4-6",
+  "anthropic/claude-3-5-haiku": "claude-haiku-4-5",
+  "anthropic/claude-3-5-sonnet": "claude-sonnet-4-6",
+  // Retired native snapshots → current replacements
+  "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+  "claude-opus-4-20250514": "claude-opus-4-8",
+  "claude-3-5-haiku-20241022": "claude-haiku-4-5",
+  "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
 };
 
 /** Resolve an Anthropic model id (strip optional `anthropic:` prefix, apply aliases). */
@@ -122,14 +132,15 @@ const ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models";
 const LOOKUP_TTL_MS = 60 * 60 * 1000;
 const CATALOG_TTL_MS = 60 * 60 * 1000;
 const ANTHROPIC_FETCH_TIMEOUT_MS = 8000;
-const DEFAULT_SONNET_CONTEXT = 200_000;
+const DEFAULT_SONNET_CONTEXT = 1_000_000;
+const DEFAULT_HAIKU_CONTEXT = 200_000;
 
 export type FetchModelsCatalog = typeof fetch;
 
 interface AnthropicModelRecord {
   id: string;
   display_name?: string;
-  context_window?: number;
+  max_input_tokens?: number;
 }
 
 interface AnthropicModelsResponse {
@@ -203,7 +214,7 @@ export async function loadAnthropicModelsCatalog(
 
   for (const model of body.data) {
     ids.push(model.id);
-    const contextWindow = model.context_window;
+    const contextWindow = model.max_input_tokens;
     if (typeof contextWindow === "number" && contextWindow > 0) {
       next.set(model.id, contextWindow);
     }
@@ -257,6 +268,10 @@ export async function lookupAnthropicContextWindow(
     return fromConfig;
   }
 
+  if (resolveAnthropicModelId(modelId).startsWith("claude-haiku-")) {
+    return DEFAULT_HAIKU_CONTEXT;
+  }
+
   if (resolveAnthropicModelId(modelId).startsWith("claude-")) {
     return DEFAULT_SONNET_CONTEXT;
   }
@@ -297,15 +312,17 @@ export function buildAnthropicStreamProviderOptions(
 
 // ── Provider export ─────────────────────────────────────────────────────────
 
+/** Curated models for `/model` when Anthropic is active (official API ids). */
 export const ANTHROPIC_PICKER_MODELS = [
-  "claude-opus-4-20250514",
-  "claude-sonnet-4-20250514",
-  "claude-3-5-haiku-20241022",
-  "claude-3-5-sonnet-20241022",
+  "claude-opus-4-8",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5",
+  "claude-opus-4-7",
+  "claude-sonnet-4-5",
 ] as const;
 
-export const ANTHROPIC_DEFAULT_MAIN = "claude-sonnet-4-20250514";
-export const ANTHROPIC_DEFAULT_CHEAP = "claude-3-5-haiku-20241022";
+export const ANTHROPIC_DEFAULT_MAIN = "claude-sonnet-4-6";
+export const ANTHROPIC_DEFAULT_CHEAP = "claude-haiku-4-5";
 
 const metadata: ModelMetadataProvider = {
   id: "anthropic",

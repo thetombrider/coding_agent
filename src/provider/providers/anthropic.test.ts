@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelMessage } from "ai";
 import {
-  ANTHROPIC_MODEL_ALIASES,
   anthropicProvider,
   getAnthropicApiKey,
   hasAnthropicOAuthTokens,
@@ -66,11 +65,10 @@ describe("anthropic provider", () => {
   });
 
   it("normalizes OpenRouter-style and prefixed model ids", () => {
-    expect(resolveAnthropicModelId("anthropic/claude-sonnet-4.6")).toBe(
-      ANTHROPIC_MODEL_ALIASES["anthropic/claude-sonnet-4.6"],
-    );
-    expect(resolveAnthropicModelId("anthropic:claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
-    expect(resolveAnthropicModelId("claude-3-5-haiku-20241022")).toBe("claude-3-5-haiku-20241022");
+    expect(resolveAnthropicModelId("anthropic/claude-sonnet-4.6")).toBe("claude-sonnet-4-6");
+    expect(resolveAnthropicModelId("anthropic:claude-sonnet-4-6")).toBe("claude-sonnet-4-6");
+    expect(resolveAnthropicModelId("claude-sonnet-4-20250514")).toBe("claude-sonnet-4-6");
+    expect(resolveAnthropicModelId("claude-haiku-4-5")).toBe("claude-haiku-4-5");
   });
 
   it("marks penultimate messages for prompt caching", () => {
@@ -92,7 +90,7 @@ describe("anthropic provider", () => {
 
   it("returns a language model handle when configured via API key", () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-test";
-    const model = anthropicProvider.languageModel("claude-sonnet-4-20250514");
+    const model = anthropicProvider.languageModel("claude-sonnet-4-6");
     expect(model).toBeDefined();
   });
 
@@ -108,7 +106,7 @@ describe("anthropic provider", () => {
       if (url.includes("/v1/models")) {
         return new Response(
           JSON.stringify({
-            data: [{ id: "claude-sonnet-4-20250514", context_window: 200000 }],
+            data: [{ id: "claude-sonnet-4-6", max_input_tokens: 1_000_000 }],
           }),
           { status: 200 },
         );
@@ -121,7 +119,7 @@ describe("anthropic provider", () => {
       "anthropic/claude-sonnet-4.6",
       mockFetch as typeof fetch,
     );
-    expect(window).toBe(200000);
+    expect(window).toBe(1_000_000);
   });
 });
 
