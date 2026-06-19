@@ -1,7 +1,7 @@
 import { getAnthropicApiKey, hasAnthropicOAuthTokens } from "./providers/anthropic.js";
 import { getProvider, type ProviderSummary } from "./registry.js";
 
-export type ProviderAuthPathId = "api-key" | "oauth";
+export type ProviderAuthPathId = "api-key" | "oauth" | "oauth-reauth";
 
 /** One authentication method for a dual-auth provider. */
 export interface ProviderAuthPath {
@@ -16,10 +16,19 @@ export function providerAuthPaths(providerId: string): ProviderAuthPath[] | unde
   if (provider?.authStrategy !== "api-key-or-oauth") return undefined;
 
   if (providerId === "anthropic") {
-    return [
+    const oauthConfigured = hasAnthropicOAuthTokens();
+    const paths: ProviderAuthPath[] = [
       { id: "api-key", label: "API key (Console)", configured: Boolean(getAnthropicApiKey()) },
-      { id: "oauth", label: "OAuth (subscription)", configured: hasAnthropicOAuthTokens() },
+      { id: "oauth", label: "OAuth (subscription)", configured: oauthConfigured },
     ];
+    if (oauthConfigured) {
+      paths.push({
+        id: "oauth-reauth",
+        label: "Sign in again (OAuth)",
+        configured: true,
+      });
+    }
+    return paths;
   }
   return undefined;
 }
@@ -43,5 +52,7 @@ export function defaultProviderAuthIndex(paths: readonly ProviderAuthPath[]): nu
   if (oauthIdx >= 0) return oauthIdx;
   const apiIdx = paths.findIndex((p) => p.id === "api-key" && p.configured);
   if (apiIdx >= 0) return apiIdx;
+  const reauthIdx = paths.findIndex((p) => p.id === "oauth-reauth");
+  if (reauthIdx >= 0) return reauthIdx;
   return 0;
 }

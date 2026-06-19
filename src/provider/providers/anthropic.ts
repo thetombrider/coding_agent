@@ -21,7 +21,10 @@ import type { ModelMetadataProvider, Provider } from "../types.js";
 // ── Credentials ───────────────────────────────────────────────────────────────
 
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
-/** Required beta flag when using subscription OAuth tokens with the Messages API. */
+/**
+ * Beta flag for subscription OAuth on the Messages API.
+ * Used with Authorization: Bearer (see platform.claude.com API overview).
+ */
 export const ANTHROPIC_OAUTH_BETA = "oauth-2025-04-20";
 
 /** Anthropic API key from env or config; undefined when not configured. */
@@ -54,8 +57,8 @@ export function resolveAnthropicAuth():
   const preferred = loadConfig().provider.anthropic?.preferredAuth;
 
   if (apiKey && hasOAuth) {
-    if (preferred === "oauth" && oauthReady) {
-      return { kind: "oauth", accessToken: tokens!.accessToken };
+    if (preferred === "oauth" && tokens?.accessToken) {
+      return { kind: "oauth", accessToken: tokens.accessToken };
     }
     return { kind: "api-key", apiKey };
   }
@@ -96,13 +99,14 @@ export async function ensureAnthropicOAuthAccessToken(
 /** Build createAnthropic() options for the resolved auth path. */
 export function anthropicClientOptions(
   auth: NonNullable<ReturnType<typeof resolveAnthropicAuth>>,
-): { apiKey: string; headers?: Record<string, string> } {
+): { apiKey?: string; authToken?: string; headers?: Record<string, string> } {
   if (auth.kind === "api-key") {
     return { apiKey: auth.apiKey };
   }
-  // Anthropic rejects OAuth tokens sent via Authorization: Bearer — use x-api-key instead.
+  // OAuth access tokens from POST /v1/oauth/token use Authorization: Bearer per
+  // https://platform.claude.com/docs/en/api/overview — not x-api-key (Console keys only).
   return {
-    apiKey: auth.accessToken,
+    authToken: auth.accessToken,
     headers: { "anthropic-beta": ANTHROPIC_OAUTH_BETA },
   };
 }
@@ -206,7 +210,7 @@ function anthropicRequestInit(): RequestInit {
   }
   return {
     headers: {
-      "x-api-key": auth.accessToken,
+      Authorization: `Bearer ${auth.accessToken}`,
       "anthropic-version": "2023-06-01",
       "anthropic-beta": ANTHROPIC_OAUTH_BETA,
     },

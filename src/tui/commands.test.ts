@@ -230,6 +230,13 @@ describe("processCommand", () => {
       });
     });
 
+    it("clears OAuth tokens via logout", () => {
+      expect(processCommand("/providers logout anthropic", provCtx)).toMatchObject({
+        type: "clear-provider-oauth",
+        provider: "anthropic",
+      });
+    });
+
     it("reports oauth-only providers via configure hint", () => {
       const oauthOnly: ProviderSummary[] = [
         { id: "oauth-only", displayName: "OAuth Only", authStrategy: "oauth", active: false, configured: false },

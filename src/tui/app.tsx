@@ -42,6 +42,7 @@ import {
   storeAnthropicOAuthTokens,
   type AnthropicOAuthSession,
 } from "../provider/oauth/anthropic-oauth.js";
+import { clearProviderTokens } from "../provider/oauth/tokens.js";
 import type { SessionSummary } from "../session/log.js";
 import type { SessionsPaletteState } from "./sessions-palette.js";
 import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
@@ -318,7 +319,9 @@ export function App(props: {
       providers,
       providersIndex,
     });
-    props.controller.setStatusHint(`${provider.displayName}: choose API key or OAuth · ↑↓ Enter · Esc back`);
+    props.controller.setStatusHint(
+      `${provider.displayName}: choose auth method · ↑↓ Enter · Esc back · or /providers oauth ${provider.id} to sign in again`,
+    );
   };
 
   const beginOAuthFlow = (providerId: string, activateOnComplete: boolean) => {
@@ -519,12 +522,19 @@ export function App(props: {
       return;
     }
 
+    if (auth.id === "oauth-reauth") {
+      beginOAuthFlow(paletteState.providerId, paletteState.activateOnComplete);
+      return;
+    }
+
     if (auth.configured) {
       props.onSetProviderAuthPreference(paletteState.providerId, "oauth");
       if (paletteState.activateOnComplete) {
         switchToProvider(paletteState.providerId, "Using OAuth · ");
       } else {
-        props.controller.setStatusHint("Anthropic OAuth is active — re-authenticate from this menu to refresh");
+        props.controller.setStatusHint(
+          "Anthropic OAuth is active — choose “Sign in again (OAuth)” or run /providers oauth anthropic",
+        );
       }
       return;
     }
@@ -576,6 +586,10 @@ export function App(props: {
         return;
       case "start-oauth":
         beginOAuthFlow(result.provider, result.activateOnComplete ?? false);
+        return;
+      case "clear-provider-oauth":
+        clearProviderTokens(result.provider);
+        props.controller.setStatusHint(result.message);
         return;
       case "open-provider-auth": {
         const providers = providerSummaries();

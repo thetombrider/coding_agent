@@ -4,13 +4,23 @@ import { startLoopbackOAuthServer, type LoopbackOAuthServer } from "./loopback-s
 import type { ProviderOAuthTokens } from "./tokens.js";
 import { saveProviderTokens } from "./tokens.js";
 
-/** Public Claude CLI OAuth client id (used by community tools for subscription auth). */
+/** Public Claude Code OAuth client id (Claude Code / platform OAuth flow). */
 export const ANTHROPIC_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-export const ANTHROPIC_OAUTH_AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
-export const ANTHROPIC_OAUTH_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
+/** @see https://code.claude.com/docs/en/authentication */
+export const ANTHROPIC_OAUTH_AUTHORIZE_URL = "https://claude.com/cai/oauth/authorize";
+/** @see https://platform.claude.com/docs/en/api/overview (token exchange) */
+export const ANTHROPIC_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 export const ANTHROPIC_OAUTH_CONSOLE_REDIRECT_URI =
-  "https://console.anthropic.com/oauth/code/callback";
-export const ANTHROPIC_OAUTH_SCOPES = "org:create_api_key user:profile user:inference";
+  "https://platform.claude.com/oauth/code/callback";
+/** Scopes requested by Claude Code (inference + profile + Console redirect handling). */
+export const ANTHROPIC_OAUTH_SCOPES = [
+  "org:create_api_key",
+  "user:profile",
+  "user:inference",
+  "user:sessions:claude_code",
+  "user:mcp_servers",
+  "user:file_upload",
+].join(" ");
 
 export type AnthropicOAuthMode = "loopback" | "manual";
 
