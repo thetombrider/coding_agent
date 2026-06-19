@@ -80,18 +80,32 @@ describe("anthropic provider", () => {
     expect(resolveAnthropicAuth()?.kind).toBe("oauth");
   });
 
-  it("uses x-api-key transport and oauth beta header for OAuth tokens", async () => {
+  it("uses Bearer transport and oauth beta header for OAuth tokens", async () => {
     const { resolveAnthropicAuth } = await import("./anthropic.js");
     expect(
       anthropicClientOptions({ kind: "oauth", accessToken: "sk-ant-oat01-test" }),
     ).toEqual({
-      apiKey: "sk-ant-oat01-test",
+      authToken: "sk-ant-oat01-test",
       headers: { "anthropic-beta": ANTHROPIC_OAUTH_BETA },
     });
     expect(anthropicClientOptions({ kind: "api-key", apiKey: "sk-ant-api03-test" })).toEqual({
       apiKey: "sk-ant-api03-test",
     });
     expect(resolveAnthropicAuth()).toBeUndefined();
+  });
+
+  it("prefers OAuth when preferredAuth is oauth even if access token expired", async () => {
+    const { saveProviderTokens } = await import("../oauth/tokens.js");
+    const { saveConfig } = await import("../../config/config.js");
+    const { resolveAnthropicAuth } = await import("./anthropic.js");
+    saveProviderTokens("anthropic", {
+      accessToken: "expired-access",
+      refreshToken: "oauth-refresh",
+      expiresAt: Date.now() - 60_000,
+    });
+    process.env.ANTHROPIC_API_KEY = "sk-ant-priority";
+    saveConfig({ provider: { anthropic: { preferredAuth: "oauth" } } });
+    expect(resolveAnthropicAuth()?.kind).toBe("oauth");
   });
 
   it("resolves OAuth auth when access token expired but refresh token exists", async () => {
