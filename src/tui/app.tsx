@@ -7,7 +7,7 @@ import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
-import { ApprovalBar, Header, TodoSidebar, TurnView } from "./views.js";
+import { ApprovalBar, formatSessionCost, Header, TodoSidebar, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
@@ -820,6 +820,9 @@ export function App(props: {
           cwd={state().meta.cwd}
           provider={state().meta.provider}
           sandbox={state().meta.sandbox}
+          costUsd={state().meta.costUsd}
+          tokenTotals={state().meta.tokenTotals}
+          faux={state().meta.faux}
         />
       </box>
 
@@ -1036,7 +1039,7 @@ export function App(props: {
                             <text fg={theme.fg} attributes={BOLD}>
                               {date}  {session().sessionId}
                             </text>
-                            <text fg={theme.secondary}>  {turns}  {session().cwd}</text>
+                            <text fg={theme.secondary}>  {turns}  {formatSessionCost(session().costUsd)}  {session().cwd}</text>
                             <Show when={active()}>
                               <text fg={theme.secondary}>  active session — cannot delete</text>
                             </Show>
@@ -1067,7 +1070,7 @@ export function App(props: {
                             <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
                               {selected() ? "▶ " : "  "}{date}  {session.sessionId}
                             </text>
-                            <text fg={theme.secondary}>  {turns}  {session.cwd}</text>
+                            <text fg={theme.secondary}>  {turns}  {formatSessionCost(session.costUsd)}  {session.cwd}</text>
                             <Show when={active()}>
                               <text fg={theme.muted}>  (active)</text>
                             </Show>

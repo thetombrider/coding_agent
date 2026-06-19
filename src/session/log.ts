@@ -1,6 +1,7 @@
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { SessionCostAccumulator } from "../telemetry/accumulator.js";
 import type { Message, SessionEvent } from "../types.js";
 
 export function sessionsDir(): string {
@@ -50,7 +51,8 @@ export function replayLog(path: string): Message[] {
       } else if (ev.type === "session_clear") {
         messages.length = 0;
       }
-      // session_meta and unknown types: skip
+      // session_meta, metric, and unknown types: skip (not part of the message
+      // transcript — metric events carry cost/usage telemetry only).
     } catch {
       // ignore malformed lines
     }
@@ -65,6 +67,37 @@ export interface SessionSummary {
   createdAt: string;
   lastTs: string;
   turns: number;
+  /** Summed cost of persisted `turn` metrics; `null` when nothing was priced. */
+  costUsd?: number | null;
+}
+
+/**
+ * Replay a session log's persisted `turn` metrics back into a fresh
+ * {@link SessionCostAccumulator}. Used on resume to seed the running total so the
+ * TUI header is correct before the next turn. Returns `undefined` only when the
+ * file is missing; an existing log with no metrics yields a zeroed accumulator.
+ */
+export function rebuildSessionCost(path: string): SessionCostAccumulator | undefined {
+  if (!existsSync(path)) return undefined;
+  const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+  const turns: Array<Extract<SessionEvent, { type: "metric" }>["event"] & { type: "turn" }> = [];
+  let sessionId: string | undefined;
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line) as SessionEvent;
+      if (ev.type === "session_meta") {
+        sessionId ??= ev.sessionId;
+      } else if (ev.type === "metric" && ev.event.type === "turn") {
+        sessionId ??= ev.event.sessionId;
+        turns.push(ev.event);
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+  const acc = new SessionCostAccumulator(sessionId ?? basename(path, ".jsonl"));
+  for (const turn of turns) acc.recordTurn(turn, turn.source);
+  return acc;
 }
 
 export function getLastEventTimestamp(path: string): string | undefined {
@@ -102,6 +135,7 @@ export function listSessions(scanDir?: string): SessionSummary[] {
       let createdAt = "";
       let lastTs = "";
       let turns = 0;
+      let costUsd: number | null = null;
 
       for (const line of lines) {
         try {
@@ -113,6 +147,8 @@ export function listSessions(scanDir?: string): SessionSummary[] {
             createdAt = ev.ts;
           } else if (ev.type === "user_message") {
             turns++;
+          } else if (ev.type === "metric" && ev.event.type === "turn" && ev.event.costUsd !== null) {
+            costUsd = (costUsd ?? 0) + ev.event.costUsd;
           }
         } catch {
           // ignore
@@ -120,7 +156,7 @@ export function listSessions(scanDir?: string): SessionSummary[] {
       }
 
       if (metaCwd) {
-        summaries.push({ sessionId, cwd: metaCwd, model: metaModel, createdAt, lastTs, turns });
+        summaries.push({ sessionId, cwd: metaCwd, model: metaModel, createdAt, lastTs, turns, costUsd });
       }
     } catch {
       // ignore unreadable files

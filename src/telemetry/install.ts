@@ -44,6 +44,13 @@ export interface InstallTelemetryOptions {
   /** Called with a fresh snapshot after every turn (for the TUI badge, issue 8/8). */
   onSessionCost?: (snapshot: SessionCostSnapshot) => void;
   /**
+   * Seed the running totals from a prebuilt accumulator (issue 8/8). On resume
+   * the TUI rebuilds one from the session log (`rebuildSessionCost`) so the
+   * header total carries over before the next turn. When omitted, a fresh
+   * accumulator starts at zero.
+   */
+  accumulator?: SessionCostAccumulator;
+  /**
    * OTLP span consumer override (issue 5/8). When omitted, one is built from
    * the resolved OTel config (a no-op unless an endpoint is configured). Tests
    * inject an InMemory-backed consumer here.
@@ -72,7 +79,7 @@ export interface InstalledTelemetry {
 export function installTelemetry(opts: InstallTelemetryOptions): InstalledTelemetry {
   const { hooks, sinks, sessionId, providerId, onSessionCost } = opts;
   const pricing = opts.pricing ?? loadConfig().models.pricing;
-  const acc = new SessionCostAccumulator(sessionId);
+  const acc = opts.accumulator ?? new SessionCostAccumulator(sessionId);
   const startMs = Date.now();
   /** tool-call id → start time, so parallel calls measure their own duration. */
   const toolStarts = new Map<string, number>();

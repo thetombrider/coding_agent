@@ -9,8 +9,9 @@ import { saveConfig, saveProviderConfig, saveE2BApiKey } from "../config/config.
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider, resolveActiveProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
-import { generateSessionId, listSessions, openLog, replayLog, sessionPath, deleteSession } from "../session/log.js";
+import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayLog, sessionPath, deleteSession } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
+import { SessionCostAccumulator } from "../telemetry/accumulator.js";
 import { createDefaultSinks, installTelemetry } from "../telemetry/install.js";
 import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
@@ -79,19 +80,26 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   });
   let disposeTelemetry: () => void = () => {};
   let recordSideLlmCall: LlmCallRecorder = () => {};
-  const reinstallTelemetry = () => {
+  // Each (re)install can be seeded with a prebuilt accumulator so the running
+  // header total survives resume / provider switch instead of resetting to zero.
+  const reinstallTelemetry = (seed?: SessionCostAccumulator) => {
     disposeTelemetry();
+    const accumulator = seed ?? new SessionCostAccumulator(activeSessionId);
     const installed = installTelemetry({
       hooks: config.hooks,
       sinks: telemetrySinks,
       sessionId: activeSessionId,
       providerId: config.meta.provider,
+      accumulator,
+      onSessionCost: (snapshot) => controller.setSessionCost(snapshot),
     });
     disposeTelemetry = installed.dispose;
     recordSideLlmCall = installed.recordLlmCall;
     // A fresh install rebinds the accumulator, so point the loop host at the
     // new recorder (compaction / delegate_read tag their side-path calls here).
     if (config.ctx.loopHost) config.ctx.loopHost.recordLlmCall = recordSideLlmCall;
+    // Reflect the seeded (or reset) total in the header before the next turn.
+    controller.setSessionCost(accumulator.snapshot());
   };
 
   const onResume = (resumeSessionId: string) => {
@@ -102,7 +110,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     activeSessionId = resumeSessionId;
     log = openLog(sessionPath(activeSessionId));
     if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
-    reinstallTelemetry();
+    // Rebuild the cost accumulator from the resumed log so the header total is
+    // correct (and continues to grow) before the next turn.
+    reinstallTelemetry(rebuildSessionCost(sessionPath(activeSessionId)));
     const turns = messagesToTurns(messages);
     controller.loadHistory(turns);
     controller.setTodos(config.ctx.todos);
@@ -209,7 +219,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       models: { lastUsed: patch },
     });
     config.meta.provider = provider;
-    reinstallTelemetry();
+    // Preserve the running total across the switch by seeding from the live log.
+    reinstallTelemetry(rebuildSessionCost(sessionPath(activeSessionId)));
     if (model && model !== activeModel) {
       setModel(model);
     }

@@ -141,6 +141,25 @@ describe("createSessionController", () => {
     ]);
   });
 
+  it("folds a telemetry snapshot into the header meta on setSessionCost", () => {
+    const controller = createSessionController(meta);
+
+    controller.setSessionCost({
+      costUsd: 0.042,
+      tokens: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150 },
+    });
+    expect(controller.getState().meta.costUsd).toBeCloseTo(0.042);
+    expect(controller.getState().meta.tokenTotals).toBe(150);
+
+    // A null cost (pricing unknown) is preserved alongside the token total.
+    controller.setSessionCost({
+      costUsd: null,
+      tokens: { input: 200, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 300 },
+    });
+    expect(controller.getState().meta.costUsd).toBeNull();
+    expect(controller.getState().meta.tokenTotals).toBe(300);
+  });
+
   it("nests subagent tool calls under the running task tool", () => {
     const controller = createSessionController(meta);
     controller.beginTurn("explore");

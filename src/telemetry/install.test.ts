@@ -5,6 +5,7 @@ import { createHookRegistry } from "../hooks/registry.js";
 import type { AssistantMessage } from "../provider/types.js";
 import { testAgentContext } from "../test-helpers.js";
 import type { MetricEvent } from "./events.js";
+import { SessionCostAccumulator } from "./accumulator.js";
 import { createDefaultSinks, installTelemetry, telemetryEnabled } from "./install.js";
 import type { MetricSink } from "./sinks.js";
 
@@ -135,6 +136,37 @@ describe("installTelemetry", () => {
     await tick();
 
     expect(snapshots).toEqual([1, 2]);
+  });
+
+  it("seeds running totals from a prebuilt accumulator (resume)", async () => {
+    const hooks = createHookRegistry();
+    const seed = new SessionCostAccumulator("s1");
+    seed.recordTurn(
+      {
+        model: "anthropic/claude-opus-4.8",
+        usage: { input: 1_000_000, output: 0, totalTokens: 1_000_000 },
+        costUsd: 15,
+        pricingMissing: false,
+      },
+      "main_loop",
+    );
+
+    const snapshots: Array<number | null> = [];
+    installTelemetry({
+      hooks,
+      sinks: [],
+      sessionId: "s1",
+      pricing,
+      accumulator: seed,
+      onSessionCost: (snap) => snapshots.push(snap.costUsd),
+    });
+
+    hooks.emit(assistantMessage({ input: 1_000_000, output: 0, totalTokens: 1_000_000 }));
+    await tick();
+
+    // The post-turn snapshot continues from the seeded total (15 + 15).
+    expect(snapshots).toEqual([30]);
+    expect(seed.snapshot().turns).toBe(2);
   });
 
   it("recordLlmCall emits a side-path turn tagged with its source and counts it", async () => {

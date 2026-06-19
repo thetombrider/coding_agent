@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../agent/events.js";
+import type { SessionCostSnapshot } from "../telemetry/events.js";
 import type { SandboxKind } from "../workspace/types.js";
 import type { TodoItem } from "../todos/types.js";
 import { todowriteSchema } from "../tools/todowrite.js";
@@ -46,6 +47,10 @@ export interface SessionMeta {
   faux?: boolean;
   /** False when the active LLM provider has no API key yet. */
   providerConfigured?: boolean;
+  /** Running session cost in USD; `null` when no priced call has landed yet. */
+  costUsd?: number | null;
+  /** Total tokens across the session — shown in the header when pricing is unknown. */
+  tokenTotals?: number;
 }
 
 export interface SessionState {
@@ -81,6 +86,8 @@ export interface SessionController {
   loadHistory: (turns: Turn[]) => void;
   setTodos: (todos: TodoItem[]) => void;
   updateMeta: (patch: Partial<SessionMeta>) => void;
+  /** Fold a telemetry snapshot into the header meta (running cost + token total). */
+  setSessionCost: (snapshot: Pick<SessionCostSnapshot, "costUsd" | "tokens">) => void;
 }
 
 const IDLE_HINT = `scroll · ${clipboardHintText()} · /exit`;
@@ -328,6 +335,16 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
     updateMeta(patch) {
       update({ meta: { ...state.meta, ...patch } });
+    },
+
+    setSessionCost(snapshot) {
+      update({
+        meta: {
+          ...state.meta,
+          costUsd: snapshot.costUsd,
+          tokenTotals: snapshot.tokens.totalTokens,
+        },
+      });
     },
 
     handleEvent(event) {
