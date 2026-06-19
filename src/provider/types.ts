@@ -122,7 +122,7 @@ export interface Provider {
   readonly metadata: ModelMetadataProvider;
   /**
    * Curated model ids shown in the `/model` picker when this provider is active.
-   * Users can override per provider via `models.picker.<id>` in config.
+   * Users can append extras via `models.picker.<id>` in config.
    */
   readonly pickerModels: readonly string[];
   /** Sensible main/cheap defaults when no model is set for this provider. */
