@@ -73,6 +73,37 @@ describe("ensureConfigFile", () => {
       openrouter: ["legacy/model-a", "legacy/model-b"],
     });
   });
+
+  it("drops legacy bundled openrouter picker overrides so new defaults apply", async () => {
+    const configDir = join(home, ".orin");
+    mkdirSync(configDir, { recursive: true });
+    const configPath = join(configDir, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        models: {
+          picker: {
+            openrouter: [
+              "anthropic/claude-opus-4.8",
+              "anthropic/claude-sonnet-4.6",
+              "google/gemini-3.5-flash",
+              "google/gemini-3.1-flash-lite",
+              "deepseek/deepseek-v4-pro",
+              "minimax/minimax-m3",
+              "z-ai/glm-5.1",
+              "inception/mercury-2",
+              "arcee-ai/trinity-large-thinking",
+              "mistralai/mistral-large-2512",
+            ],
+          },
+        },
+      }) + "\n",
+      "utf8",
+    );
+
+    const { loadConfig } = await import("./config.js");
+    expect(loadConfig().models.picker).toEqual({});
+  });
 });
 
 describe("API key onboarding", () => {

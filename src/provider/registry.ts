@@ -94,14 +94,19 @@ export function metadataProviders(): ModelMetadataProvider[] {
 }
 
 /**
- * Curated model ids for the `/model` picker. Uses `models.picker.<providerId>`
- * from config when set, otherwise each provider's bundled `pickerModels`.
+ * Curated model ids for the `/model` picker. Each provider's bundled
+ * `pickerModels` is authoritative; `models.picker.<providerId>` may append
+ * extra user-defined ids without replacing bundled updates.
  */
 export function resolvePickerModels(providerId?: string): readonly string[] {
   const provider = getProvider(providerId ?? activeProviderId()) ?? resolveActiveProvider();
+  const bundled = [...provider.pickerModels];
   const override = loadConfig().models.picker[provider.id];
-  if (override && override.length > 0) return override;
-  return provider.pickerModels;
+  if (!override?.length) return bundled;
+
+  const bundledSet = new Set(bundled);
+  const extras = override.filter((id) => !bundledSet.has(id));
+  return extras.length > 0 ? [...bundled, ...extras] : bundled;
 }
 
 /** Snapshot of every provider's status for `/providers` listing and switching. */
