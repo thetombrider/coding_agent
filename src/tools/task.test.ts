@@ -167,6 +167,33 @@ describe("runSubagentTask", () => {
     }
   });
 
+  it("keeps the worktree (skips remove) when harvest fails to commit", async () => {
+    const remove = vi.fn(() => {});
+    const harvest = vi.fn(() => ({ branch: "orin/subagent-deadbeef", error: "commit blocked" }));
+    const fakeWorktree = {
+      createWorktree: () => ({
+        handle: { workspace: createLocalWorkspace(), cwd: process.cwd(), branch: "orin/subagent-deadbeef", harvest, remove },
+      }),
+    };
+
+    const provider = createStatefulFauxProvider([{ text: ["did work"] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
+
+    const result = await runSubagentTask(
+      { description: "work", prompt: "do it", agent: "implement", isolation: "worktree" },
+      ctx,
+      new AbortController().signal,
+      fakeWorktree,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(harvest).toHaveBeenCalledOnce();
+    // Commit failed → the worktree must NOT be removed, so the work is recoverable.
+    expect(remove).not.toHaveBeenCalled();
+    expect(result.output).toContain("Could not commit");
+    expect(result.output).toContain("recovered");
+  });
+
   it("runs implement subagent in a sandbox and disposes the workspace", async () => {
     vi.stubEnv("E2B_API_KEY", "test-key");
     const dispose = vi.fn(async () => {});

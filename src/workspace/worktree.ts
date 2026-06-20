@@ -20,6 +20,10 @@ function git(cwd: string, args: string[]): GitResult {
   };
 }
 
+export type HarvestResult =
+  | { branch: string; committed: boolean; diffStat: string }
+  | { branch: string; error: string };
+
 export interface WorktreeHandle {
   /** A local workspace; tools resolve paths against `cwd` (the worktree dir). */
   workspace: Workspace;
@@ -28,9 +32,11 @@ export interface WorktreeHandle {
   /**
    * Commit any work left in the worktree onto its branch so it survives worktree
    * removal, and return a `git diff --stat` of the branch versus its base commit.
-   * Identity is supplied inline so it works without global git config.
+   * Identity is supplied inline so it works without global git config. Returns an
+   * `error` result (without removing anything) if the commit fails, so the caller
+   * can keep the worktree for recovery rather than discard uncommitted edits.
    */
-  harvest(): { branch: string; committed: boolean; diffStat: string };
+  harvest(): HarvestResult;
   /** Remove the worktree dir. The branch (and any harvested commit) is retained. */
   remove(): void;
 }
@@ -80,7 +86,11 @@ export function createWorktree(hostCwd: string, id: string): CreateWorktreeResul
             "-c", "user.email=orin@localhost",
             "commit", "-m", `subagent ${shortId} changes`,
           ]);
-          committed = commit.status === 0;
+          if (commit.status !== 0) {
+            // Surface the failure so the caller keeps the worktree for recovery.
+            return { branch, error: commit.stderr || commit.stdout || "git commit failed" };
+          }
+          committed = true;
         }
         const stat = git(hostCwd, ["diff", "--stat", `${baseSha}..${branch}`]);
         return { branch, committed, diffStat: stat.stdout };

@@ -11,7 +11,7 @@ import { installCoreHooks } from "../hooks/install.js";
 import { loadToolDescription } from "../util/load-txt.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
-import { createWorktree, type WorktreeHandle } from "../workspace/worktree.js";
+import { createWorktree, type HarvestResult, type WorktreeHandle } from "../workspace/worktree.js";
 import type { Workspace } from "../workspace/types.js";
 import type { AgentContext } from "../types.js";
 import type { Tool } from "./types.js";
@@ -113,6 +113,7 @@ export async function runSubagentTask(
   let childCwd = ctx.cwd;
   let ownsWorkspace = false;
   let worktree: WorktreeHandle | undefined;
+  let harvest: ReturnType<WorktreeHandle["harvest"]> | undefined;
 
   host.hooks.emit({
     type: "subagent_start",
@@ -187,13 +188,12 @@ export async function runSubagentTask(
     const turns = currentTurnCount(childCtx.messages);
 
     // Commit the worktree's work onto its branch before it is removed, and tell
-    // the parent where to find it. The branch survives; the worktree dir does not.
+    // the parent where to find it. The branch survives; the worktree dir does not
+    // (unless the commit failed — see the finally block).
     let worktreeNote = "";
     if (worktree) {
-      const { branch, committed, diffStat } = worktree.harvest();
-      worktreeNote = committed
-        ? `\n\nChanges committed to branch \`${branch}\`:\n${diffStat}`
-        : `\n\nNo file changes were made (branch \`${branch}\`).`;
+      harvest = worktree.harvest();
+      worktreeNote = worktreeNoteFor(harvest, worktree.cwd);
     }
 
     host.hooks.emit({
@@ -208,15 +208,41 @@ export async function runSubagentTask(
     return { output: `${header}\n\n${summary}${worktreeNote}` };
   } finally {
     if (worktree) {
-      try {
-        worktree.remove();
-      } catch {
-        // best-effort cleanup; a stale worktree can be pruned with `git worktree prune`
+      // Harvest even when runLoop threw/aborted, so the child's edits are
+      // committed to the branch instead of being discarded by remove().
+      if (!harvest) {
+        try {
+          harvest = worktree.harvest();
+        } catch {
+          // ignore — fall through and keep the worktree for manual recovery
+        }
+      }
+      // Only delete the worktree once its work is safely on the branch. If the
+      // commit failed, leave the dir in place so the user can recover.
+      if (harvest && !("error" in harvest)) {
+        try {
+          worktree.remove();
+        } catch {
+          // best-effort cleanup; a stale worktree can be pruned with `git worktree prune`
+        }
       }
     } else if (ownsWorkspace) {
       await childWorkspace.dispose().catch(() => {});
     }
   }
+}
+
+/** Build the parent-facing note describing where a worktree subagent's work landed. */
+function worktreeNoteFor(harvest: HarvestResult, dir: string): string {
+  if ("error" in harvest) {
+    return (
+      `\n\n⚠️ Could not commit changes to branch \`${harvest.branch}\` (${harvest.error}). `
+      + `The worktree was kept at ${dir} so the work can be recovered.`
+    );
+  }
+  return harvest.committed
+    ? `\n\nChanges committed to branch \`${harvest.branch}\`:\n${harvest.diffStat}`
+    : `\n\nNo file changes were made (branch \`${harvest.branch}\`).`;
 }
 
 export const taskTool: Tool<TaskArgs> = {
