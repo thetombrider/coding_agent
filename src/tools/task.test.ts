@@ -131,6 +131,42 @@ describe("runSubagentTask", () => {
     }
   });
 
+  it("escalates to the config isolation floor when the model requests less", async () => {
+    // Floor = worktree via env override; an implement task with no isolation arg
+    // (would default to shared) must be clamped up to worktree.
+    vi.stubEnv("ORIN_SUBAGENT_ISOLATION", "worktree");
+    const dir = mkdtempSync(join(tmpdir(), "orin-wt-floor-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+
+      const provider = createStatefulFauxProvider([
+        { toolCalls: [{ id: "w1", name: "write", arguments: { path: "child.txt", content: "floored" } }] },
+        { text: ["done"] },
+      ]);
+      const ctx = baseCtx({ cwd: dir, loopHost: loopHost(provider, getChildTools()) });
+
+      const result = await runSubagentTask(
+        { description: "work", prompt: "add child.txt", agent: "implement" },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toMatch(/branch `orin\/subagent-/);
+      // Ran on a branch, not the host tree.
+      expect(existsSync(join(dir, "child.txt"))).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("runs implement subagent in a sandbox and disposes the workspace", async () => {
     vi.stubEnv("E2B_API_KEY", "test-key");
     const dispose = vi.fn(async () => {});

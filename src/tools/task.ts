@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { currentTurnCount } from "../agent/compaction.js";
-import { resolvePreset, type IsolationMode } from "../agent/presets.js";
+import { resolvePreset, type PresetDefinition } from "../agent/presets.js";
+import { resolveIsolationMode, type IsolationMode } from "../agent/isolation.js";
 import { lastAssistantText, runLoop } from "../agent/loop.js";
-import { hasE2BApiKey } from "../config/config.js";
+import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { defaultCheapModel, resolvePresetModel } from "../config/models.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
@@ -52,14 +53,16 @@ interface ResolvedIsolation {
 
 function resolveIsolation(
   requested: IsolationMode | undefined,
-  defaultIsolation: IsolationMode,
+  preset: PresetDefinition,
 ): ResolvedIsolation | { error: string } {
-  const want = requested ?? defaultIsolation;
+  // The config `subagent.isolation` floor is a guarantee; the model may escalate
+  // per call but not weaken below it (read-only presets are unaffected).
+  const floor = loadConfig().subagent.isolation;
+  const want = resolveIsolationMode(requested, preset.mutating, preset.defaultIsolation, floor);
 
-  // shared (incl. mutating presets) and worktree run against the local tree —
-  // edits persist, matching how other local agents handle subagent work. Only
-  // the cloud sandbox needs a credential up front; worktree git failures (no
-  // repo) surface at creation time.
+  // shared and worktree run against the local tree — edits persist, matching how
+  // other local agents handle subagent work. Only the cloud sandbox needs a
+  // credential up front; worktree git failures (no repo) surface at creation time.
   if (want === "sandbox" && !hasE2BApiKey()) {
     return {
       error:
@@ -88,7 +91,7 @@ export async function runSubagentTask(
   }
 
   const preset = resolvePreset(args.agent);
-  const isolationResult = resolveIsolation(args.isolation, preset.defaultIsolation);
+  const isolationResult = resolveIsolation(args.isolation, preset);
   if ("error" in isolationResult) {
     return { output: isolationResult.error, isError: true };
   }

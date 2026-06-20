@@ -284,5 +284,30 @@ describe("processCommand", () => {
       const r = processCommand("/settings foo", ctx);
       expect(r.type).toBe("error");
     });
+
+    it("shows the isolation floor and options", () => {
+      const r = processCommand("/settings isolation", { ...ctx, currentIsolation: "worktree" });
+      expect(r.type).toBe("info");
+      if (r.type === "info") {
+        expect(r.message).toContain("worktree");
+        expect(r.message).toContain("sandbox");
+      }
+    });
+
+    it("sets a new isolation floor", () => {
+      const r = processCommand("/settings isolation worktree", { ...ctx, currentIsolation: "shared" });
+      expect(r).toMatchObject({ type: "set-isolation", isolation: "worktree" });
+      expect(isActionableCommandResult(r)).toBe(true);
+    });
+
+    it("no-ops when the isolation floor is unchanged", () => {
+      const r = processCommand("/settings isolation shared", { ...ctx, currentIsolation: "shared" });
+      expect(r.type).toBe("info");
+    });
+
+    it("rejects an unknown isolation mode", () => {
+      const r = processCommand("/settings isolation vm", ctx);
+      expect(r.type).toBe("error");
+    });
   });
 });

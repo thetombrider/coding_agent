@@ -1,8 +1,9 @@
 import { getChildTools, pickTools } from "../tools/registry.js";
 import type { AnyTool } from "../tools/registry.js";
+import type { IsolationMode } from "./isolation.js";
 
+export type { IsolationMode } from "./isolation.js";
 export type AgentPreset = "explore" | "review" | "implement";
-export type IsolationMode = "shared" | "worktree" | "sandbox";
 
 export interface PresetDefinition {
   agent: AgentPreset;

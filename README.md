@@ -46,7 +46,10 @@ build plan live in [`SPEC.md`](./SPEC.md).
 - **Subagent isolation** — `task` subagents default to `shared` (edit the local
   working tree, changes persist), with `worktree` (run on a fresh git branch,
   isolated but persistent — the summary reports the branch + diff) and `sandbox`
-  (ephemeral E2B clone, for untrusted code) as opt-ins.
+  (ephemeral E2B clone, for untrusted code) as opt-ins. Set the floor with
+  `/settings isolation <mode>` (persisted to `subagent.isolation` in
+  `~/.orin/config.json`, or `ORIN_SUBAGENT_ISOLATION`); it's a guarantee — the
+  agent may escalate to a more-isolated mode per task but never weaken below it.
 - **Context compaction** — old turns are summarized and stale tool output evicted
   automatically as the context window fills.
 - **Persistent sessions** — every session is an append-only JSONL log under
@@ -110,7 +113,8 @@ file directly.
 | Main model | `ORIN_MODEL` | Default agent model (OpenRouter `provider/model` id). |
 | Cheap model | `ORIN_CHEAP_MODEL` | Used by `delegate_read` and compaction. |
 | Approval mode | `ORIN_APPROVAL_MODE` | `normal` \| `auto-accept` \| `plan`. |
-| E2B API key | `E2B_API_KEY` | Optional — for whole-session E2B (`sandbox.active: "e2b"`). Also `sandbox.e2b.apiKey` in config. |
+| Subagent isolation | `ORIN_SUBAGENT_ISOLATION` | `shared` \| `worktree` \| `sandbox` floor for `task` subagents (`subagent.isolation` in config; `/settings isolation`). |
+| E2B API key | `E2B_API_KEY` | Optional — for whole-session E2B (`sandbox.active: "e2b"`) or `sandbox` subagent isolation. Also `sandbox.e2b.apiKey` in config. |
 
 Your config, sessions, and keys all live under `~/.orin/` and are untouched by
 upgrades.

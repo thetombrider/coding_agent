@@ -13,6 +13,8 @@ Isolation (optional, defaults per preset):
   for risky/large changes you want to review on a branch before merging.
 - sandbox: ephemeral E2B cloud clone; edits are discarded on exit (requires E2B_API_KEY).
   For untrusted code only — its changes do not flow back.
+The user configures a minimum isolation floor; you may request a more-isolated mode
+than the default but a weaker request is raised to the floor.
 
 Prefer delegate_read instead when you already know which files to read and only need
 a one-shot cheap-model summary — it is faster and lower cost. Use task when the scope

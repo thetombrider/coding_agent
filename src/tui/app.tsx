@@ -24,6 +24,7 @@ import { readRendererSelection } from "./selection.js";
 import { selectionCopyHint } from "./terminal-env.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
+import type { IsolationMode } from "../agent/isolation.js";
 import { pickerModelsForProvider } from "../config/models.js";
 import { loadConfig } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
@@ -104,6 +105,7 @@ export function App(props: {
   onExit: () => void;
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
+  onSetIsolation: (isolation: IsolationMode) => void;
   onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (
     provider: string,
@@ -251,6 +253,7 @@ export function App(props: {
     return {
       currentModel: meta.model,
       currentMode: coerceApprovalMode(meta.approval) ?? "normal",
+      currentIsolation: loadConfig().subagent.isolation,
       knownModels: pickerModels(),
       currentProvider: meta.provider ?? activeProviderId(),
       providers: providerSummaries(),
@@ -417,6 +420,10 @@ export function App(props: {
         return;
       case "set-mode":
         props.onSetMode(result.mode);
+        props.controller.setStatusHint(result.message);
+        return;
+      case "set-isolation":
+        props.onSetIsolation(result.isolation);
         props.controller.setStatusHint(result.message);
         return;
       case "set-provider":

@@ -5,6 +5,12 @@ import {
   nextApprovalMode,
   type ApprovalMode,
 } from "../approval/policy.js";
+import {
+  coerceIsolation,
+  ISOLATION_LABELS,
+  ISOLATION_MODES,
+  type IsolationMode,
+} from "../agent/isolation.js";
 import { hasE2BApiKey } from "../config/config.js";
 import type { ModelPricing } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
@@ -15,6 +21,8 @@ import type { ProviderConfigField } from "../provider/types.js";
 export interface CommandContext {
   currentModel: string;
   currentMode: ApprovalMode;
+  /** Configured subagent isolation floor (`subagent.isolation`). */
+  currentIsolation?: IsolationMode;
   knownModels: readonly string[];
   currentProvider?: string;
   providers?: ProviderSummary[];
@@ -32,6 +40,7 @@ export type CommandResult =
   | { type: "sessions" }
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
+  | { type: "set-isolation"; isolation: IsolationMode; message: string }
   | { type: "set-provider"; provider: string; model?: string; message: string }
   | {
       type: "configure-provider";
@@ -55,7 +64,9 @@ const HELP_LINES = [
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
-  "/settings [e2b]               configure E2B API key for the task tool",
+  "/settings                     show subagent isolation + E2B settings",
+  "/settings isolation [mode]    set subagent isolation floor (shared|worktree|sandbox)",
+  "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/sessions                     browse and resume saved sessions",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
@@ -247,27 +258,72 @@ function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
   return { type: "set-provider", provider: match.id, model, message };
 }
 
-function handleSettings(arg: string): CommandResult {
-  const sub = arg.trim().toLowerCase();
-  if (sub && sub !== "e2b") {
-    return { type: "error", message: `unknown setting "${sub}" — try /settings e2b` };
+function isolationInfo(ctx: CommandContext): string {
+  const current = ctx.currentIsolation ?? "shared";
+  const options = ISOLATION_MODES.map((m) => `  ${m === current ? "›" : " "} ${ISOLATION_LABELS[m]}`);
+  return (
+    `subagent isolation: ${current} (floor — the model may escalate, never weaken)\n`
+    + `${options.join("\n")}\n`
+    + "/settings isolation <shared|worktree|sandbox> to change"
+  );
+}
+
+function handleIsolation(value: string | undefined, ctx: CommandContext): CommandResult {
+  if (!value) {
+    return { type: "info", message: isolationInfo(ctx) };
+  }
+  const mode = coerceIsolation(value);
+  if (!mode) {
+    return {
+      type: "error",
+      message: `unknown isolation "${value}" — use shared, worktree, or sandbox`,
+    };
+  }
+  if (mode === (ctx.currentIsolation ?? "shared")) {
+    return { type: "info", message: `subagent isolation already ${mode}` };
+  }
+  return { type: "set-isolation", isolation: mode, message: `subagent isolation → ${mode}` };
+}
+
+function settingsSummary(ctx: CommandContext): string {
+  const e2b = hasE2BApiKey() ? "configured" : "not configured";
+  return (
+    `settings:\n`
+    + `  subagent isolation: ${ctx.currentIsolation ?? "shared"} — /settings isolation <mode>\n`
+    + `  E2B API key: ${e2b} — /settings e2b`
+  );
+}
+
+function handleSettings(arg: string, ctx: CommandContext): CommandResult {
+  const parts = arg.trim().split(/\s+/).filter(Boolean);
+  const sub = parts[0]?.toLowerCase();
+
+  if (!sub) {
+    return { type: "info", message: settingsSummary(ctx) };
   }
 
-  if (hasE2BApiKey()) {
+  if (sub === "isolation") {
+    return handleIsolation(parts[1], ctx);
+  }
+
+  if (sub === "e2b") {
+    if (hasE2BApiKey()) {
+      return {
+        type: "info",
+        message:
+          "E2B API key is configured — the task tool can spawn sandbox subagents. "
+          + "Run /settings e2b to replace it.",
+      };
+    }
     return {
-      type: "info",
+      type: "configure-e2b",
       message:
-        "E2B API key is configured — the task tool can spawn isolated subagents. "
-        + "Run /settings e2b to replace it.",
+        "Configure E2B: paste your API key (required only for sandbox isolation — get one at "
+        + "https://e2b.dev/docs/api-key) · Esc to cancel",
     };
   }
 
-  return {
-    type: "configure-e2b",
-    message:
-      "Configure E2B: paste your API key (required for the task tool — get one at "
-      + "https://e2b.dev/docs/api-key) · Esc to cancel",
-  };
+  return { type: "error", message: `unknown setting "${sub}" — try /settings isolation or /settings e2b` };
 }
 
 function handleProviders(arg: string, ctx: CommandContext): CommandResult {
@@ -291,6 +347,7 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "sessions":
     case "set-model":
     case "set-mode":
+    case "set-isolation":
     case "set-provider":
     case "configure-provider":
       return true;
@@ -334,7 +391,7 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
       return handleProviders(arg, ctx);
     case "/settings":
     case "/setting":
-      return handleSettings(arg);
+      return handleSettings(arg, ctx);
     default:
       return { type: "error", message: `unknown command ${name} — try /help` };
   }
