@@ -13,9 +13,11 @@ describe("terminal-env", () => {
   });
 
   it("shows Terminal.app-specific copy hints", () => {
-    expect(selectionCopyHint({ TERM_PROGRAM: "Apple_Terminal" })).toContain("press c");
-    expect(selectionCopyHint({ TERM_PROGRAM: "vscode" })).toContain("⌘C");
-    expect(terminalStartupCopyHint({ TERM_PROGRAM: "Apple_Terminal" })).toContain("press c");
-    expect(terminalStartupCopyHint({ TERM_PROGRAM: "vscode" })).toBeNull();
+    expect(selectionCopyHint({ TERM_PROGRAM: "Apple_Terminal" }, "darwin")).toContain("press c");
+    expect(selectionCopyHint({ TERM_PROGRAM: "vscode" }, "darwin")).toContain("⌘C");
+    expect(terminalStartupCopyHint({ TERM_PROGRAM: "Apple_Terminal" }, "darwin")).toContain(
+      "press c",
+    );
+    expect(terminalStartupCopyHint({ TERM_PROGRAM: "vscode" }, "darwin")).toBeNull();
   });
 });

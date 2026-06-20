@@ -42,11 +42,14 @@ export function isSelectionHintShortcut(key: ShortcutKey): boolean {
   return key.name === "v" && !key.ctrl && !key.meta && !key.shift;
 }
 
-export function clipboardHintText(env: NodeJS.ProcessEnv = process.env): string {
-  if (process.platform === "darwin" && blocksNativeCopyShortcut(env)) {
+export function clipboardHintText(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === "darwin" && blocksNativeCopyShortcut(env)) {
     return "select · c copy · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand";
   }
-  if (process.platform === "darwin") {
+  if (platform === "darwin") {
     return "select · ⌘C · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand · c expanded";
   }
   return "select · Ctrl+Shift+C · Ctrl+Y all · Ctrl+Shift+V paste · Ctrl+O block · o expand · c expanded";

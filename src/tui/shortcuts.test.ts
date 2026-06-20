@@ -58,7 +58,7 @@ describe("shortcuts", () => {
   });
 
   it("shows Terminal.app-specific clipboard hints", () => {
-    expect(clipboardHintText({ TERM_PROGRAM: "Apple_Terminal" })).toContain("c copy");
-    expect(clipboardHintText({ TERM_PROGRAM: "vscode" })).toContain("⌘C");
+    expect(clipboardHintText({ TERM_PROGRAM: "Apple_Terminal" }, "darwin")).toContain("c copy");
+    expect(clipboardHintText({ TERM_PROGRAM: "vscode" }, "darwin")).toContain("⌘C");
   });
 });

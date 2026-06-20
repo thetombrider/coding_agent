@@ -27,9 +27,20 @@ export interface TurnSlice {
   end: number;
 }
 
-export type SummariseGenerate = (
-  options: Parameters<typeof generateText>[0],
-) => Promise<{ text: string; usage?: AiSdkUsage }>;
+/**
+ * Generate seam for summarisation. Takes the model *id* (not a resolved
+ * handle) so the default wrapper owns provider resolution; tests inject a mock
+ * and never touch a real provider (no credentials required).
+ */
+export type SummariseGenerate = (options: {
+  model: string;
+  system: string;
+  messages: Array<{ role: "user"; content: string }>;
+  maxOutputTokens: number;
+}) => Promise<{ text: string; usage?: AiSdkUsage }>;
+
+const defaultSummariseGenerate: SummariseGenerate = ({ model, ...rest }) =>
+  generateText({ ...rest, model: resolveLanguageModel(model) });
 
 export function estimateMessageTokens(messages: Message[]): number {
   return JSON.stringify(messages).length / 4;
@@ -147,7 +158,7 @@ export async function summariseOldTurns(
   messages: Message[],
   model: string,
   keepLastN = DEFAULT_KEEP_LAST_N_TURNS,
-  generate: SummariseGenerate = generateText,
+  generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
 ): Promise<Message[]> {
   const turns = sliceTurns(messages);
@@ -164,7 +175,7 @@ export async function summariseOldTurns(
   const corpus = formatMessagesForSummary(oldMessages);
 
   const { text, usage } = await generate({
-    model: resolveLanguageModel(model),
+    model,
     system: SUMMARY_SYSTEM,
     messages: [
       {
