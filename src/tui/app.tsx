@@ -233,6 +233,11 @@ export function App(props: {
 
   const pickerModels = () => pickerModelList();
 
+  // Pricing comes from the static config table, which doesn't change during a
+  // session. Read it once here instead of calling loadConfig() (which re-reads
+  // and re-merges the config file from disk) inside hot render paths.
+  const modelPricing = loadConfig().models.pricing;
+
   const filteredCommands = () => {
     const input = state().input;
     if (!input.startsWith("/")) return [...SLASH_COMMANDS];
@@ -250,7 +255,7 @@ export function App(props: {
       currentProvider: meta.provider ?? activeProviderId(),
       providers: providerSummaries(),
       providerConfigFields,
-      modelPricing: loadConfig().models.pricing,
+      modelPricing,
     };
   };
 
@@ -998,7 +1003,7 @@ export function App(props: {
                           resolveDisplayModelPricing(
                             model,
                             providerId(),
-                            loadConfig().models.pricing,
+                            modelPricing,
                           ),
                         );
                       return (
