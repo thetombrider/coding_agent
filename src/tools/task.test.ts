@@ -69,7 +69,7 @@ describe("runSubagentTask", () => {
       {
         description: "edit",
         prompt: "change foo",
-        agent: "general",
+        agent: "implement",
         isolation: "shared",
       },
       ctx,
@@ -81,7 +81,7 @@ describe("runSubagentTask", () => {
     vi.unstubAllEnvs();
   });
 
-  it("runs general subagent in a sandbox and disposes the workspace", async () => {
+  it("runs implement subagent in a sandbox and disposes the workspace", async () => {
     vi.stubEnv("E2B_API_KEY", "test-key");
     const dispose = vi.fn(async () => {});
     const exec = vi.fn(async () => ({ exitCode: 0 }));
@@ -98,7 +98,7 @@ describe("runSubagentTask", () => {
     const ctx = baseCtx({ loopHost: loopHost(provider) });
 
     const result = await runSubagentTask(
-      { description: "fix readme", prompt: "update readme", agent: "general" },
+      { description: "fix readme", prompt: "update readme", agent: "implement" },
       ctx,
       new AbortController().signal,
       {
@@ -108,7 +108,7 @@ describe("runSubagentTask", () => {
     );
 
     expect(result.isError).toBeFalsy();
-    expect(result.output).toContain("Subagent (general) finished");
+    expect(result.output).toContain("Subagent (implement) finished");
     expect(result.output).toContain("README");
     expect(dispose).toHaveBeenCalledOnce();
     vi.unstubAllEnvs();
@@ -123,7 +123,7 @@ describe("runSubagentTask", () => {
       {
         description: "review",
         prompt: "check code",
-        agent: "general",
+        agent: "implement",
         isolation: "sandbox",
       },
       ctx,

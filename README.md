@@ -39,10 +39,10 @@ build plan live in [`SPEC.md`](./SPEC.md).
   big file, summarize logs) to the cheap model so the bulk never enters the main
   context.
 - **Role-bound subagent routing** — `task` subagents pick a model by preset:
-  `explore` runs on the **cheap** model (read-only investigation), `review` and
-  `general` on **main**. Override per role with `models.roles.<preset>` in
-  `~/.orin/config.json`; an id the active provider doesn't support falls back to
-  the tier default.
+  `explore` runs on the **cheap** model (read-only investigation), `implement` on
+  a **code-tuned** model (Kimi K2.7 Code by default), and `review` on **main**.
+  Override per role with `models.roles.<preset>` in `~/.orin/config.json`; an id
+  the active provider doesn't support falls back to the tier default.
 - **Context compaction** — old turns are summarized and stale tool output evicted
   automatically as the context window fills.
 - **Persistent sessions** — every session is an append-only JSONL log under

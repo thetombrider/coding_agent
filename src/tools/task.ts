@@ -21,10 +21,10 @@ const schema = z.object({
   description: z.string().describe("Short label for UI/logs."),
   prompt: z.string().describe("The task the subagent should accomplish."),
   agent: z
-    .enum(["explore", "review", "general"])
+    .enum(["explore", "review", "implement"])
     .optional()
     .describe(
-      "Subagent preset; default general. Use explore/review for open-ended read-only "
+      "Subagent preset; default implement. Use explore/review for open-ended read-only "
       + "investigation — not for known-path summaries (use delegate_read instead).",
     ),
   isolation: z
@@ -106,9 +106,9 @@ export async function runSubagentTask(
 
   // Single resolution point for the subagent's model (read by both the span
   // attribute and the spawn below). Per-subagent routing (#134): explore runs
-  // on the cheap tier, review/general on main; an explicit models.roles override
-  // wins when the active provider supports it. Resolved before the subagent_start
-  // span opens so #86 can tag the chosen model.
+  // on the cheap tier, implement on a code-tuned model, review on main; an
+  // explicit models.roles override wins when the active provider supports it.
+  // Resolved before the subagent_start span opens so #86 can tag the chosen model.
   const hostCheap = host.cheapModel ?? defaultCheapModel();
   const subagentModel = resolvePresetModel(preset.agent, host.model, hostCheap);
 

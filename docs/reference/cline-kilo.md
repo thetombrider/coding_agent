@@ -123,7 +123,7 @@ may only edit markdown"). Kilo replaced the fixed groups with explicit **allow /
 glob rules**.
 
 Maps directly onto Orin's Phase 8 **agent presets** (`src/agent/presets.ts` in #36): Orin's
-`explore`/`review`/`general` presets with `pickTools([...])` are the same idea as mode→tool-group
+`explore`/`review`/`implement` presets with `pickTools([...])` are the same idea as mode→tool-group
 binding. Two things to borrow:
 - **`fileRegex`-style edit scoping** for a preset, so a scoped subagent can be allowed to
   write *only* a subtree — a finer guard than the binary read-only/mutating split in #36.
@@ -285,7 +285,7 @@ one config string (`src/config/config.ts:87`, *"You are Orin, a coding agent…"
 via `~/.orin/config.json`, passed as `options.system` → `src/provider/stream.ts:90`. Two things
 Orin already gets *right*: tool docs stay **out** of the system prompt (they ride the `tools`
 param from `src/tools/*.txt`), and it already has **per-role sub-prompts** (`SUMMARY_SYSTEM`,
-`DELEGATE_READ_SYSTEM`, and the `explore`/`review`/`general` prompts in #36). What's missing vs
+`DELEGATE_READ_SYSTEM`, and the `explore`/`review`/`implement` prompts in #36). What's missing vs
 the others: `AGENTS.md` auto-loading, an environment block, sectioned assembly, and per-model
 variants.
 
