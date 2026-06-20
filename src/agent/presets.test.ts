@@ -17,10 +17,10 @@ describe("agent presets", () => {
     expect(preset.tools.map((t) => t.name)).toEqual(["read", "grep", "find", "ls"]);
   });
 
-  it("implement preset is mutating with sandbox default and excludes task/todowrite", () => {
+  it("implement preset is mutating with shared default and excludes task/todowrite", () => {
     const preset = resolvePreset("implement");
     expect(preset.mutating).toBe(true);
-    expect(preset.defaultIsolation).toBe("sandbox");
+    expect(preset.defaultIsolation).toBe("shared");
     const names = preset.tools.map((t) => t.name);
     expect(names).not.toContain("task");
     expect(names).not.toContain("todowrite");

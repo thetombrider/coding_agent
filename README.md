@@ -43,6 +43,10 @@ build plan live in [`SPEC.md`](./SPEC.md).
   a **code-tuned** model (Kimi K2.7 Code by default), and `review` on **main**.
   Override per role with `models.roles.<preset>` in `~/.orin/config.json`; an id
   the active provider doesn't support falls back to the tier default.
+- **Subagent isolation** — `task` subagents default to `shared` (edit the local
+  working tree, changes persist), with `worktree` (run on a fresh git branch,
+  isolated but persistent — the summary reports the branch + diff) and `sandbox`
+  (ephemeral E2B clone, for untrusted code) as opt-ins.
 - **Context compaction** — old turns are summarized and stale tool output evicted
   automatically as the context window fills.
 - **Persistent sessions** — every session is an append-only JSONL log under

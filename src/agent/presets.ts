@@ -2,7 +2,7 @@ import { getChildTools, pickTools } from "../tools/registry.js";
 import type { AnyTool } from "../tools/registry.js";
 
 export type AgentPreset = "explore" | "review" | "implement";
-export type IsolationMode = "shared" | "sandbox";
+export type IsolationMode = "shared" | "worktree" | "sandbox";
 
 export interface PresetDefinition {
   agent: AgentPreset;
@@ -56,7 +56,7 @@ export function resolvePreset(agent: AgentPreset = "implement"): PresetDefinitio
         system: IMPLEMENT_SYSTEM,
         tools: getChildTools(),
         mutating: true,
-        defaultIsolation: "sandbox",
+        defaultIsolation: "shared",
       };
   }
 }

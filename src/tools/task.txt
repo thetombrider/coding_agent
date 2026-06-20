@@ -6,7 +6,15 @@ Presets (each runs on a model suited to the role):
 - review: read-only code review (shared workspace); main model
 - implement: full tool access in an E2B sandbox (mutating/risky work); code-tuned model
 
+Isolation (optional, defaults per preset):
+- shared (default): the subagent edits the local working tree directly — changes persist.
+- worktree: runs in a git worktree on a fresh branch; edits persist to that branch
+  (isolated from your tree) and the summary reports the branch + diff stat. Use this
+  for risky/large changes you want to review on a branch before merging.
+- sandbox: ephemeral E2B cloud clone; edits are discarded on exit (requires E2B_API_KEY).
+  For untrusted code only — its changes do not flow back.
+
 Prefer delegate_read instead when you already know which files to read and only need
 a one-shot cheap-model summary — it is faster and lower cost. Use task when the scope
 is open-ended (you must search or follow leads), you need a structured review pass, or
-the work is mutating and should run in a sandbox.
+the work is mutating implementation.
