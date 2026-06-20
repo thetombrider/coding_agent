@@ -104,6 +104,11 @@ export async function runSubagentTask(
     return { output: isolationResult.error, isError: true };
   }
 
+  // Single resolution point for the subagent's model. Per-subagent routing
+  // (#134) replaces the RHS (e.g. resolvePresetModel(preset, …)); both the
+  // span attribute and the spawn below read it, so that change drops in here.
+  const subagentModel = host.model;
+
   const subagentId = randomUUID();
   const createSandbox = deps.createSandbox ?? createE2BWorkspace;
   const seedRepo = deps.seedRepo ?? seedRepoIntoWorkspace;
@@ -117,6 +122,8 @@ export async function runSubagentTask(
     id: subagentId,
     description: args.description,
     agent: preset.agent,
+    isolation: isolationResult.mode,
+    model: subagentModel,
   });
 
   try {
@@ -145,9 +152,9 @@ export async function runSubagentTask(
     });
 
     // Forward child LLM + tool events to the parent registry, tagged with
-    // subagentId, so one accumulator (and later one trace) captures subagent
-    // cost. llm_start is forwarded for span pairing (6/8); the telemetry
-    // observer ignores it today.
+    // subagentId, so one accumulator and one trace capture subagent cost. The
+    // OTel exporter (6/8) nests these spans under the subagent span keyed by
+    // subagentId; llm_start is forwarded so generation spans pair by id.
     childHooks.observe((event) => {
       if (
         event.type === "tool_start" ||
@@ -162,7 +169,7 @@ export async function runSubagentTask(
     await runLoop(childCtx, childHooks, {
       provider: host.provider,
       tools: preset.tools,
-      model: host.model,
+      model: subagentModel,
       cheapModel: host.cheapModel ?? defaultCheapModel(),
       system: preset.system,
       signal,

@@ -11,7 +11,7 @@ export type AgentEvent =
   | { type: "tool_end"; id: string; name: string; output: string; isError?: boolean; subagentId?: string }
   | { type: "approval_required"; id: string; name: string; args: unknown; subagentId?: string }
   | { type: "todo_update"; todos: TodoItem[] }
-  | { type: "subagent_start"; id: string; description: string; agent: string }
+  | { type: "subagent_start"; id: string; description: string; agent: string; isolation?: "shared" | "sandbox"; model?: string }
   | { type: "subagent_end"; id: string; agent: string; turns: number; summary: string }
   | { type: "loop_end"; reason: "complete" | "terminate" | "error" };
 
