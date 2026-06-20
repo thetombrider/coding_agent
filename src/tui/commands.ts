@@ -6,6 +6,8 @@ import {
   type ApprovalMode,
 } from "../approval/policy.js";
 import { hasE2BApiKey } from "../config/config.js";
+import type { ModelPricing } from "../config/config.js";
+import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import type { ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
@@ -18,6 +20,8 @@ export interface CommandContext {
   providers?: ProviderSummary[];
   /** Optional lookup injected by the TUI for configure flows. */
   providerConfigFields?: (id: string) => readonly ProviderConfigField[];
+  /** Static pricing table for model list labels. */
+  modelPricing?: Record<string, ModelPricing>;
 }
 
 export type CommandResult =
@@ -41,6 +45,7 @@ export type CommandResult =
   | { type: "error"; message: string };
 
 import { clipboardHintText } from "./shortcuts.js";
+import { formatModelPricingLabel } from "./views.js";
 
 /** List of `/commands` shown by `/help`. */
 export const KEYBOARD_HINTS = clipboardHintText();
@@ -66,9 +71,14 @@ function modeInfo(ctx: CommandContext): string {
 }
 
 function modelInfo(ctx: CommandContext): string {
+  const providerId = ctx.currentProvider ?? "openrouter";
+  const pricingTable = ctx.modelPricing ?? {};
   const lines = ctx.knownModels.map((m, i) => {
     const marker = m === ctx.currentModel ? " ←" : "";
-    return `${i + 1}. ${m}${marker}`;
+    const price = formatModelPricingLabel(
+      resolveDisplayModelPricing(m, providerId, pricingTable),
+    );
+    return `${i + 1}. ${m}  ${price}${marker}`;
   });
   return `model: ${ctx.currentModel}\n${lines.join("\n")}\n/model <number|id> to switch`;
 }

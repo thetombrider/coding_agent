@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelPricing } from "../config/config.js";
-import { aiSdkUsageToUsage, calcCost } from "./cost.js";
+import { aiSdkUsageToUsage, calcCost, resolveModelPricing } from "./cost.js";
 
 const pricing: Record<string, ModelPricing> = {
   "anthropic/claude-opus-4.8": { inputPerM: 15, outputPerM: 75, cacheReadPerM: 1.5, cacheWritePerM: 18.75 },
@@ -50,6 +50,22 @@ describe("calcCost", () => {
     const result = calcCost("openrouter/anthropic/claude-opus-4.8", { input: 1_000_000, output: 0, totalTokens: 1_000_000 }, pricing);
     expect(result.pricingMissing).toBe(false);
     expect(result.costUsd).toBeCloseTo(15);
+  });
+});
+
+describe("resolveModelPricing", () => {
+  it("returns the first matching pricing key", () => {
+    expect(resolveModelPricing("anthropic/claude-opus-4.8", pricing)).toEqual(pricing["anthropic/claude-opus-4.8"]);
+  });
+
+  it("resolves via provider-prefixed and stripped suffix keys", () => {
+    expect(resolveModelPricing("openrouter/anthropic/claude-opus-4.8", pricing, "openrouter")).toEqual(
+      pricing["anthropic/claude-opus-4.8"],
+    );
+  });
+
+  it("returns undefined for unknown models", () => {
+    expect(resolveModelPricing("mystery/model-x", pricing)).toBeUndefined();
   });
 });
 

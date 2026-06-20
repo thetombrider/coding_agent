@@ -6,6 +6,11 @@ const ctx: CommandContext = {
   currentModel: "anthropic/claude-sonnet-4",
   currentMode: "normal",
   knownModels: ["anthropic/claude-opus-4", "anthropic/claude-sonnet-4", "openai/gpt-4o"],
+  currentProvider: "openrouter",
+  modelPricing: {
+    "anthropic/claude-opus-4": { inputPerM: 15, outputPerM: 75 },
+    "anthropic/claude-sonnet-4": { inputPerM: 3, outputPerM: 15 },
+  },
 };
 
 const providers: ProviderSummary[] = [
@@ -93,7 +98,11 @@ describe("processCommand", () => {
     it("lists models when given no argument", () => {
       const r = processCommand("/model", ctx);
       expect(r.type).toBe("info");
-      if (r.type === "info") expect(r.message).toContain("openai/gpt-4o");
+      if (r.type === "info") {
+        expect(r.message).toContain("openai/gpt-4o");
+        expect(r.message).toContain("in $3.00 · out $15.00/M");
+        expect(r.message).toContain("—");
+      }
     });
 
     it("sets a model by explicit id", () => {

@@ -33,7 +33,8 @@ function pricingCandidates(model: string, providerId?: string): string[] {
   return candidates;
 }
 
-function lookupPricing(
+/** Resolve static config pricing for a model id (most specific key wins). */
+export function resolveModelPricing(
   model: string,
   pricing: Record<string, ModelPricing>,
   providerId?: string,
@@ -57,7 +58,7 @@ export function calcCost(
   pricing: Record<string, ModelPricing>,
   providerId?: string,
 ): CostBreakdown {
-  const found = lookupPricing(model, pricing, providerId);
+  const found = resolveModelPricing(model, pricing, providerId);
 
   if (!found) {
     return {
