@@ -95,6 +95,12 @@ export async function runSubagentTask(
   }
 
   const preset = resolvePreset(args.agent);
+
+  // Resolve the per-child model up front, before any spawn instrumentation
+  // (the subagent span in #86) opens — so the span can tag the chosen model.
+  const hostCheap = host.cheapModel ?? defaultCheapModel();
+  const childModel = resolvePresetModel(preset.agent, host.model, hostCheap);
+
   const isolationResult = resolveIsolation(
     args.isolation,
     preset.mutating,
@@ -111,9 +117,6 @@ export async function runSubagentTask(
   let childWorkspace = ctx.workspace;
   let childCwd = ctx.cwd;
   let ownsWorkspace = false;
-
-  const hostCheap = host.cheapModel ?? defaultCheapModel();
-  const childModel = resolvePresetModel(preset.agent, host.model, hostCheap);
 
   host.hooks.emit({
     type: "subagent_start",
