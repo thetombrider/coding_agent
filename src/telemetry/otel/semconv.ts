@@ -52,6 +52,29 @@ export function llmResponseAttributes(input: {
   return attrs;
 }
 
+/** Span name for a subagent invocation: `subagent:{agent}`. */
+export function subagentSpanName(agent: string): string {
+  return `subagent:${agent}`;
+}
+
+/** Attributes set when a subagent span opens (`subagent_start`). */
+export function subagentStartAttributes(input: {
+  agent: string;
+  isolation?: string;
+}): SpanAttributes {
+  const attrs: SpanAttributes = {
+    "gen_ai.operation.name": "invoke_agent",
+    "gen_ai.agent.name": input.agent,
+  };
+  if (input.isolation) attrs["orin.subagent.isolation"] = input.isolation;
+  return attrs;
+}
+
+/** Outcome attributes for a subagent span, set on `subagent_end`. */
+export function subagentEndAttributes(input: { turns: number }): SpanAttributes {
+  return { "orin.subagent.turns": input.turns };
+}
+
 /** Attributes for a tool-execution span. */
 export function toolStartAttributes(input: { name: string; callId: string }): SpanAttributes {
   return {
