@@ -61,12 +61,15 @@ export function subagentSpanName(agent: string): string {
 export function subagentStartAttributes(input: {
   agent: string;
   isolation?: string;
+  /** Resolved at the spawn site — per-subagent routing (#134) flows in here. */
+  model?: string;
 }): SpanAttributes {
   const attrs: SpanAttributes = {
     "gen_ai.operation.name": "invoke_agent",
     "gen_ai.agent.name": input.agent,
   };
   if (input.isolation) attrs["orin.subagent.isolation"] = input.isolation;
+  if (input.model) attrs["gen_ai.request.model"] = input.model;
   return attrs;
 }
 

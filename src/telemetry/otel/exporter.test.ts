@@ -271,6 +271,7 @@ describe("createOtelSpanConsumer", () => {
       description: "scan repo",
       agent: "explore",
       isolation: "shared",
+      model: "faux:test",
     });
     // Child LLM + tool spans forwarded from the subagent, tagged with subagentId.
     consumer.handleEvent({ type: "llm_start", id: "c1", model: "faux:test", subagentId: "sub1" });
@@ -305,6 +306,7 @@ describe("createOtelSpanConsumer", () => {
     expect(subagent.attributes["gen_ai.operation.name"]).toBe("invoke_agent");
     expect(subagent.attributes["gen_ai.agent.name"]).toBe("explore");
     expect(subagent.attributes["orin.subagent.isolation"]).toBe("shared");
+    expect(subagent.attributes["gen_ai.request.model"]).toBe("faux:test");
     expect(subagent.attributes["orin.subagent.turns"]).toBe(3);
   });
 

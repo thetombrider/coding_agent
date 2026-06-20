@@ -104,6 +104,11 @@ export async function runSubagentTask(
     return { output: isolationResult.error, isError: true };
   }
 
+  // Single resolution point for the subagent's model. Per-subagent routing
+  // (#134) replaces the RHS (e.g. resolvePresetModel(preset, …)); both the
+  // span attribute and the spawn below read it, so that change drops in here.
+  const subagentModel = host.model;
+
   const subagentId = randomUUID();
   const createSandbox = deps.createSandbox ?? createE2BWorkspace;
   const seedRepo = deps.seedRepo ?? seedRepoIntoWorkspace;
@@ -118,6 +123,7 @@ export async function runSubagentTask(
     description: args.description,
     agent: preset.agent,
     isolation: isolationResult.mode,
+    model: subagentModel,
   });
 
   try {
@@ -163,7 +169,7 @@ export async function runSubagentTask(
     await runLoop(childCtx, childHooks, {
       provider: host.provider,
       tools: preset.tools,
-      model: host.model,
+      model: subagentModel,
       cheapModel: host.cheapModel ?? defaultCheapModel(),
       system: preset.system,
       signal,

@@ -185,7 +185,7 @@ class SpanConsumer implements OtelSpanConsumer {
       case "tool_end":
         return this.onToolEnd(event.id, event.output, event.isError === true);
       case "subagent_start":
-        return this.onSubagentStart(event.id, event.agent, event.isolation);
+        return this.onSubagentStart(event.id, event.agent, event.isolation, event.model);
       case "subagent_end":
         return this.onSubagentEnd(event.id, event.turns);
       default:
@@ -314,7 +314,12 @@ class SpanConsumer implements OtelSpanConsumer {
     });
   }
 
-  private onSubagentStart(subagentId: string, agent: string, isolation?: string): void {
+  private onSubagentStart(
+    subagentId: string,
+    agent: string,
+    isolation?: string,
+    model?: string,
+  ): void {
     const startTime = Date.now();
     this.apply((rt) => {
       const taskId = this.pendingTaskSpans.shift();
@@ -327,7 +332,7 @@ class SpanConsumer implements OtelSpanConsumer {
         {
           startTime,
           kind: rt.api.SpanKind.INTERNAL,
-          attributes: subagentStartAttributes({ agent, isolation }),
+          attributes: subagentStartAttributes({ agent, isolation, model }),
         },
         parent,
       );
