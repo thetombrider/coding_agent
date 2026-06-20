@@ -6,9 +6,9 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "todowrite")).toBe(true);
   });
 
-  it("excludes task from core tools when E2B is not configured", () => {
+  it("includes task in core tools without an E2B key (shared/worktree run locally)", () => {
     vi.stubEnv("E2B_API_KEY", "");
-    expect(getCoreTools().some((t) => t.name === "task")).toBe(false);
+    expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
   });
 
   it("includes task in core tools when E2B is configured", () => {
