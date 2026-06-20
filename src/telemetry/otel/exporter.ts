@@ -6,6 +6,12 @@
  * Sessions via `session.id` / `langfuse.session.id` on every trace root — not a
  * span.
  *
+ * Subagents (issue 6/8): a `subagent_start` opens a `subagent:{agent}` span
+ * parented on the in-flight `task` tool span (else the turn root), and any
+ * LLM/tool event carrying a `subagentId` nests under that span. Concurrent
+ * subagents stay isolated by `subagentId`, so fan-out (#37) doesn't
+ * cross-attribute.
+ *
  * Concurrency: `hooks.emit` dispatches observers via `Promise.resolve().then()`
  * (registry.ts), which detaches async context, and tools run under
  * `Promise.all`. So this consumer does NOT use `context.with()` — it keeps
@@ -29,9 +35,15 @@ import {
   llmRequestAttributes,
   llmResponseAttributes,
   llmSpanName,
+  subagentEndAttributes,
+  subagentSpanName,
+  subagentStartAttributes,
   toolEndAttributes,
   toolStartAttributes,
 } from "./semconv.js";
+
+/** Tool name that spawns a subagent — its in-flight span parents the subagent. */
+const TASK_TOOL_NAME = "task";
 
 export interface OtelConsumerOptions {
   sessionId: string;
@@ -75,6 +87,15 @@ class SpanConsumer implements OtelSpanConsumer {
   private turnRoot: Span | undefined;
   private readonly llmSpans = new Map<string, Span>();
   private readonly toolSpans = new Map<string, Span>();
+  /** subagentId → open subagent span (6/8). Child LLM/tool spans parent here. */
+  private readonly subagentSpans = new Map<string, Span>();
+  /**
+   * Call ids of in-flight `task` tool spans not yet claimed by a subagent span,
+   * oldest first. `subagent_start` fires synchronously right after its `task`
+   * tool_start (task.ts), so the oldest unclaimed entry is the parent — this
+   * holds under parallel fan-out (#37) where starts interleave per task.
+   */
+  private pendingTaskSpans: string[] = [];
 
   constructor(
     private readonly cfg: OtelConfig,
@@ -122,6 +143,19 @@ class SpanConsumer implements OtelSpanConsumer {
       : rt.api.ROOT_CONTEXT;
   }
 
+  /**
+   * Parent context for an LLM/tool span: the subagent span keyed by
+   * `subagentId` when present and open (sibling isolation under parallel
+   * fan-out), else the turn root.
+   */
+  private childParentContext(rt: OtelRuntime, subagentId?: string) {
+    if (subagentId) {
+      const span = this.subagentSpans.get(subagentId);
+      if (span) return rt.api.trace.setSpan(rt.api.ROOT_CONTEXT, span);
+    }
+    return this.parentContext(rt);
+  }
+
   private turnRootAttributes(): Record<string, string> {
     const attrs: Record<string, string> = {};
     const sessionId = this.opts.sessionId?.trim();
@@ -143,13 +177,17 @@ class SpanConsumer implements OtelSpanConsumer {
       case "loop_end":
         return this.onLoopEnd(event.reason);
       case "llm_start":
-        return this.onLlmStart(event.id, event.model);
+        return this.onLlmStart(event.id, event.model, event.subagentId);
       case "assistant_message":
         return this.onAssistantMessage(event.id, event.message);
       case "tool_start":
-        return this.onToolStart(event.id, event.name);
+        return this.onToolStart(event.id, event.name, event.subagentId);
       case "tool_end":
         return this.onToolEnd(event.id, event.output, event.isError === true);
+      case "subagent_start":
+        return this.onSubagentStart(event.id, event.agent, event.isolation, event.model);
+      case "subagent_end":
+        return this.onSubagentEnd(event.id, event.turns);
       default:
         return;
     }
@@ -198,11 +236,14 @@ class SpanConsumer implements OtelSpanConsumer {
   private closeOpenChildren(endTime: number): void {
     for (const span of this.llmSpans.values()) span.end(endTime);
     for (const span of this.toolSpans.values()) span.end(endTime);
+    for (const span of this.subagentSpans.values()) span.end(endTime);
     this.llmSpans.clear();
     this.toolSpans.clear();
+    this.subagentSpans.clear();
+    this.pendingTaskSpans = [];
   }
 
-  private onLlmStart(id: string, model: string): void {
+  private onLlmStart(id: string, model: string, subagentId?: string): void {
     const startTime = Date.now();
     this.apply((rt) => {
       const span = rt.tracer.startSpan(
@@ -212,7 +253,7 @@ class SpanConsumer implements OtelSpanConsumer {
           kind: rt.api.SpanKind.CLIENT,
           attributes: llmRequestAttributes({ requestModel: model, providerId: this.opts.providerId }),
         },
-        this.parentContext(rt),
+        this.childParentContext(rt, subagentId),
       );
       this.llmSpans.set(id, span);
     });
@@ -236,7 +277,7 @@ class SpanConsumer implements OtelSpanConsumer {
     });
   }
 
-  private onToolStart(id: string, name: string): void {
+  private onToolStart(id: string, name: string, subagentId?: string): void {
     const startTime = Date.now();
     this.apply((rt) => {
       const span = rt.tracer.startSpan(
@@ -246,9 +287,12 @@ class SpanConsumer implements OtelSpanConsumer {
           kind: rt.api.SpanKind.INTERNAL,
           attributes: toolStartAttributes({ name, callId: id }),
         },
-        this.parentContext(rt),
+        this.childParentContext(rt, subagentId),
       );
       this.toolSpans.set(id, span);
+      // A top-level `task` tool span is the parent for the subagent_start that
+      // follows it. Child task tools (carrying a subagentId) don't qualify.
+      if (name === TASK_TOOL_NAME && !subagentId) this.pendingTaskSpans.push(id);
     });
   }
 
@@ -258,10 +302,51 @@ class SpanConsumer implements OtelSpanConsumer {
       const span = this.toolSpans.get(id);
       if (!span) return;
       this.toolSpans.delete(id);
+      // Drop an unclaimed task span (e.g. it errored before subagent_start) so
+      // a later subagent can't mis-parent onto it.
+      const pending = this.pendingTaskSpans.indexOf(id);
+      if (pending !== -1) this.pendingTaskSpans.splice(pending, 1);
       span.setAttributes(toolEndAttributes({ ok: !isError, output }));
       if (isError) {
         span.setStatus({ code: rt.api.SpanStatusCode.ERROR });
       }
+      span.end(endTime);
+    });
+  }
+
+  private onSubagentStart(
+    subagentId: string,
+    agent: string,
+    isolation?: string,
+    model?: string,
+  ): void {
+    const startTime = Date.now();
+    this.apply((rt) => {
+      const taskId = this.pendingTaskSpans.shift();
+      const taskSpan = taskId ? this.toolSpans.get(taskId) : undefined;
+      const parent = taskSpan
+        ? rt.api.trace.setSpan(rt.api.ROOT_CONTEXT, taskSpan)
+        : this.parentContext(rt);
+      const span = rt.tracer.startSpan(
+        subagentSpanName(agent),
+        {
+          startTime,
+          kind: rt.api.SpanKind.INTERNAL,
+          attributes: subagentStartAttributes({ agent, isolation, model }),
+        },
+        parent,
+      );
+      this.subagentSpans.set(subagentId, span);
+    });
+  }
+
+  private onSubagentEnd(subagentId: string, turns: number): void {
+    const endTime = Date.now();
+    this.apply(() => {
+      const span = this.subagentSpans.get(subagentId);
+      if (!span) return;
+      this.subagentSpans.delete(subagentId);
+      span.setAttributes(subagentEndAttributes({ turns }));
       span.end(endTime);
     });
   }

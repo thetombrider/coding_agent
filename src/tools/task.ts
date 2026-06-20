@@ -95,12 +95,6 @@ export async function runSubagentTask(
   }
 
   const preset = resolvePreset(args.agent);
-
-  // Resolve the per-child model up front, before any spawn instrumentation
-  // (the subagent span in #86) opens — so the span can tag the chosen model.
-  const hostCheap = host.cheapModel ?? defaultCheapModel();
-  const childModel = resolvePresetModel(preset.agent, host.model, hostCheap);
-
   const isolationResult = resolveIsolation(
     args.isolation,
     preset.mutating,
@@ -109,6 +103,14 @@ export async function runSubagentTask(
   if ("error" in isolationResult) {
     return { output: isolationResult.error, isError: true };
   }
+
+  // Single resolution point for the subagent's model (read by both the span
+  // attribute and the spawn below). Per-subagent routing (#134): explore runs
+  // on the cheap tier, review/general on main; an explicit models.roles override
+  // wins when the active provider supports it. Resolved before the subagent_start
+  // span opens so #86 can tag the chosen model.
+  const hostCheap = host.cheapModel ?? defaultCheapModel();
+  const subagentModel = resolvePresetModel(preset.agent, host.model, hostCheap);
 
   const subagentId = randomUUID();
   const createSandbox = deps.createSandbox ?? createE2BWorkspace;
@@ -123,7 +125,8 @@ export async function runSubagentTask(
     id: subagentId,
     description: args.description,
     agent: preset.agent,
-    model: childModel,
+    isolation: isolationResult.mode,
+    model: subagentModel,
   });
 
   try {
@@ -152,9 +155,9 @@ export async function runSubagentTask(
     });
 
     // Forward child LLM + tool events to the parent registry, tagged with
-    // subagentId, so one accumulator (and later one trace) captures subagent
-    // cost. llm_start is forwarded for span pairing (6/8); the telemetry
-    // observer ignores it today.
+    // subagentId, so one accumulator and one trace capture subagent cost. The
+    // OTel exporter (6/8) nests these spans under the subagent span keyed by
+    // subagentId; llm_start is forwarded so generation spans pair by id.
     childHooks.observe((event) => {
       if (
         event.type === "tool_start" ||
@@ -169,7 +172,7 @@ export async function runSubagentTask(
     await runLoop(childCtx, childHooks, {
       provider: host.provider,
       tools: preset.tools,
-      model: childModel,
+      model: subagentModel,
       cheapModel: hostCheap,
       system: preset.system,
       signal,

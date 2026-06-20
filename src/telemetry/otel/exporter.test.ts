@@ -259,6 +259,122 @@ describe("createOtelSpanConsumer", () => {
     expect(llm.attributes["gen_ai.usage.cost_usd"]).toBeUndefined();
   });
 
+  it("nests a subagent's LLM and tool spans under the task tool span", async () => {
+    const { exporter, consumer } = harness();
+
+    consumer.handleEvent({ type: "turn_start", id: "turn-1" });
+    // Top-level task tool call, then the subagent it spawns.
+    consumer.handleEvent({ type: "tool_start", id: "task-call", name: "task", args: {} });
+    consumer.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan repo",
+      agent: "explore",
+      isolation: "shared",
+      model: "faux:test",
+    });
+    // Child LLM + tool spans forwarded from the subagent, tagged with subagentId.
+    consumer.handleEvent({ type: "llm_start", id: "c1", model: "faux:test", subagentId: "sub1" });
+    consumer.handleEvent({
+      type: "assistant_message",
+      id: "c1",
+      message: assistantMessage(),
+      subagentId: "sub1",
+    });
+    consumer.handleEvent({ type: "tool_start", id: "ct1", name: "read", args: {}, subagentId: "sub1" });
+    consumer.handleEvent({ type: "tool_end", id: "ct1", name: "read", output: "data", subagentId: "sub1" });
+    consumer.handleEvent({ type: "subagent_end", id: "sub1", agent: "explore", turns: 3, summary: "done" });
+    consumer.handleEvent({ type: "tool_end", id: "task-call", name: "task", output: "done" });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const spans = exporter.getFinishedSpans();
+    const root = byName(spans, "turn")!;
+    const task = byName(spans, "task")!;
+    const subagent = byName(spans, "subagent:explore")!;
+    const llm = byName(spans, "chat faux:test")!;
+    const tool = byName(spans, "read")!;
+
+    // task → subagent → {llm, tool}, all in one trace.
+    expect(task.parentSpanContext?.spanId).toBe(root.spanContext().spanId);
+    expect(subagent.parentSpanContext?.spanId).toBe(task.spanContext().spanId);
+    expect(llm.parentSpanContext?.spanId).toBe(subagent.spanContext().spanId);
+    expect(tool.parentSpanContext?.spanId).toBe(subagent.spanContext().spanId);
+    expect(subagent.spanContext().traceId).toBe(root.spanContext().traceId);
+
+    // Subagent span attributes.
+    expect(subagent.attributes["gen_ai.operation.name"]).toBe("invoke_agent");
+    expect(subagent.attributes["gen_ai.agent.name"]).toBe("explore");
+    expect(subagent.attributes["orin.subagent.isolation"]).toBe("shared");
+    expect(subagent.attributes["gen_ai.request.model"]).toBe("faux:test");
+    expect(subagent.attributes["orin.subagent.turns"]).toBe(3);
+  });
+
+  it("keeps concurrent subagents from cross-attributing child spans", async () => {
+    const { exporter, consumer } = harness();
+
+    consumer.handleEvent({ type: "turn_start", id: "turn-1" });
+    // Two task tool calls fan out, each spawning a subagent (interleaved starts).
+    consumer.handleEvent({ type: "tool_start", id: "task-a", name: "task", args: {} });
+    consumer.handleEvent({
+      type: "subagent_start",
+      id: "subA",
+      description: "a",
+      agent: "explore",
+      isolation: "shared",
+    });
+    consumer.handleEvent({ type: "tool_start", id: "task-b", name: "task", args: {} });
+    consumer.handleEvent({
+      type: "subagent_start",
+      id: "subB",
+      description: "b",
+      agent: "review",
+      isolation: "sandbox",
+    });
+    // Child tools arrive interleaved, each tagged with its own subagentId.
+    consumer.handleEvent({ type: "tool_start", id: "ta", name: "read", args: {}, subagentId: "subA" });
+    consumer.handleEvent({ type: "tool_start", id: "tb", name: "bash", args: {}, subagentId: "subB" });
+    consumer.handleEvent({ type: "tool_end", id: "tb", name: "bash", output: "x", subagentId: "subB" });
+    consumer.handleEvent({ type: "tool_end", id: "ta", name: "read", output: "y", subagentId: "subA" });
+    consumer.handleEvent({ type: "subagent_end", id: "subB", agent: "review", turns: 1, summary: "b" });
+    consumer.handleEvent({ type: "subagent_end", id: "subA", agent: "explore", turns: 2, summary: "a" });
+    consumer.handleEvent({ type: "tool_end", id: "task-a", name: "task", output: "a" });
+    consumer.handleEvent({ type: "tool_end", id: "task-b", name: "task", output: "b" });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const spans = exporter.getFinishedSpans();
+    const subA = byName(spans, "subagent:explore")!;
+    const subB = byName(spans, "subagent:review")!;
+    const taskA = spans.find((s) => s.attributes["gen_ai.tool.call.id"] === "task-a")!;
+    const taskB = spans.find((s) => s.attributes["gen_ai.tool.call.id"] === "task-b")!;
+    const read = byName(spans, "read")!;
+    const bash = byName(spans, "bash")!;
+
+    // Each subagent nests under its own task span — no cross-attribution.
+    expect(subA.parentSpanContext?.spanId).toBe(taskA.spanContext().spanId);
+    expect(subB.parentSpanContext?.spanId).toBe(taskB.spanContext().spanId);
+    // Sibling isolation: each child tool parents on its own subagent.
+    expect(read.parentSpanContext?.spanId).toBe(subA.spanContext().spanId);
+    expect(bash.parentSpanContext?.spanId).toBe(subB.spanContext().spanId);
+  });
+
+  it("falls back to the turn root for subagent child spans when subagentId is unknown", async () => {
+    const { exporter, consumer } = harness();
+
+    consumer.handleEvent({ type: "turn_start", id: "turn-1" });
+    // No matching subagent span open — parent should be the turn root.
+    consumer.handleEvent({ type: "tool_start", id: "ct1", name: "read", args: {}, subagentId: "ghost" });
+    consumer.handleEvent({ type: "tool_end", id: "ct1", name: "read", output: "data", subagentId: "ghost" });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const spans = exporter.getFinishedSpans();
+    const root = byName(spans, "turn")!;
+    const tool = byName(spans, "read")!;
+    expect(tool.parentSpanContext?.spanId).toBe(root.spanContext().spanId);
+  });
+
   it("starts orphan spans on ROOT_CONTEXT when no turn root is open", async () => {
     const { exporter, consumer } = harness();
     consumer.handleEvent({ type: "llm_start", id: "c1", model: "faux:test" });
