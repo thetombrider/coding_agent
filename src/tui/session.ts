@@ -1,6 +1,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
+import type { IsolationMode } from "../agent/isolation.js";
 import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
@@ -202,6 +203,13 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     saveConfig({ approval: { mode } });
   };
 
+  // Persisted only — the task tool reads `subagent.isolation` from config when it
+  // spawns a child, so no live ref needs rewiring.
+  const setSubagentIsolation = (isolation: IsolationMode) => {
+    saveConfig({ subagent: { isolation } });
+    controller.setStatusHint(`subagent isolation → ${isolation}`);
+  };
+
   // Persist the active provider. The provider call paths (stream/delegate/
   // compaction) resolve the active provider from config on each turn, so the
   // switch takes effect on the next turn without rewiring the loop.
@@ -341,6 +349,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onExit: resolveExit,
           onSetModel: setModel,
           onSetMode: setApprovalMode,
+          onSetIsolation: setSubagentIsolation,
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
           onConfigureE2b: configureE2b,

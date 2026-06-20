@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { coerceIsolation, type IsolationMode } from "../agent/isolation.js";
 
 export interface ModelPricing {
   inputPerM: number;
@@ -53,6 +54,14 @@ export interface Config {
   approval: {
     mode: "normal" | "auto-accept" | "plan";
     autoApprovedCommands: string[];
+  };
+  subagent: {
+    /**
+     * Default isolation floor for mutating `task` subagents. A guarantee, not
+     * just a default: the lead model may escalate to a more-isolated mode per
+     * call but never weaken below this. Read-only presets are unaffected.
+     */
+    isolation: IsolationMode;
   };
   system: {
     prompt: string;
@@ -125,6 +134,7 @@ const DEFAULT_CONFIG: Config = {
     },
   },
   approval: { mode: "normal", autoApprovedCommands: [] },
+  subagent: { isolation: "shared" },
   system: { prompt: "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely." },
   telemetry: {
     enabled: true,
@@ -290,6 +300,12 @@ export function loadConfig(): Config {
   if (rawMode === "auto-accept" || rawMode === "auto") merged.approval.mode = "auto-accept";
   else if (rawMode === "plan") merged.approval.mode = "plan";
   else if (rawMode === "normal") merged.approval.mode = "normal";
+
+  const rawIsolation = process.env.ORIN_SUBAGENT_ISOLATION?.trim();
+  if (rawIsolation) {
+    const isolation = coerceIsolation(rawIsolation);
+    if (isolation) merged.subagent.isolation = isolation;
+  }
 
   return merged;
 }

@@ -4,9 +4,19 @@ own tool loop and returns only a summary — intermediate steps stay out of your
 Presets (each runs on a model suited to the role):
 - explore: read-only investigation (shared workspace) — grep/find/read across the tree; cheap model
 - review: read-only code review (shared workspace); main model
-- implement: full tool access in an E2B sandbox (mutating/risky work); code-tuned model
+- implement: full tool access for mutating/risky work; code-tuned model (default isolation: shared)
+
+Isolation (optional, defaults per preset):
+- shared (default): the subagent edits the local working tree directly — changes persist.
+- worktree: runs in a git worktree on a fresh branch; edits persist to that branch
+  (isolated from your tree) and the summary reports the branch + diff stat. Use this
+  for risky/large changes you want to review on a branch before merging.
+- sandbox: ephemeral E2B cloud clone; edits are discarded on exit (requires E2B_API_KEY).
+  For untrusted code only — its changes do not flow back.
+The user configures a minimum isolation floor; you may request a more-isolated mode
+than the default but a weaker request is raised to the floor.
 
 Prefer delegate_read instead when you already know which files to read and only need
 a one-shot cheap-model summary — it is faster and lower cost. Use task when the scope
 is open-ended (you must search or follow leads), you need a structured review pass, or
-the work is mutating and should run in a sandbox.
+the work is mutating implementation.

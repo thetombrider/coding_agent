@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { currentTurnCount } from "../agent/compaction.js";
-import { resolvePreset, type IsolationMode } from "../agent/presets.js";
+import { resolvePreset, type PresetDefinition } from "../agent/presets.js";
+import { resolveIsolationMode, type IsolationMode } from "../agent/isolation.js";
 import { lastAssistantText, runLoop } from "../agent/loop.js";
-import { hasE2BApiKey } from "../config/config.js";
+import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { defaultCheapModel, resolvePresetModel } from "../config/models.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
 import { loadToolDescription } from "../util/load-txt.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
+import { createWorktree, type HarvestResult, type WorktreeHandle } from "../workspace/worktree.js";
 import type { Workspace } from "../workspace/types.js";
 import type { AgentContext } from "../types.js";
 import type { Tool } from "./types.js";
@@ -28,9 +30,13 @@ const schema = z.object({
       + "investigation — not for known-path summaries (use delegate_read instead).",
     ),
   isolation: z
-    .enum(["shared", "sandbox"])
+    .enum(["shared", "worktree", "sandbox"])
     .optional()
-    .describe("Workspace isolation — enforced against preset capabilities."),
+    .describe(
+      "Workspace isolation. shared (default): edits the local working tree and "
+      + "persists. worktree: runs in a git worktree on a fresh branch (isolated, "
+      + "persists to that branch). sandbox: ephemeral E2B clone (requires E2B_API_KEY).",
+    ),
 });
 
 export type TaskArgs = z.infer<typeof schema>;
@@ -38,35 +44,25 @@ export type TaskArgs = z.infer<typeof schema>;
 export interface TaskDeps {
   createSandbox?: () => Promise<Workspace>;
   seedRepo?: typeof seedRepoIntoWorkspace;
+  createWorktree?: typeof createWorktree;
 }
 
 interface ResolvedIsolation {
   mode: IsolationMode;
-  warning?: string;
 }
 
 function resolveIsolation(
   requested: IsolationMode | undefined,
-  mutating: boolean,
-  defaultIsolation: IsolationMode,
+  preset: PresetDefinition,
 ): ResolvedIsolation | { error: string } {
-  const want = requested ?? defaultIsolation;
+  // The config `subagent.isolation` floor is a guarantee; the model may escalate
+  // per call but not weaken below it (read-only presets are unaffected).
+  const floor = loadConfig().subagent.isolation;
+  const want = resolveIsolationMode(requested, preset.mutating, preset.defaultIsolation, floor);
 
-  if (want === "shared" && mutating) {
-    if (hasE2BApiKey()) {
-      return {
-        mode: "sandbox",
-        warning:
-          "Upgraded isolation to sandbox: mutating presets cannot use shared workspace.",
-      };
-    }
-    return {
-      error:
-        "Destructive subagent work requires sandbox isolation. Set E2B_API_KEY "
-        + "or use agent explore/review for read-only work.",
-    };
-  }
-
+  // shared and worktree run against the local tree — edits persist, matching how
+  // other local agents handle subagent work. Only the cloud sandbox needs a
+  // credential up front; worktree git failures (no repo) surface at creation time.
   if (want === "sandbox" && !hasE2BApiKey()) {
     return {
       error:
@@ -95,11 +91,7 @@ export async function runSubagentTask(
   }
 
   const preset = resolvePreset(args.agent);
-  const isolationResult = resolveIsolation(
-    args.isolation,
-    preset.mutating,
-    preset.defaultIsolation,
-  );
+  const isolationResult = resolveIsolation(args.isolation, preset);
   if ("error" in isolationResult) {
     return { output: isolationResult.error, isError: true };
   }
@@ -115,10 +107,13 @@ export async function runSubagentTask(
   const subagentId = randomUUID();
   const createSandbox = deps.createSandbox ?? createE2BWorkspace;
   const seedRepo = deps.seedRepo ?? seedRepoIntoWorkspace;
+  const makeWorktree = deps.createWorktree ?? createWorktree;
 
   let childWorkspace = ctx.workspace;
   let childCwd = ctx.cwd;
   let ownsWorkspace = false;
+  let worktree: WorktreeHandle | undefined;
+  let harvest: ReturnType<WorktreeHandle["harvest"]> | undefined;
 
   host.hooks.emit({
     type: "subagent_start",
@@ -138,6 +133,14 @@ export async function runSubagentTask(
       if (seedMessage.startsWith("No git origin") || seedMessage.startsWith("git clone failed")) {
         return { output: seedMessage, isError: true };
       }
+    } else if (isolationResult.mode === "worktree") {
+      const result = makeWorktree(ctx.cwd, subagentId);
+      if ("error" in result) {
+        return { output: result.error, isError: true };
+      }
+      worktree = result.handle;
+      childWorkspace = worktree.workspace;
+      childCwd = worktree.cwd;
     }
 
     const childCtx: AgentContext = {
@@ -184,6 +187,15 @@ export async function runSubagentTask(
     const summary = lastAssistantText(childCtx) || "(no summary returned)";
     const turns = currentTurnCount(childCtx.messages);
 
+    // Commit the worktree's work onto its branch before it is removed, and tell
+    // the parent where to find it. The branch survives; the worktree dir does not
+    // (unless the commit failed — see the finally block).
+    let worktreeNote = "";
+    if (worktree) {
+      harvest = worktree.harvest();
+      worktreeNote = worktreeNoteFor(harvest, worktree.cwd);
+    }
+
     host.hooks.emit({
       type: "subagent_end",
       id: subagentId,
@@ -192,14 +204,45 @@ export async function runSubagentTask(
       summary,
     });
 
-    const prefix = isolationResult.warning ? `${isolationResult.warning}\n\n` : "";
     const header = `Subagent (${preset.agent}) finished — ${turns} turn${turns === 1 ? "" : "s"}`;
-    return { output: `${prefix}${header}\n\n${summary}` };
+    return { output: `${header}\n\n${summary}${worktreeNote}` };
   } finally {
-    if (ownsWorkspace) {
+    if (worktree) {
+      // Harvest even when runLoop threw/aborted, so the child's edits are
+      // committed to the branch instead of being discarded by remove().
+      if (!harvest) {
+        try {
+          harvest = worktree.harvest();
+        } catch {
+          // ignore — fall through and keep the worktree for manual recovery
+        }
+      }
+      // Only delete the worktree once its work is safely on the branch. If the
+      // commit failed, leave the dir in place so the user can recover.
+      if (harvest && !("error" in harvest)) {
+        try {
+          worktree.remove();
+        } catch {
+          // best-effort cleanup; a stale worktree can be pruned with `git worktree prune`
+        }
+      }
+    } else if (ownsWorkspace) {
       await childWorkspace.dispose().catch(() => {});
     }
   }
+}
+
+/** Build the parent-facing note describing where a worktree subagent's work landed. */
+function worktreeNoteFor(harvest: HarvestResult, dir: string): string {
+  if ("error" in harvest) {
+    return (
+      `\n\n⚠️ Could not commit changes to branch \`${harvest.branch}\` (${harvest.error}). `
+      + `The worktree was kept at ${dir} so the work can be recovered.`
+    );
+  }
+  return harvest.committed
+    ? `\n\nChanges committed to branch \`${harvest.branch}\`:\n${harvest.diffStat}`
+    : `\n\nNo file changes were made (branch \`${harvest.branch}\`).`;
 }
 
 export const taskTool: Tool<TaskArgs> = {

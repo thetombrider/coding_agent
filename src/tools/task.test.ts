@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
@@ -60,25 +64,134 @@ describe("runSubagentTask", () => {
     expect(result.output).toContain("package.json");
   });
 
-  it("rejects mutating work with shared isolation when E2B is unavailable", async () => {
+  it("implement defaults to shared and persists edits to the local tree (no E2B)", async () => {
     vi.stubEnv("E2B_API_KEY", "");
-    const provider = createStatefulFauxProvider([{ text: ["unused"] }]);
-    const ctx = baseCtx({ loopHost: loopHost(provider) });
+    const dir = mkdtempSync(join(tmpdir(), "orin-shared-"));
+    try {
+      const provider = createStatefulFauxProvider([
+        { toolCalls: [{ id: "w1", name: "write", arguments: { path: "out.txt", content: "persisted" } }] },
+        { text: ["Wrote out.txt"] },
+      ]);
+      const ctx = baseCtx({ cwd: dir, loopHost: loopHost(provider, getChildTools()) });
+
+      const result = await runSubagentTask(
+        { description: "edit", prompt: "create out.txt", agent: "implement" },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toContain("Subagent (implement) finished");
+      // The edit landed on the real local tree and survives the subagent.
+      expect(existsSync(join(dir, "out.txt"))).toBe(true);
+      expect(readFileSync(join(dir, "out.txt"), "utf8")).toBe("persisted");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("worktree isolation runs on a branch, persists there, and leaves the host tree clean", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orin-wt-host-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+
+      const provider = createStatefulFauxProvider([
+        { toolCalls: [{ id: "w1", name: "write", arguments: { path: "child.txt", content: "from worktree" } }] },
+        { text: ["Added child.txt"] },
+      ]);
+      const ctx = baseCtx({ cwd: dir, loopHost: loopHost(provider, getChildTools()) });
+
+      const result = await runSubagentTask(
+        { description: "branch work", prompt: "add child.txt", agent: "implement", isolation: "worktree" },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toMatch(/branch `orin\/subagent-/);
+      // Host working tree is untouched — the edit lives only on the branch.
+      expect(existsSync(join(dir, "child.txt"))).toBe(false);
+      const branch = g("branch", "--list", "orin/subagent-*").trim();
+      expect(branch).not.toBe("");
+      // The branch carries the committed change.
+      const branchName = branch.replace(/^\*?\s*/, "");
+      expect(g("show", `${branchName}:child.txt`).trim()).toBe("from worktree");
+      // The worktree dir was cleaned up — only the main worktree remains.
+      const worktrees = g("worktree", "list").trim().split("\n").filter(Boolean);
+      expect(worktrees).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("escalates to the config isolation floor when the model requests less", async () => {
+    // Floor = worktree via env override; an implement task with no isolation arg
+    // (would default to shared) must be clamped up to worktree.
+    vi.stubEnv("ORIN_SUBAGENT_ISOLATION", "worktree");
+    const dir = mkdtempSync(join(tmpdir(), "orin-wt-floor-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+
+      const provider = createStatefulFauxProvider([
+        { toolCalls: [{ id: "w1", name: "write", arguments: { path: "child.txt", content: "floored" } }] },
+        { text: ["done"] },
+      ]);
+      const ctx = baseCtx({ cwd: dir, loopHost: loopHost(provider, getChildTools()) });
+
+      const result = await runSubagentTask(
+        { description: "work", prompt: "add child.txt", agent: "implement" },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toMatch(/branch `orin\/subagent-/);
+      // Ran on a branch, not the host tree.
+      expect(existsSync(join(dir, "child.txt"))).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the worktree (skips remove) when harvest fails to commit", async () => {
+    const remove = vi.fn(() => {});
+    const harvest = vi.fn(() => ({ branch: "orin/subagent-deadbeef", error: "commit blocked" }));
+    const fakeWorktree = {
+      createWorktree: () => ({
+        handle: { workspace: createLocalWorkspace(), cwd: process.cwd(), branch: "orin/subagent-deadbeef", harvest, remove },
+      }),
+    };
+
+    const provider = createStatefulFauxProvider([{ text: ["did work"] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
 
     const result = await runSubagentTask(
-      {
-        description: "edit",
-        prompt: "change foo",
-        agent: "implement",
-        isolation: "shared",
-      },
+      { description: "work", prompt: "do it", agent: "implement", isolation: "worktree" },
       ctx,
       new AbortController().signal,
+      fakeWorktree,
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain("Destructive subagent work requires sandbox isolation");
-    vi.unstubAllEnvs();
+    expect(result.isError).toBeFalsy();
+    expect(harvest).toHaveBeenCalledOnce();
+    // Commit failed → the worktree must NOT be removed, so the work is recoverable.
+    expect(remove).not.toHaveBeenCalled();
+    expect(result.output).toContain("Could not commit");
+    expect(result.output).toContain("recovered");
   });
 
   it("runs implement subagent in a sandbox and disposes the workspace", async () => {
@@ -98,7 +211,7 @@ describe("runSubagentTask", () => {
     const ctx = baseCtx({ loopHost: loopHost(provider) });
 
     const result = await runSubagentTask(
-      { description: "fix readme", prompt: "update readme", agent: "implement" },
+      { description: "fix readme", prompt: "update readme", agent: "implement", isolation: "sandbox" },
       ctx,
       new AbortController().signal,
       {
