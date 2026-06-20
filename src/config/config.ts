@@ -41,6 +41,8 @@ export interface Config {
   models: {
     main: string;
     cheap: string;
+    /** Per-role model overrides for subagent presets. Empty = use tier defaults. */
+    roles: Record<string, string>;
     /** Per-provider extras for the `/model` picker; bundled provider lists stay authoritative. */
     picker: Record<string, string[]>;
     /** Last main model used per provider — restored when switching back. */
@@ -78,6 +80,7 @@ const DEFAULT_CONFIG: Config = {
   models: {
     main: "anthropic/claude-sonnet-4.6",
     cheap: "deepseek/deepseek-v4-flash",
+    roles: {},
     picker: {},
     lastUsed: {},
     contextWindows: {

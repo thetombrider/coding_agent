@@ -1,7 +1,7 @@
 import { getChildTools, pickTools } from "../tools/registry.js";
 import type { AnyTool } from "../tools/registry.js";
 
-export type AgentPreset = "explore" | "review" | "general";
+export type AgentPreset = "explore" | "review" | "implement";
 export type IsolationMode = "shared" | "sandbox";
 
 export interface PresetDefinition {
@@ -24,15 +24,15 @@ export const REVIEW_SYSTEM = (
   + "files or run shell commands. Be concise and specific."
 );
 
-export const GENERAL_SYSTEM = (
-  "You are a general-purpose subagent. Complete the assigned task using the tools "
-  + "available to you, then summarize what you did and the outcome. Keep the summary "
-  + "focused on results the parent agent needs."
+export const IMPLEMENT_SYSTEM = (
+  "You are an implementation subagent. Carry out the assigned coding task using the "
+  + "tools available to you — read, edit, and run code as needed — then summarize what "
+  + "you changed and the outcome. Keep the summary focused on results the parent agent needs."
 );
 
 const READ_ONLY_TOOL_NAMES = ["read", "grep", "find", "ls"] as const;
 
-export function resolvePreset(agent: AgentPreset = "general"): PresetDefinition {
+export function resolvePreset(agent: AgentPreset = "implement"): PresetDefinition {
   switch (agent) {
     case "explore":
       return {
@@ -50,10 +50,10 @@ export function resolvePreset(agent: AgentPreset = "general"): PresetDefinition 
         mutating: false,
         defaultIsolation: "shared",
       };
-    case "general":
+    case "implement":
       return {
-        agent: "general",
-        system: GENERAL_SYSTEM,
+        agent: "implement",
+        system: IMPLEMENT_SYSTEM,
         tools: getChildTools(),
         mutating: true,
         defaultIsolation: "sandbox",

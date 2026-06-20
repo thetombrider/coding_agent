@@ -69,3 +69,64 @@ describe("loadModelConfig", () => {
     expect(defaultMainModel()).toBe("Llama-3.3-70B-Instruct");
   });
 });
+
+describe("resolvePresetModel", () => {
+  let env: NodeJS.ProcessEnv;
+  let home: string;
+
+  beforeEach(() => {
+    env = { ...process.env };
+    home = mkdtempSync(join(tmpdir(), "orin-roles-test-"));
+    osState.home = home;
+    process.env = { ...env, HOME: home };
+    delete process.env.ORIN_MODEL;
+    delete process.env.ORIN_CHEAP_MODEL;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    process.env = { ...env };
+    osState.home = "";
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("routes explore to the host cheap model by default", async () => {
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("cheap:test");
+  });
+
+  it("routes review to the host main model by default", async () => {
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("review", "main:test", "cheap:test")).toBe("main:test");
+  });
+
+  it("routes implement to the code-tuned model by default when the provider supports it", async () => {
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("implement", "main:test", "cheap:test")).toBe("moonshotai/kimi-k2.7-code");
+  });
+
+  it("falls implement back to the main tier when the code model is unsupported", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({ provider: { active: "regolo" } });
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("implement", "main:test", "cheap:test")).toBe("main:test");
+  });
+
+  it("lets a provider-supported config override win over the role default", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({ models: { roles: { explore: "z-ai/glm-5.1", implement: "qwen/qwen3.7-plus" } } });
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("z-ai/glm-5.1");
+    expect(resolvePresetModel("implement", "main:test", "cheap:test")).toBe("qwen/qwen3.7-plus");
+  });
+
+  it("falls back to the tier default when the override is unsupported by the provider", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({
+      provider: { active: "regolo" },
+      models: { roles: { explore: "anthropic/claude-sonnet-4" } },
+    });
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("cheap:test");
+  });
+});
