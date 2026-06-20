@@ -198,6 +198,59 @@ describe("runSubagentTask", () => {
     expect(childEvents.every((e) => Boolean(e.subagentId))).toBe(true);
   });
 
+  it("runs the child loop on the role-resolved model (explore→cheap, review→main)", async () => {
+    async function modelsForAgent(agent: "explore" | "review"): Promise<string[]> {
+      const provider = createStatefulFauxProvider([{ text: ["done"] }]);
+      const parentHooks = createHookRegistry();
+      const approval: ApprovalGateRef = {
+        mode: "auto-accept",
+        autoAcceptCli: true,
+        tools: getChildTools(),
+      };
+      installCoreHooks(parentHooks, approval);
+
+      const turns: string[] = [];
+      const sink: MetricSink = {
+        emit(event) {
+          if (event.type === "turn") turns.push(event.model);
+        },
+      };
+      installTelemetry({
+        hooks: parentHooks,
+        sinks: [sink],
+        sessionId: `s-${agent}`,
+        pricing: {},
+      });
+
+      const ctx = baseCtx({
+        loopHost: {
+          provider,
+          model: "main:test",
+          cheapModel: "cheap:test",
+          hooks: parentHooks,
+          approval,
+        },
+      });
+
+      await runSubagentTask(
+        { description: "route", prompt: "investigate", agent },
+        ctx,
+        new AbortController().signal,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await parentHooks.fireHook("session_end", { reason: "complete" }, ctx);
+      return turns;
+    }
+
+    const exploreTurns = await modelsForAgent("explore");
+    expect(exploreTurns.length).toBeGreaterThanOrEqual(1);
+    expect(exploreTurns.every((m) => m === "cheap:test")).toBe(true);
+
+    const reviewTurns = await modelsForAgent("review");
+    expect(reviewTurns.length).toBeGreaterThanOrEqual(1);
+    expect(reviewTurns.every((m) => m === "main:test")).toBe(true);
+  });
+
   it("subagent LLM turns reach the parent accumulator tagged as subagent", async () => {
     const provider = createStatefulFauxProvider([
       { toolCalls: [{ id: "read1", name: "read", arguments: { path: "package.json" } }] },
@@ -228,7 +281,8 @@ describe("runSubagentTask", () => {
     });
 
     const ctx = baseCtx({
-      loopHost: { provider, model: "faux:test", hooks: parentHooks, approval },
+      // Pin cheapModel so the explore preset (cheap tier) still routes to faux:test.
+      loopHost: { provider, model: "faux:test", cheapModel: "faux:test", hooks: parentHooks, approval },
     });
 
     await runSubagentTask(

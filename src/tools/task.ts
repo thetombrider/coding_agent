@@ -4,7 +4,7 @@ import { currentTurnCount } from "../agent/compaction.js";
 import { resolvePreset, type IsolationMode } from "../agent/presets.js";
 import { lastAssistantText, runLoop } from "../agent/loop.js";
 import { hasE2BApiKey } from "../config/config.js";
-import { defaultCheapModel } from "../config/models.js";
+import { defaultCheapModel, resolvePresetModel } from "../config/models.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
 import { loadToolDescription } from "../util/load-txt.js";
@@ -112,11 +112,15 @@ export async function runSubagentTask(
   let childCwd = ctx.cwd;
   let ownsWorkspace = false;
 
+  const hostCheap = host.cheapModel ?? defaultCheapModel();
+  const childModel = resolvePresetModel(preset.agent, host.model, hostCheap);
+
   host.hooks.emit({
     type: "subagent_start",
     id: subagentId,
     description: args.description,
     agent: preset.agent,
+    model: childModel,
   });
 
   try {
@@ -162,8 +166,8 @@ export async function runSubagentTask(
     await runLoop(childCtx, childHooks, {
       provider: host.provider,
       tools: preset.tools,
-      model: host.model,
-      cheapModel: host.cheapModel ?? defaultCheapModel(),
+      model: childModel,
+      cheapModel: hostCheap,
       system: preset.system,
       signal,
       sessionId: host.sessionId,
