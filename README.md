@@ -41,8 +41,10 @@ build plan live in [`SPEC.md`](./SPEC.md).
 - **Role-bound subagent routing** — `task` subagents pick a model by preset:
   `explore` runs on the **cheap** model (read-only investigation), `implement` on
   a **code-tuned** model (Kimi K2.7 Code by default), and `review` on **main**.
-  Override per role with `models.roles.<preset>` in `~/.orin/config.json`; an id
-  the active provider doesn't support falls back to the tier default.
+  Override per role and provider with `models.roles.<provider>.<preset>` in
+  `~/.orin/config.json` (the `/settings` menu writes these for the active
+  provider); an id the active provider doesn't support falls back to the tier
+  default.
 - **Subagent isolation** — `task` subagents default to `shared` (edit the local
   working tree, changes persist), with `worktree` (run on a fresh git branch,
   isolated but persistent — the summary reports the branch + diff) and `sandbox`

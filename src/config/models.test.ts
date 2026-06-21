@@ -114,7 +114,7 @@ describe("resolvePresetModel", () => {
 
   it("lets a provider-supported config override win over the role default", async () => {
     const { saveConfig } = await import("./config.js");
-    saveConfig({ models: { roles: { explore: "z-ai/glm-5.1", implement: "qwen/qwen3.7-plus" } } });
+    saveConfig({ models: { roles: { openrouter: { explore: "z-ai/glm-5.1", implement: "qwen/qwen3.7-plus" } } } });
     const { resolvePresetModel } = await import("./models.js");
     expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("z-ai/glm-5.1");
     expect(resolvePresetModel("implement", "main:test", "cheap:test")).toBe("qwen/qwen3.7-plus");
@@ -124,9 +124,50 @@ describe("resolvePresetModel", () => {
     const { saveConfig } = await import("./config.js");
     saveConfig({
       provider: { active: "regolo" },
-      models: { roles: { explore: "anthropic/claude-sonnet-4" } },
+      models: { roles: { regolo: { explore: "anthropic/claude-sonnet-4" } } },
     });
     const { resolvePresetModel } = await import("./models.js");
     expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("cheap:test");
+  });
+
+  it("applies a provider-scoped override only on its own provider", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({ models: { roles: { openrouter: { explore: "z-ai/glm-5.1" } } } });
+    const { resolvePresetModel } = await import("./models.js");
+    // The override is scoped to openrouter, so it applies there.
+    expect(resolvePresetModel("explore", "main:test", "cheap:test", "openrouter")).toBe("z-ai/glm-5.1");
+    // Regolo has no override of its own, so it stays on the tier default.
+    expect(resolvePresetModel("explore", "main:test", "cheap:test", "regolo")).toBe("cheap:test");
+  });
+
+  it("keeps independent overrides per provider", async () => {
+    const { saveRoleModel } = await import("./config.js");
+    saveRoleModel("openrouter", "explore", "z-ai/glm-5.1");
+    saveRoleModel("regolo", "explore", "Llama-3.3-70B-Instruct");
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("explore", "main:test", "cheap:test", "openrouter")).toBe("z-ai/glm-5.1");
+    expect(resolvePresetModel("explore", "main:test", "cheap:test", "regolo")).toBe("Llama-3.3-70B-Instruct");
+  });
+
+  it("migrates a legacy flat override onto the active provider", async () => {
+    const { saveConfig, loadConfig } = await import("./config.js");
+    // Deliberately write the pre-provider-scoping flat shape (role → model),
+    // which the typed API no longer permits, to assert it is migrated on read.
+    saveConfig({
+      provider: { active: "regolo" },
+      models: { roles: { explore: "Llama-3.3-70B-Instruct" } as unknown as Record<string, Record<string, string>> },
+    });
+    // loadConfig normalizes the legacy flat shape under the active provider.
+    expect(loadConfig().models.roles).toEqual({ regolo: { explore: "Llama-3.3-70B-Instruct" } });
+    const { resolvePresetModel } = await import("./models.js");
+    expect(resolvePresetModel("explore", "main:test", "cheap:test", "regolo")).toBe("Llama-3.3-70B-Instruct");
+  });
+
+  it("clears a provider's override without touching another provider's", async () => {
+    const { saveRoleModel, loadConfig } = await import("./config.js");
+    saveRoleModel("openrouter", "explore", "z-ai/glm-5.1");
+    saveRoleModel("regolo", "explore", "Llama-3.3-70B-Instruct");
+    saveRoleModel("openrouter", "explore", "default");
+    expect(loadConfig().models.roles).toEqual({ regolo: { explore: "Llama-3.3-70B-Instruct" } });
   });
 });

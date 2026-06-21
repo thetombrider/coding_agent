@@ -42,8 +42,14 @@ export interface Config {
   models: {
     main: string;
     cheap: string;
-    /** Per-role model overrides for subagent presets. Empty = use tier defaults. */
-    roles: Record<string, string>;
+    /**
+     * Per-provider, per-role model overrides for subagent presets, keyed
+     * `providerId → role → model`. Provider-scoping keeps a role pinned to a
+     * model the provider actually supports, so switching providers restores
+     * that provider's own choices instead of risking an unsupported id.
+     * Empty (per provider or overall) = use tier defaults.
+     */
+    roles: Record<string, Record<string, string>>;
     /** Per-provider extras for the `/model` picker; bundled provider lists stay authoritative. */
     picker: Record<string, string[]>;
     /** Last main model used per provider — restored when switching back. */
@@ -222,6 +228,35 @@ function normalizePickerConfig(raw: unknown): Record<string, string[]> {
   return {};
 }
 
+/**
+ * Normalize `models.roles` into the provider-scoped shape `providerId → role →
+ * model`. Tolerates the legacy flat shape (`role → model`, written before role
+ * overrides were provider-aware) by attributing those entries to the active
+ * provider — the provider they were implicitly set under. Mixed shapes are
+ * handled per top-level key: string values are legacy role entries, object
+ * values are already provider-scoped. Role ids (`explore`/`review`/`implement`)
+ * never collide with provider ids, so the value type disambiguates safely.
+ */
+function normalizeRolesConfig(raw: unknown, activeProvider: string): Record<string, Record<string, string>> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const result: Record<string, Record<string, string>> = {};
+  const put = (providerId: string, role: string, model: string) => {
+    const trimmed = model.trim();
+    if (!trimmed) return;
+    (result[providerId] ??= {})[role] = trimmed;
+  };
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      put(activeProvider, key, value);
+    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+      for (const [role, model] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof model === "string") put(key, role, model);
+      }
+    }
+  }
+  return result;
+}
+
 /** Picker lists shipped in older releases; cleared so bundled provider defaults apply. */
 const LEGACY_OPENROUTER_PICKER_LISTS: ReadonlyArray<readonly string[]> = [
   [
@@ -280,6 +315,11 @@ export function loadConfig(): Config {
     normalizePickerConfig(
       (raw.models as { picker?: unknown } | undefined)?.picker ?? merged.models.picker,
     ),
+  );
+
+  merged.models.roles = normalizeRolesConfig(
+    (raw.models as { roles?: unknown } | undefined)?.roles ?? merged.models.roles,
+    merged.provider.active,
   );
 
   if (process.env.ORIN_MODEL?.trim()) merged.models.main = process.env.ORIN_MODEL.trim();
@@ -351,11 +391,12 @@ export function saveProviderConfig(providerId: string, values: Record<string, st
 
 /**
  * Set or clear the preferred model for a subagent role (`implement` / `review` /
- * `explore`) under `models.roles`. Passing an empty value or `"default"` removes
- * the override so the role falls back to its tier default. Replaces the whole
- * `roles` map (rather than deep-merging) so clearing actually deletes the key.
+ * `explore`) on a specific provider, under `models.roles[providerId]`. Passing an
+ * empty value or `"default"` removes the override so the role falls back to its
+ * tier default. Replaces the whole `roles` map (rather than deep-merging) so
+ * clearing actually deletes the key, and normalizes any legacy flat shape first.
  */
-export function saveRoleModel(role: string, model: string): void {
+export function saveRoleModel(providerId: string, role: string, model: string): void {
   const path = configPath();
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -363,10 +404,13 @@ export function saveRoleModel(role: string, model: string): void {
     DEFAULT_CONFIG as unknown as Record<string, unknown>,
     readRawConfig(),
   ) as unknown as Config;
-  const roles = { ...current.models.roles };
+  const roles = normalizeRolesConfig(current.models.roles, current.provider.active);
+  const providerRoles = { ...(roles[providerId] ?? {}) };
   const trimmed = model.trim();
-  if (!trimmed || trimmed === "default") delete roles[role];
-  else roles[role] = trimmed;
+  if (!trimmed || trimmed === "default") delete providerRoles[role];
+  else providerRoles[role] = trimmed;
+  if (Object.keys(providerRoles).length > 0) roles[providerId] = providerRoles;
+  else delete roles[providerId];
   current.models.roles = roles;
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(current, null, 2) + "\n", "utf8");
