@@ -1,11 +1,61 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, parse, relative, resolve } from "node:path";
 
 /** Root dir holding one shadow git repo per session. */
 export function checkpointsDir(): string {
   return join(homedir(), ".orin", "checkpoints");
+}
+
+/** Resolve symlinks/`..` so containment checks compare real paths. Falls back to a
+ * lexical resolve when the path doesn't exist yet. */
+function realPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
+
+/** True when `parent` is `child` or an ancestor of it. */
+function containsPath(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * Large/sensitive user directories that must never be the work-tree root. A real
+ * project lives *inside* one of these (e.g. `~/Desktop/app`), never *at* one.
+ * Mirrors Cline's `validateWorkspacePath`, which protects exactly these paths.
+ */
+function protectedRoots(): string[] {
+  const home = realPath(homedir());
+  return [home, join(home, "Desktop"), join(home, "Documents"), join(home, "Downloads")].map(realPath);
+}
+
+/**
+ * Whether a work tree is safe to checkpoint. The shadow repo runs `git add -A`
+ * (and, on restore, `git reset --hard` + `git clean -fd`) across the whole tree,
+ * so the root must be a bounded project directory — never the home directory, the
+ * filesystem root, an ancestor of home (`~`, `/Users`, `/`), or a large/sensitive
+ * user folder (Desktop/Documents/Downloads). Snapshotting those would hang on
+ * startup indexing the entire disk, balloon `~/.orin/checkpoints`, and make
+ * `/restore` destructive to unrelated files.
+ *
+ * Modeled on Cline's `validateWorkspacePath` (our shadow-git lineage); OpenCode
+ * shipped without this guard and a git-init'd home dir filled a user's disk
+ * (anomalyco/opencode#8577). Subdirectories of these roots (e.g. `~/Desktop/app`)
+ * remain checkpointable — only the roots themselves are blocked.
+ */
+export function isCheckpointableWorkTree(workTree: string): boolean {
+  const tree = realPath(workTree);
+  if (tree === parse(tree).root) return false;
+  const home = realPath(homedir());
+  // Block home and any ancestor of it (`~`, `/Users`, `/`).
+  if (containsPath(tree, home)) return false;
+  // Block the named large/sensitive user folders (exact match — subdirs are fine).
+  return !protectedRoots().includes(tree);
 }
 
 /** The shadow git dir for a session (separate from the project's real `.git`). */

@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, parse } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createCheckpointTracker, isMutatingTool } from "./tracker.js";
+import { createCheckpointTracker, isCheckpointableWorkTree, isMutatingTool } from "./tracker.js";
 
 describe("isMutatingTool", () => {
   it("flags write/edit/bash and nothing else", () => {
@@ -12,6 +12,35 @@ describe("isMutatingTool", () => {
     expect(isMutatingTool("bash")).toBe(true);
     expect(isMutatingTool("read")).toBe(false);
     expect(isMutatingTool("grep")).toBe(false);
+  });
+});
+
+describe("isCheckpointableWorkTree", () => {
+  it("allows a bounded project directory", () => {
+    const dir = mkdtempSync(join(tmpdir(), "orin-ck-ok-"));
+    try {
+      expect(isCheckpointableWorkTree(dir)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects the home directory, the filesystem root, and ancestors of home", () => {
+    const home = homedir();
+    expect(isCheckpointableWorkTree(home)).toBe(false);
+    expect(isCheckpointableWorkTree(parse(home).root)).toBe(false);
+    // The parent of home (e.g. /Users) contains home → snapshotting it would
+    // index every user's files.
+    expect(isCheckpointableWorkTree(dirname(home))).toBe(false);
+  });
+
+  it("rejects large/sensitive user folders (Cline parity) but allows subdirs", () => {
+    const home = homedir();
+    for (const name of ["Desktop", "Documents", "Downloads"]) {
+      expect(isCheckpointableWorkTree(join(home, name))).toBe(false);
+      // A real project living inside one of them is still checkpointable.
+      expect(isCheckpointableWorkTree(join(home, name, "my-project"))).toBe(true);
+    }
   });
 });
 

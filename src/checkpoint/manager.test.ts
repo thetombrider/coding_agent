@@ -105,6 +105,26 @@ describe("createCheckpointManager", () => {
     expect(existsSync(join(base, "shadow"))).toBe(false);
   });
 
+  it("is a no-op for non-checkpointable work trees (e.g. home/root)", () => {
+    const m = createCheckpointManager({
+      getSessionId: () => sessionId,
+      getWorkTree: () => work,
+      isLocalWorkspace: () => true,
+      record: (rec) => recorded.push(rec),
+      gitDirFor: (id) => join(base, "shadow", id),
+      isCheckpointable: () => false,
+    });
+    writeFileSync(join(work, "a.txt"), "v1");
+    m.baseline();
+    expect(m.afterTool("edit")).toBeNull();
+    expect(recorded).toEqual([]);
+    // restore surfaces a clear reason rather than silently doing nothing.
+    const res = m.restore();
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/project directory/);
+    expect(existsSync(join(base, "shadow"))).toBe(false);
+  });
+
   it("bind seeds a resumed session's checkpoints and marks it baselined", () => {
     const m = make();
     const seeded: CheckpointRecord = { id: "abc123", label: "session baseline", ts: "t", tool: "baseline" };
