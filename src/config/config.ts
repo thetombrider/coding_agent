@@ -349,6 +349,30 @@ export function saveProviderConfig(providerId: string, values: Record<string, st
   saveConfig({ provider: { [providerId]: section } } as DeepPartial<Config>);
 }
 
+/**
+ * Set or clear the preferred model for a subagent role (`implement` / `review` /
+ * `explore`) under `models.roles`. Passing an empty value or `"default"` removes
+ * the override so the role falls back to its tier default. Replaces the whole
+ * `roles` map (rather than deep-merging) so clearing actually deletes the key.
+ */
+export function saveRoleModel(role: string, model: string): void {
+  const path = configPath();
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const current = deepMerge(
+    DEFAULT_CONFIG as unknown as Record<string, unknown>,
+    readRawConfig(),
+  ) as unknown as Config;
+  const roles = { ...current.models.roles };
+  const trimmed = model.trim();
+  if (!trimmed || trimmed === "default") delete roles[role];
+  else roles[role] = trimmed;
+  current.models.roles = roles;
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(current, null, 2) + "\n", "utf8");
+  renameSync(tmp, path);
+}
+
 /** Deep-merge a partial patch into the persisted config file. Creates the file if absent. */
 export function saveConfig(patch: DeepPartial<Config>): void {
   const path = configPath();

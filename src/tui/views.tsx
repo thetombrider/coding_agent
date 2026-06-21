@@ -212,7 +212,7 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
         onMouseDown={() => toggleExpanded()}
       >
         <text selectable={false} fg={theme.reasoning} attributes={props.streaming ? BOLD : 0}>
-          {props.streaming && !hasText() ? "◌" : "▸"} thinking
+          {props.streaming ? spinnerFrame() : "▸"} thinking
         </text>
         <Show when={hint()}>
           <text selectable={false} fg={theme.muted}>  {hint()}</text>
@@ -312,7 +312,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
         </Show>
       </box>
       <Show when={entry().status === "error" && entry().output && !expanded()}>
-        <text selectable {...surfaceSelection(theme.bg)} fg={theme.toolError}>  {entry().output!.split("\n")[0]}</text>
+        <text selectable {...surfaceSelection(theme.bg)} fg={theme.toolError} wrapMode="word" flexGrow={1}>  {entry().output!.split("\n")[0]}</text>
       </Show>
       <Show when={showDiff()}>
         <DiffView patch={entry().output!} />
@@ -450,7 +450,7 @@ export function ApprovalBar(props: { name: string; args: unknown }) {
       borderColor={theme.border}
       backgroundColor={theme.codeBg}
     >
-      <text fg={theme.approval} attributes={BOLD}>
+      <text fg={theme.approval} attributes={BOLD} wrapMode="word" flexGrow={1}>
         allow {props.name}?  {toolSummary(props.name, props.args)}  —  y / n
       </text>
     </box>

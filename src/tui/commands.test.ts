@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,6 +80,19 @@ describe("processCommand", () => {
 
   it("handles /sessions", () => {
     expect(processCommand("/sessions", ctx).type).toBe("sessions");
+  });
+
+  it("handles /checkpoints", () => {
+    const r = processCommand("/checkpoints", ctx);
+    expect(r.type).toBe("checkpoints");
+    expect(isActionableCommandResult(r)).toBe(true);
+  });
+
+  it("handles /restore with and without an id", () => {
+    expect(processCommand("/restore", ctx)).toEqual({ type: "restore", id: undefined });
+    expect(processCommand("/restore abc123", ctx)).toEqual({ type: "restore", id: "abc123" });
+    expect(processCommand("/undo", ctx)).toEqual({ type: "restore", id: undefined });
+    expect(isActionableCommandResult({ type: "restore" })).toBe(true);
   });
 
   it("reports unknown commands", () => {
@@ -293,12 +306,10 @@ describe("processCommand", () => {
       expect(isActionableCommandResult(r)).toBe(true);
     });
 
-    it("reports configured E2B status", async () => {
-      vi.stubEnv("E2B_API_KEY", "test-key");
+    it("opens the settings menu with no argument", () => {
       const r = processCommand("/settings", ctx);
-      expect(r.type).toBe("info");
-      if (r.type === "info") expect(r.message).toContain("configured");
-      vi.unstubAllEnvs();
+      expect(r.type).toBe("open-settings");
+      expect(isActionableCommandResult(r)).toBe(true);
     });
 
     it("rejects unknown settings", () => {

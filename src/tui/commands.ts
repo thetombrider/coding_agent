@@ -38,6 +38,8 @@ export type CommandResult =
   | { type: "clear" }
   | { type: "new" }
   | { type: "sessions" }
+  | { type: "checkpoints" }
+  | { type: "restore"; id?: string }
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
   | { type: "set-isolation"; isolation: IsolationMode; message: string }
@@ -50,6 +52,7 @@ export type CommandResult =
       message: string;
     }
   | { type: "configure-e2b"; message: string }
+  | { type: "open-settings" }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
@@ -64,10 +67,12 @@ const HELP_LINES = [
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
-  "/settings                     show subagent isolation + E2B settings",
+  "/settings                     open settings (E2B key, isolation, task models)",
   "/settings isolation [mode]    set subagent isolation floor (shared|worktree|sandbox)",
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/sessions                     browse and resume saved sessions",
+  "/checkpoints                  list workspace checkpoints for this session",
+  "/restore [id]                 roll the working tree back (latest checkpoint if no id)",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
   "/help                         show this help",
@@ -285,21 +290,12 @@ function handleIsolation(value: string | undefined, ctx: CommandContext): Comman
   return { type: "set-isolation", isolation: mode, message: `subagent isolation → ${mode}` };
 }
 
-function settingsSummary(ctx: CommandContext): string {
-  const e2b = hasE2BApiKey() ? "configured" : "not configured";
-  return (
-    `settings:\n`
-    + `  subagent isolation: ${ctx.currentIsolation ?? "shared"} — /settings isolation <mode>\n`
-    + `  E2B API key: ${e2b} — /settings e2b`
-  );
-}
-
 function handleSettings(arg: string, ctx: CommandContext): CommandResult {
   const parts = arg.trim().split(/\s+/).filter(Boolean);
   const sub = parts[0]?.toLowerCase();
 
   if (!sub) {
-    return { type: "info", message: settingsSummary(ctx) };
+    return { type: "open-settings" };
   }
 
   if (sub === "isolation") {
@@ -345,6 +341,8 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "clear":
     case "new":
     case "sessions":
+    case "checkpoints":
+    case "restore":
     case "set-model":
     case "set-mode":
     case "set-isolation":
@@ -352,6 +350,8 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "configure-provider":
       return true;
     case "configure-e2b":
+      return true;
+    case "open-settings":
       return true;
     default:
       return false;
@@ -380,6 +380,12 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
       return { type: "new" };
     case "/sessions":
       return { type: "sessions" };
+    case "/checkpoints":
+    case "/checkpoint":
+      return { type: "checkpoints" };
+    case "/restore":
+    case "/undo":
+      return { type: "restore", id: arg || undefined };
     case "/help":
       return { type: "info", message: `${KEYBOARD_HINTS}\n${HELP_LINES.join("\n")}` };
     case "/mode":
