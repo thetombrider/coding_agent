@@ -1,4 +1,4 @@
-import { checkpointGitDir, createCheckpointTracker, type CheckpointTracker } from "./tracker.js";
+import { checkpointGitDir, createCheckpointTracker, isCheckpointableWorkTree, type CheckpointTracker } from "./tracker.js";
 
 export interface CheckpointRecord {
   id: string;
@@ -20,6 +20,10 @@ export interface CheckpointManagerDeps {
   /** Overridable for tests; defaults to `~/.orin/checkpoints/<session>`. */
   gitDirFor?: (sessionId: string) => string;
   createTracker?: typeof createCheckpointTracker;
+  /** Overridable for tests; defaults to {@link isCheckpointableWorkTree} on the
+   * current work tree. Gates out home/root/system trees that would hang or be
+   * destructive to snapshot. */
+  isCheckpointable?: (workTree: string) => boolean;
 }
 
 export interface CheckpointManager {
@@ -38,6 +42,10 @@ export interface CheckpointManager {
 export function createCheckpointManager(deps: CheckpointManagerDeps): CheckpointManager {
   const gitDirFor = deps.gitDirFor ?? checkpointGitDir;
   const makeTracker = deps.createTracker ?? createCheckpointTracker;
+  const isCheckpointable = deps.isCheckpointable ?? isCheckpointableWorkTree;
+  // Checkpoints require a local workspace AND a bounded project tree — snapshotting
+  // home/root would hang on startup and make /restore destructive.
+  const enabled = (): boolean => deps.isLocalWorkspace() && isCheckpointable(deps.getWorkTree());
   // Records per session id; bind/baseline keep this in sync with the live session.
   const bySession = new Map<string, CheckpointRecord[]>();
   const baselined = new Set<string>();
@@ -67,7 +75,7 @@ export function createCheckpointManager(deps: CheckpointManagerDeps): Checkpoint
     },
 
     baseline() {
-      if (!deps.isLocalWorkspace()) return;
+      if (!enabled()) return;
       const sessionId = deps.getSessionId();
       if (baselined.has(sessionId)) return;
       baselined.add(sessionId);
@@ -78,7 +86,7 @@ export function createCheckpointManager(deps: CheckpointManagerDeps): Checkpoint
     },
 
     afterTool(tool) {
-      if (!deps.isLocalWorkspace()) return null;
+      if (!enabled()) return null;
       const sessionId = deps.getSessionId();
       // Guarantee a baseline exists before the first recorded edit.
       if (!baselined.has(sessionId)) this.baseline();
@@ -97,6 +105,9 @@ export function createCheckpointManager(deps: CheckpointManagerDeps): Checkpoint
     restore(id) {
       if (!deps.isLocalWorkspace()) {
         return { ok: false, message: "checkpoints are local-only (E2B sandboxes are disposable)" };
+      }
+      if (!isCheckpointable(deps.getWorkTree())) {
+        return { ok: false, message: "checkpoints are disabled outside a project directory (running in home/root)" };
       }
       const sessionId = deps.getSessionId();
       const known = records(sessionId);
