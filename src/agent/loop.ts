@@ -14,7 +14,7 @@ import {
   shouldCompact,
 } from "./compaction.js";
 import { getContextWindow } from "../provider/context-window.js";
-import { MutationQueue, writeMutationKey } from "./mutation-queue.js";
+import { MutationQueue, mutationLock } from "./mutation-queue.js";
 import { isAbortError } from "../util/abort.js";
 
 export interface RunLoopOptions {
@@ -182,9 +182,12 @@ async function executeToolsParallel(
 
   return Promise.all(
     calls.map((call) => {
-      const key = writeMutationKey(call.name, call.arguments, resolvePath, ctx.cwd);
+      const lock = mutationLock(call.name, call.arguments, resolvePath, ctx.cwd);
       const run = () => executeSingleTool(call, registry, ctx, hooks, options, ts);
-      return key ? mutationQueue.runExclusive(key, run) : run();
+      if (!lock) return run();
+      return lock.mode === "exclusive"
+        ? mutationQueue.runExclusive(lock.key, run)
+        : mutationQueue.runShared(lock.key, run);
     }),
   );
 }
