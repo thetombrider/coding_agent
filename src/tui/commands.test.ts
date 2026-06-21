@@ -1,6 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { processCommand, isActionableCommandResult, type CommandContext } from "./commands.js";
 import type { ProviderSummary } from "../provider/registry.js";
+
+// Isolate config reads from the developer's real ~/.orin/config.json so
+// hasE2BApiKey()/loadConfig() see an empty config rather than saved keys or
+// last-used provider models.
+let configHome: string;
+let prevHome: string | undefined;
+
+beforeEach(() => {
+  prevHome = process.env.HOME;
+  configHome = mkdtempSync(join(tmpdir(), "orin-commands-test-"));
+  process.env.HOME = configHome;
+});
+
+afterEach(() => {
+  if (prevHome === undefined) delete process.env.HOME;
+  else process.env.HOME = prevHome;
+  rmSync(configHome, { recursive: true, force: true });
+});
 
 const ctx: CommandContext = {
   currentModel: "anthropic/claude-sonnet-4",
