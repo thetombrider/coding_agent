@@ -12,6 +12,19 @@ export function modelLikelySupported(provider: Provider, modelId: string): boole
   return provider.metadata.supportsModel(modelId);
 }
 
+/**
+ * Whether a curated id is present in the live catalog. Matches exact ids as well
+ * as dated snapshots — e.g. curated `claude-haiku-4-5` matches the published
+ * `claude-haiku-4-5-20251001` — so alias ids survive catalog filtering.
+ */
+function catalogContains(catalogIds: Iterable<string>, normalized: string, original: string): boolean {
+  for (const id of catalogIds) {
+    if (id === normalized || id === original) return true;
+    if (id.startsWith(`${normalized}-`) || id.startsWith(`${original}-`)) return true;
+  }
+  return false;
+}
+
 /** Validate a model id against the provider's live catalog when configured. */
 export async function modelSupportedByCatalog(
   provider: Provider,
@@ -22,7 +35,7 @@ export async function modelSupportedByCatalog(
     const ids = await provider.metadata.listModelIds();
     if (ids.length === 0) return modelLikelySupported(provider, modelId);
     const normalized = provider.normalizeModelId(modelId);
-    return ids.includes(normalized) || ids.includes(modelId);
+    return catalogContains(ids, normalized, modelId);
   } catch {
     return modelLikelySupported(provider, modelId);
   }
@@ -41,11 +54,9 @@ export async function loadPickerModels(providerId?: string): Promise<string[]> {
   try {
     const catalogIds = await provider.metadata.listModelIds();
     if (catalogIds.length === 0) return curated;
-    const catalogSet = new Set(catalogIds);
-    const validated = curated.filter((id) => {
-      const normalized = provider.normalizeModelId(id);
-      return catalogSet.has(normalized) || catalogSet.has(id);
-    });
+    const validated = curated.filter((id) =>
+      catalogContains(catalogIds, provider.normalizeModelId(id), id),
+    );
     return validated.length > 0 ? validated : curated;
   } catch {
     return curated;
