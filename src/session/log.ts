@@ -1,9 +1,9 @@
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { CheckpointRecord } from "../checkpoint/manager.js";
 import { SessionCostAccumulator } from "../telemetry/accumulator.js";
-import type { Message, SessionEvent } from "../types.js";
+import type { ContentBlock, Message, SessionEvent } from "../types.js";
 
 export function sessionsDir(): string {
   return join(homedir(), ".orin", "sessions");
@@ -25,14 +25,23 @@ export interface LogHandle {
 export function openLog(path: string): LogHandle {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const stream = createWriteStream(path, { flags: "a" });
+  // Append synchronously (fd + writeSync) rather than via a buffered write
+  // stream: session-log events are coarse (one line per user/assistant/tool
+  // message — never per token), so the cost is negligible, and a synchronous
+  // append guarantees each event reaches the OS before the call returns. A hard
+  // kill can no longer drop a tool result mid-turn, which previously left the
+  // resumed history with dangling tool calls.
+  let fd: number | null = openSync(path, "a");
   return {
-    write: (ev) => stream.write(JSON.stringify(ev) + "\n"),
-    close: () => new Promise<void>((resolve, reject) => {
-      stream.end((err?: Error | null) => {
-        if (err) reject(err); else resolve();
-      });
-    }),
+    write: (ev) => {
+      if (fd === null) return;
+      writeSync(fd, JSON.stringify(ev) + "\n");
+    },
+    close: async () => {
+      if (fd === null) return;
+      closeSync(fd);
+      fd = null;
+    },
   };
 }
 
@@ -58,7 +67,43 @@ export function replayLog(path: string): Message[] {
       // ignore malformed lines
     }
   }
-  return messages;
+  return repairDanglingToolCalls(messages);
+}
+
+/**
+ * Append synthetic tool results for any assistant tool call that has no matching
+ * result. A session killed mid-tool-run logs the assistant message (with tool
+ * calls) but never the results, leaving the transcript malformed — the next
+ * provider call then fails with "Tool results are missing for tool calls …".
+ * Filling the gaps keeps a resumed session well-formed and visible.
+ */
+export function repairDanglingToolCalls(messages: Message[]): Message[] {
+  const resolved = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "tool") continue;
+    for (const block of msg.content) {
+      if (block.type === "toolResult") resolved.add(block.toolCallId);
+    }
+  }
+
+  const repaired: Message[] = [];
+  for (const msg of messages) {
+    repaired.push(msg);
+    if (msg.role !== "assistant") continue;
+    const fillers: ContentBlock[] = [];
+    for (const block of msg.content) {
+      if (block.type !== "toolCall" || resolved.has(block.id)) continue;
+      resolved.add(block.id);
+      fillers.push({
+        type: "toolResult",
+        toolCallId: block.id,
+        output: "[interrupted — no result recorded]",
+        isError: true,
+      });
+    }
+    if (fillers.length) repaired.push({ role: "tool", content: fillers });
+  }
+  return repaired;
 }
 
 /** Replay a session log's persisted checkpoints so /restore works after resume. */

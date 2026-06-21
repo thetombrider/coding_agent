@@ -172,6 +172,59 @@ describe("openLog / replayLog round-trip", () => {
     expect(replayLog(path)).toHaveLength(1);
   });
 
+  it("synthesizes results for tool calls left dangling by a killed session", async () => {
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
+    // Assistant fired two tool calls; the process was killed before either result
+    // was logged (e.g. mid bash run).
+    log.write({
+      type: "assistant_chunk",
+      ts: "t2",
+      content: [
+        { type: "toolCall", id: "bash:8", name: "bash", arguments: { command: "ls" } },
+        { type: "toolCall", id: "bash:9", name: "bash", arguments: { command: "pwd" } },
+      ],
+    });
+    await log.close();
+
+    const messages = replayLog(path);
+    // user, assistant, and a synthetic tool message filling both calls.
+    expect(messages).toHaveLength(3);
+    expect(messages[2]).toEqual({
+      role: "tool",
+      content: [
+        { type: "toolResult", toolCallId: "bash:8", output: "[interrupted — no result recorded]", isError: true },
+        { type: "toolResult", toolCallId: "bash:9", output: "[interrupted — no result recorded]", isError: true },
+      ],
+    });
+  });
+
+  it("leaves tool calls that already have results untouched", async () => {
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
+    log.write({
+      type: "assistant_chunk",
+      ts: "t2",
+      content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }],
+    });
+    log.write({
+      type: "tool_result",
+      ts: "t3",
+      toolUseId: "tc1",
+      content: [{ type: "toolResult", toolCallId: "tc1", output: "ok", isError: false }],
+    });
+    await log.close();
+
+    const messages = replayLog(path);
+    expect(messages).toHaveLength(3);
+    expect(messages[2]).toEqual({
+      role: "tool",
+      content: [{ type: "toolResult", toolCallId: "tc1", output: "ok", isError: false }],
+    });
+  });
+
   it("ignores metric events when reconstructing the transcript", async () => {
     const path = join(tmpDir, "session.jsonl");
     const log = openLog(path);

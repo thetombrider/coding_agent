@@ -6,7 +6,8 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig, saveProviderConfig, saveE2BApiKey } from "../config/config.js";
+import { saveConfig, saveProviderConfig, saveE2BApiKey, saveRoleModel } from "../config/config.js";
+import type { AgentPreset } from "../agent/presets.js";
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider, resolveActiveProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
@@ -242,6 +243,15 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     controller.setStatusHint(`subagent isolation → ${isolation}`);
   };
 
+  // Persisted only — `resolvePresetModel` reads `models.roles` from config each
+  // time the task tool spawns a subagent, so no live ref needs rewiring.
+  const setRoleModel = (role: AgentPreset, model: string) => {
+    saveRoleModel(role, model);
+    controller.setStatusHint(
+      model ? `task model · ${role} → ${model}` : `task model · ${role} → default`,
+    );
+  };
+
   // Persist the active provider. The provider call paths (stream/delegate/
   // compaction) resolve the active provider from config on each turn, so the
   // switch takes effect on the next turn without rewiring the loop.
@@ -386,6 +396,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetModel: setModel,
           onSetMode: setApprovalMode,
           onSetIsolation: setSubagentIsolation,
+          onSetRoleModel: setRoleModel,
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
           onConfigureE2b: configureE2b,

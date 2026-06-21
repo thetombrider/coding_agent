@@ -24,9 +24,10 @@ import { readRendererSelection } from "./selection.js";
 import { selectionCopyHint } from "./terminal-env.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
-import type { IsolationMode } from "../agent/isolation.js";
+import { ISOLATION_MODES, ISOLATION_LABELS, type IsolationMode } from "../agent/isolation.js";
+import type { AgentPreset } from "../agent/presets.js";
 import { pickerModelsForProvider } from "../config/models.js";
-import { loadConfig } from "../config/config.js";
+import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
@@ -44,7 +45,7 @@ const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
   { name: "mode",      label: "/mode",      description: "set approval mode" },
   { name: "providers", label: "/providers", description: "switch LLM provider" },
-  { name: "settings",  label: "/settings",  description: "configure E2B API key" },
+  { name: "settings",  label: "/settings",  description: "E2B key, isolation, task models" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
   { name: "checkpoints", label: "/checkpoints", description: "list workspace checkpoints" },
   { name: "restore",   label: "/restore",   description: "roll back the working tree" },
@@ -61,7 +62,31 @@ type PaletteState =
   | { phase: "model"; index: number }
   | { phase: "mode"; index: number }
   | { phase: "providers"; index: number; providers: ProviderSummary[] }
+  | { phase: "settings"; index: number }
+  | { phase: "settings-isolation"; index: number }
+  | { phase: "settings-role"; index: number; role: AgentPreset }
   | SessionsPaletteState;
+
+/** Roles a user can pin a task-tool model to, in menu order. */
+const SETTINGS_ROLES: ReadonlyArray<{ role: AgentPreset; label: string }> = [
+  { role: "implement", label: "Task model · implement (coding)" },
+  { role: "review", label: "Task model · review" },
+  { role: "explore", label: "Task model · explore" },
+];
+
+type SettingsItem =
+  | { kind: "e2b" }
+  | { kind: "isolation" }
+  | { kind: "role"; role: AgentPreset; label: string };
+
+const SETTINGS_ITEMS: readonly SettingsItem[] = [
+  { kind: "e2b" },
+  { kind: "isolation" },
+  ...SETTINGS_ROLES.map((r) => ({ kind: "role" as const, role: r.role, label: r.label })),
+];
+
+/** Sentinel row in the role-model picker that clears the override. */
+const ROLE_MODEL_DEFAULT = "default (use tier model)";
 
 type ConfigPromptState = {
   providerId: string;
@@ -109,6 +134,7 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onSetIsolation: (isolation: IsolationMode) => void;
+  onSetRoleModel: (role: AgentPreset, model: string) => void;
   onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (
     provider: string,
@@ -190,6 +216,11 @@ export function App(props: {
   createEffect(() => {
     completed();
     live();
+    // The approval bar / phase changes resize the scroll row, so re-measure the
+    // rail when they toggle — otherwise it keeps a stale (taller) height and
+    // overflows over the approval bar.
+    state().phase;
+    state().pendingApproval;
     queueMicrotask(bumpScrollRail);
   });
 
@@ -215,7 +246,7 @@ export function App(props: {
 
   createEffect(() => {
     const p = palette();
-    if (p?.phase !== "model") return;
+    if (p?.phase !== "model" && p?.phase !== "settings-role") return;
     const index = p.index;
     queueMicrotask(() => scrollModelIntoView(index));
   });
@@ -239,6 +270,10 @@ export function App(props: {
   });
 
   const pickerModels = () => pickerModelList();
+
+  // Role-model picker: the provider's curated models plus a leading sentinel
+  // that clears the override back to the role's tier default.
+  const roleModelList = () => [ROLE_MODEL_DEFAULT, ...pickerModels()];
 
   // Pricing comes from the static config table, which doesn't change during a
   // session. Read it once here instead of calling loadConfig() (which re-reads
@@ -467,6 +502,11 @@ export function App(props: {
         setE2bPrompt(true);
         props.controller.setStatusHint(result.message);
         return;
+      case "open-settings":
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        setPalette({ phase: "settings", index: 0 });
+        return;
       case "info":
       case "error":
         props.controller.setStatusHint(result.message);
@@ -533,6 +573,13 @@ export function App(props: {
         return;
       }
 
+      if (name === "settings") {
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        setPalette({ phase: "settings", index: 0 });
+        return;
+      }
+
       closePalette();
 
       if (name === "clear") {
@@ -572,6 +619,52 @@ export function App(props: {
         props.onSetMode(mode);
         props.controller.setStatusHint(`mode → ${APPROVAL_MODE_LABELS[mode]}`);
       }
+      return;
+    }
+
+    if (p.phase === "settings") {
+      const item = SETTINGS_ITEMS[p.index];
+      if (!item) return;
+      if (item.kind === "e2b") {
+        setPalette(null);
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        setE2bPrompt(true);
+        props.controller.setStatusHint(
+          "Configure E2B: paste your API key (get one at https://e2b.dev/docs/api-key) · Esc to cancel",
+        );
+        return;
+      }
+      if (item.kind === "isolation") {
+        const currentIdx = ISOLATION_MODES.indexOf(loadConfig().subagent.isolation);
+        setPalette({ phase: "settings-isolation", index: Math.max(0, currentIdx) });
+        return;
+      }
+      // role
+      const list = roleModelList();
+      const current = loadConfig().models.roles?.[item.role]?.trim();
+      const currentIdx = current ? list.indexOf(current) : 0;
+      setPalette({ phase: "settings-role", index: Math.max(0, currentIdx), role: item.role });
+      return;
+    }
+
+    if (p.phase === "settings-isolation") {
+      const mode = ISOLATION_MODES[p.index];
+      if (mode) {
+        props.onSetIsolation(mode);
+        setPalette({ phase: "settings", index: 1 });
+      }
+      return;
+    }
+
+    if (p.phase === "settings-role") {
+      const list = roleModelList();
+      const choice = list[p.index];
+      if (choice === undefined) return;
+      const model = choice === ROLE_MODEL_DEFAULT ? "" : choice;
+      props.onSetRoleModel(p.role, model);
+      const roleIdx = SETTINGS_ITEMS.findIndex((i) => i.kind === "role" && i.role === p.role);
+      setPalette({ phase: "settings", index: Math.max(0, roleIdx) });
       return;
     }
 
@@ -781,13 +874,24 @@ export function App(props: {
                 ? Math.max(0, p.providers.length - 1)
                 : p.phase === "sessions"
                     ? Math.max(0, p.sessions.length - 1)
-                    : APPROVAL_MODES.length - 1;
+                    : p.phase === "settings"
+                      ? Math.max(0, SETTINGS_ITEMS.length - 1)
+                      : p.phase === "settings-isolation"
+                        ? Math.max(0, ISOLATION_MODES.length - 1)
+                        : p.phase === "settings-role"
+                          ? Math.max(0, roleModelList().length - 1)
+                          : APPROVAL_MODES.length - 1;
         setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
         return;
       }
       if (key.name === "escape") {
         if (p.phase === "sessions" && p.menu === "delete") {
           setPalette({ ...p, menu: "list" });
+          return;
+        }
+        // Settings submenus step back to the settings menu, not the command list.
+        if (p.phase === "settings-isolation" || p.phase === "settings-role") {
+          setPalette({ phase: "settings", index: 0 });
           return;
         }
         if (p.phase !== "commands") {
@@ -1095,6 +1199,93 @@ export function App(props: {
                     );
                   }}
                 </For>
+              </Show>
+
+              <Show when={p().phase === "settings"}>
+                <For each={SETTINGS_ITEMS}>
+                  {(item, i) => {
+                    const selected = () => (p() as { phase: "settings"; index: number }).index === i();
+                    const cfg = () => loadConfig();
+                    const label = () =>
+                      item.kind === "e2b"
+                        ? "E2B API key"
+                        : item.kind === "isolation"
+                          ? "Subagent isolation"
+                          : item.label;
+                    const value = () =>
+                      item.kind === "e2b"
+                        ? (hasE2BApiKey() ? "configured" : "not configured")
+                        : item.kind === "isolation"
+                          ? cfg().subagent.isolation
+                          : (cfg().models.roles?.[item.role]?.trim() || "default");
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{label()}
+                        </text>
+                        <text fg={theme.secondary}>  {value()}</text>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "settings-isolation"}>
+                <For each={ISOLATION_MODES}>
+                  {(mode, i) => {
+                    const selected = () => (p() as { phase: "settings-isolation"; index: number }).index === i();
+                    const isCurrent = () => mode === loadConfig().subagent.isolation;
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{ISOLATION_LABELS[mode]}
+                        </text>
+                        <Show when={isCurrent()}>
+                          <text fg={theme.secondary}>  (current)</text>
+                        </Show>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "settings-role"}>
+                <scrollbox
+                  ref={modelListScrollRef}
+                  height={Math.min(roleModelList().length, MODEL_LIST_MAX_VISIBLE)}
+                  scrollY
+                  contentOptions={{ flexDirection: "column" }}
+                >
+                  <For each={roleModelList()}>
+                    {(model, i) => {
+                      const sp = () => p() as { phase: "settings-role"; index: number; role: AgentPreset };
+                      const selected = () => sp().index === i();
+                      const override = () => loadConfig().models.roles?.[sp().role]?.trim() ?? "";
+                      const isCurrent = () =>
+                        model === ROLE_MODEL_DEFAULT ? override() === "" : model === override();
+                      const providerId = () => state().meta.provider ?? activeProviderId();
+                      const pricingLabel = () =>
+                        model === ROLE_MODEL_DEFAULT
+                          ? ""
+                          : formatModelPricingLabel(
+                              resolveDisplayModelPricing(model, providerId(), modelPricing),
+                            );
+                      return (
+                        <box id={`model-row-${i()}`} flexDirection="row">
+                          <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                            {selected() ? "▶ " : "  "}{model}
+                          </text>
+                          <Show when={pricingLabel()}>
+                            <text fg={theme.secondary}>  {pricingLabel()}</text>
+                          </Show>
+                          <Show when={isCurrent()}>
+                            <text fg={theme.secondary}>  (current)</text>
+                          </Show>
+                        </box>
+                      );
+                    }}
+                  </For>
+                </scrollbox>
               </Show>
 
               <Show when={p().phase === "sessions"}>
