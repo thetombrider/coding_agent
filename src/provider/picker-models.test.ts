@@ -124,6 +124,32 @@ describe("picker-models", () => {
     await expect(loadPicker("fake-catalog")).resolves.toEqual(["good/model"]);
   });
 
+  it("keeps curated alias ids that match dated catalog snapshots", async () => {
+    const { registerProvider } = await import("./registry.js");
+    const { loadPickerModels: loadPicker } = await import("./picker-models.js");
+    const fake: Provider = {
+      id: "fake-dated-catalog",
+      displayName: "Fake Dated",
+      authStrategy: "api-key",
+      isConfigured: () => true,
+      normalizeModelId: (id) => id,
+      languageModel: () => ({}) as never,
+      metadata: {
+        id: "fake-dated-catalog",
+        supportsModel: () => true,
+        getContextWindow: async () => 1000,
+        listModelIds: async () => ["claude-opus-4-8", "claude-haiku-4-5-20251001"],
+      },
+      pickerModels: ["claude-opus-4-8", "claude-haiku-4-5"],
+      defaultModels: { main: "claude-opus-4-8", cheap: "claude-haiku-4-5" },
+    };
+    registerProvider(fake);
+    await expect(loadPicker("fake-dated-catalog")).resolves.toEqual([
+      "claude-opus-4-8",
+      "claude-haiku-4-5",
+    ]);
+  });
+
   it("builds last-used patches for provider switches", () => {
     expect(lastUsedPatchForProviderSwitch("openrouter", "anthropic/claude-sonnet-4", "cheap/model")).toEqual({
       openrouter: { main: "anthropic/claude-sonnet-4", cheap: "cheap/model" },
