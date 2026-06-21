@@ -239,8 +239,6 @@ export const ANTHROPIC_PICKER_MODELS = [
   "claude-opus-4-8",
   "claude-sonnet-4-6",
   "claude-haiku-4-5",
-  "claude-opus-4-7",
-  "claude-sonnet-4-5",
 ] as const;
 
 export const ANTHROPIC_DEFAULT_MAIN = "claude-sonnet-4-6";
