@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../types.js";
 import {
+  capOversizedToolResults,
+  compactMessages,
   currentTurnCount,
   estimateMessageTokens,
   evictStaleToolResults,
+  findMessageCutIndex,
+  pruneOverflowToolResults,
   shouldCompact,
   stripReasoningBlocks,
+  summariseOldMessages,
   summariseOldTurns,
 } from "./compaction.js";
 
@@ -183,5 +188,93 @@ describe("compaction", () => {
     );
 
     expect(calls).toHaveLength(0);
+  });
+
+  it("caps a single oversized tool result within one user turn", () => {
+    const huge = "x".repeat(16_000 * 4 + 1000);
+    const messages: Message[] = [
+      user("investigate"),
+      assistant("grep"),
+      toolResult(huge, "t1"),
+    ];
+    const contextWindow = 1000;
+
+    const compacted = capOversizedToolResults(messages, contextWindow);
+    const output = compacted[2]?.content[0];
+    expect(output?.type === "toolResult" ? output.output : "").toContain("[result elided");
+    expect(shouldCompact(compacted, contextWindow)).toBe(false);
+  });
+
+  it("prunes older tool output within a single user turn when over threshold", () => {
+    const big = "x".repeat(20_000 * 4);
+    const messages: Message[] = [
+      user("one turn"),
+      assistant("first"),
+      toolResult(big, "t1"),
+      assistant("second"),
+      toolResult(big, "t2"),
+      assistant("third"),
+      toolResult(big, "t3"),
+    ];
+    const contextWindow = Math.floor(estimateMessageTokens(messages) * 0.9);
+
+    const compacted = pruneOverflowToolResults(messages, contextWindow);
+    const outputs = compacted
+      .filter((m) => m.role === "tool")
+      .map((m) => m.content[0])
+      .filter((c) => c.type === "toolResult")
+      .map((c) => c.output);
+
+    expect(outputs[0]).toContain("[result elided");
+    expect(outputs[outputs.length - 1]).toBe(big);
+  });
+
+  it("finds a message cut index that preserves recent context", () => {
+    const messages: Message[] = [
+      user("old"),
+      assistant("a"),
+      user("recent"),
+      assistant("b"),
+    ];
+    const cut = findMessageCutIndex(messages, estimateMessageTokens(messages.slice(2)));
+    expect(cut).toBe(2);
+    expect(messages.slice(cut).every((m) => m.role === "user" || m.role === "assistant")).toBe(true);
+  });
+
+  it("summarises old messages within a single user turn", async () => {
+    const messages: Message[] = [
+      user("investigate"),
+      assistant("read spec"),
+      toolResult("spec body", "t1"),
+      assistant("read readme"),
+      toolResult("readme body", "t2"),
+    ];
+
+    const result = await summariseOldMessages(
+      messages,
+      "cheap:test",
+      1,
+      async () => ({ text: "[Session summary]\n\nInvestigated docs" }),
+    );
+
+    expect(result[0]?.role).toBe("assistant");
+    expect(result.some((m) => m.role === "tool" && m.content[0]?.type === "toolResult")).toBe(true);
+  });
+
+  it("compactMessages shrinks a single-turn session without summarising when pruning suffices", async () => {
+    const huge = "line\n".repeat(50_000);
+    const messages: Message[] = [
+      user("investigate"),
+      assistant("grep"),
+      toolResult(huge, "t1"),
+    ];
+    const contextWindow = Math.floor(estimateMessageTokens(messages) * 0.9);
+
+    const result = await compactMessages(messages, "cheap:test", contextWindow);
+    expect(result).toHaveLength(3);
+    expect(result[2]?.content[0]?.type === "toolResult" ? result[2].content[0].output : "").toContain(
+      "[result elided",
+    );
+    expect(shouldCompact(result, contextWindow)).toBe(false);
   });
 });

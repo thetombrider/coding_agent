@@ -8,10 +8,10 @@ import type { AgentContext, Message, SessionEventCallback } from "../types.js";
 import { defaultCheapModel } from "../config/models.js";
 import { resolvePath } from "../util/paths.js";
 import {
+  compactMessages,
   currentTurnCount,
   evictStaleToolResults,
   shouldCompact,
-  summariseOldTurns,
 } from "./compaction.js";
 import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, writeMutationKey } from "./mutation-queue.js";
@@ -213,9 +213,10 @@ export async function runLoop(
     if (shouldCompact(ctx.messages, contextWindow)) {
       await hooks.fireHook("before_compact", { messages: ctx.messages }, ctx, options.signal);
       const cheapModel = options.cheapModel ?? defaultCheapModel();
-      ctx.messages = await summariseOldTurns(
+      ctx.messages = await compactMessages(
         ctx.messages,
         cheapModel,
+        contextWindow,
         undefined,
         undefined,
         ctx.loopHost?.recordLlmCall,
