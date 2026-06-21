@@ -1,8 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Isolate config reads from the developer's real ~/.orin/config.json so tests
+// that call hasE2BApiKey()/loadConfig() see an empty config, not saved keys.
+let configHome: string;
+let prevHome: string | undefined;
+
+beforeEach(() => {
+  prevHome = process.env.HOME;
+  configHome = mkdtempSync(join(tmpdir(), "orin-task-test-"));
+  process.env.HOME = configHome;
+});
+
+afterEach(() => {
+  if (prevHome === undefined) delete process.env.HOME;
+  else process.env.HOME = prevHome;
+  rmSync(configHome, { recursive: true, force: true });
+});
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
