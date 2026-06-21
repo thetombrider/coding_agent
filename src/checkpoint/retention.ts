@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { checkpointsDir } from "./tracker.js";
@@ -99,30 +99,68 @@ export function removeCheckpointRepo(sessionId: string, dir: string = checkpoint
 const GIT_GC_TIMEOUT_MS = 30_000;
 
 /**
- * Repack and prune a shadow repo's objects. Best-effort: a missing/invalid git dir
- * or a failing git is swallowed so cleanup never throws into the caller.
+ * Repack and prune a shadow repo's objects. Best-effort and **non-blocking**: it
+ * spawns `git gc` asynchronously and returns immediately, so it never stalls the
+ * caller's event loop.
+ *
+ * This matters at TUI startup. A synchronous `spawnSync` here would freeze the
+ * Node/Bun event loop for the whole duration of `git gc` (tens to hundreds of ms
+ * on a repo with history). That freeze lands right in OpenTUI's native terminal
+ * capability handshake window, perturbing it enough that the native layer emits
+ * its Kitty graphics probe — which Terminal.app then paints into the prompt. An
+ * async spawn keeps the event loop free so the handshake runs undisturbed.
+ *
+ * Returns the spawned child (or `undefined` when there is nothing to gc) so a
+ * caller that wants to await completion — e.g. a test, or {@link runCheckpointCleanup}'s
+ * `pending` — can; production callers fire-and-forget.
  */
-export function gcShadowRepo(gitDir: string, pruneDays: number = DEFAULT_RETENTION.pruneDays): void {
-  if (!existsSync(join(gitDir, "HEAD"))) return;
+export function gcShadowRepo(
+  gitDir: string,
+  pruneDays: number = DEFAULT_RETENTION.pruneDays,
+): ChildProcess | undefined {
+  if (!existsSync(join(gitDir, "HEAD"))) return undefined;
   try {
-    spawnSync("git", [`--git-dir=${gitDir}`, "gc", "--quiet", `--prune=${pruneDays}.days`], {
-      encoding: "utf8",
-      timeout: GIT_GC_TIMEOUT_MS,
-    });
+    const child = spawn(
+      "git",
+      [`--git-dir=${gitDir}`, "gc", "--quiet", `--prune=${pruneDays}.days`],
+      { stdio: "ignore", timeout: GIT_GC_TIMEOUT_MS },
+    );
+    // Never let a stray gc keep the process alive, and swallow spawn errors
+    // (e.g. git missing) so cleanup is purely best-effort.
+    child.unref();
+    child.on("error", () => {});
+    return child;
   } catch {
     // best-effort
+    return undefined;
   }
 }
 
 export interface CleanupResult {
   removed: string[];
   kept: string[];
+  /**
+   * Resolves once every spawned `git gc` has exited. Production callers ignore
+   * this (the gc is fire-and-forget); tests await it to avoid racing teardown
+   * against a still-writing git.
+   */
+  pending: Promise<void>;
+}
+
+function waitForExit(child: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
 }
 
 /**
  * Run one pass of checkpoint cleanup: delete shadow repos beyond the age/count
- * caps, then `git gc --prune` the survivors. Synchronous and best-effort — callers
- * that must not block startup should use {@link scheduleCheckpointCleanup}.
+ * caps, then `git gc --prune` the survivors. Pruning decisions and dir removals
+ * are synchronous; the `git gc` of survivors is spawned asynchronously (so it
+ * never blocks the event loop) and awaitable via the returned `pending`.
+ * Best-effort — callers that must not block startup should use
+ * {@link scheduleCheckpointCleanup}.
  */
 export function runCheckpointCleanup(opts: RetentionOptions = {}): CleanupResult {
   const dir = opts.dir ?? checkpointsDir();
@@ -131,7 +169,7 @@ export function runCheckpointCleanup(opts: RetentionOptions = {}): CleanupResult
   const pruneDays = opts.pruneDays ?? DEFAULT_RETENTION.pruneDays;
 
   const repos = listShadowRepos(dir);
-  if (repos.length === 0) return { removed: [], kept: [] };
+  if (repos.length === 0) return { removed: [], kept: [], pending: Promise.resolve() };
 
   const { remove, keep } = selectReposToPrune(repos, {
     maxAgeMs,
@@ -141,24 +179,33 @@ export function runCheckpointCleanup(opts: RetentionOptions = {}): CleanupResult
   });
 
   for (const id of remove) removeCheckpointRepo(id, dir);
-  for (const id of keep) gcShadowRepo(join(dir, id), pruneDays);
+  const children: ChildProcess[] = [];
+  for (const id of keep) {
+    const child = gcShadowRepo(join(dir, id), pruneDays);
+    if (child) children.push(child);
+  }
 
-  return { removed: remove, kept: keep };
+  const pending = Promise.all(children.map(waitForExit)).then(() => undefined);
+  return { removed: remove, kept: keep, pending };
 }
 
 /**
  * Kick off a cleanup pass off the startup path so it never blocks the TUI from
- * coming up. Deferred to a later tick, run on an unref'd timer (won't keep the
- * process alive), and fully error-swallowed.
+ * coming up. Deferred on an unref'd timer (won't keep the process alive) and
+ * fully error-swallowed.
+ *
+ * `delayMs` pushes the pass clear of the terminal capability handshake that runs
+ * while the renderer initializes; callers on the startup path should pass a small
+ * delay so the (now non-blocking, but still I/O-spawning) cleanup never races it.
  */
-export function scheduleCheckpointCleanup(opts: RetentionOptions = {}): void {
+export function scheduleCheckpointCleanup(opts: RetentionOptions = {}, delayMs = 0): void {
   const timer = setTimeout(() => {
     try {
       runCheckpointCleanup(opts);
     } catch {
       // best-effort: cleanup must never crash the session
     }
-  }, 0);
+  }, delayMs);
   // Don't let the cleanup timer hold the event loop open on exit.
   timer.unref?.();
 }

@@ -29,8 +29,12 @@ import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js
 import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { messagesToTurns } from "./messages-to-turns.js";
-import { restoreTerminal } from "./terminal.js";
-import { applyTerminalEnvOverrides, terminalStartupCopyHint } from "./terminal-env.js";
+import { forceFullRepaint, restoreTerminal } from "./terminal.js";
+import {
+  blocksNativeCopyShortcut,
+  consumeTerminalCapabilityLeak,
+  terminalStartupCopyHint,
+} from "./terminal-env.js";
 import { terminalBg, terminalFg, theme } from "./theme.js";
 import { isAbortError } from "../util/abort.js";
 
@@ -351,12 +355,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   // first edit is reversible. No-op for E2B.
   checkpoints.baseline();
 
-  // Reclaim old shadow-git checkpoint repos under ~/.orin/checkpoints (gc the
-  // survivors, delete dirs past the age/count caps). Deferred + unref'd so it
-  // never blocks the TUI from coming up, and the active session is protected.
-  scheduleCheckpointCleanup({ protect: [activeSessionId] });
-
-
   const runTurn = async (userText: string) => {
     if (!config.meta.faux) {
       const active = resolveActiveProvider();
@@ -425,10 +423,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
   let renderer: Awaited<ReturnType<typeof createCliRenderer>> | undefined;
   try {
-    applyTerminalEnvOverrides();
     renderer = await createCliRenderer({
       exitOnCtrlC: false,
       backgroundColor: theme.bg,
+      // Belt-and-suspenders: if a terminal ever feeds OpenTUI's leaked Kitty
+      // graphics probe back on stdin, drop it before it reaches the prompt.
+      prependInputHandlers: [consumeTerminalCapabilityLeak],
     });
 
     const startupCopyHint = terminalStartupCopyHint();
@@ -481,6 +481,23 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         if (process.stdout.isTTY) process.stdout.write(SET_TERMINAL_COLORS);
       }, 50);
     }
+
+    // Terminal.app paints OpenTUI's native Kitty graphics probe as literal text
+    // in the prompt (it can't parse the APC wrapper, and native writes it past
+    // any JS output hook). Force a couple of full repaints once startup settles
+    // so OpenTUI overwrites those stray cells. No-op everywhere else.
+    if (blocksNativeCopyShortcut() && renderer) {
+      const r = renderer;
+      for (const delay of [150, 600]) {
+        const t = setTimeout(() => forceFullRepaint(r), delay);
+        t.unref?.();
+      }
+    }
+
+    // Reclaim old shadow-git checkpoint repos under ~/.orin/checkpoints (gc the
+    // survivors, delete dirs past the age/count caps). Non-blocking and deferred
+    // well clear of the terminal capability handshake so it can never perturb it.
+    scheduleCheckpointCleanup({ protect: [activeSessionId] }, 2000);
 
     if (config.initialMessage) {
       queueMicrotask(() => {
