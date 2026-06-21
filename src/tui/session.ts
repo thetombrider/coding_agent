@@ -13,6 +13,7 @@ import { getProvider, resolveActiveProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { createCheckpointManager } from "../checkpoint/manager.js";
 import { isMutatingTool } from "../checkpoint/tracker.js";
+import { removeCheckpointRepo, scheduleCheckpointCleanup } from "../checkpoint/retention.js";
 import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayCheckpoints, replayLog, sessionPath, deleteSession } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
 import { SessionCostAccumulator } from "../telemetry/accumulator.js";
@@ -157,6 +158,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     if (!deleteSession(sessionId)) {
       return { ok: false, message: `Session ${sessionId} not found.` };
     }
+    // Reclaim the session's shadow-git checkpoint repo too, so deleting a session
+    // leaves no orphaned snapshots growing under ~/.orin/checkpoints.
+    removeCheckpointRepo(sessionId);
     return { ok: true, message: `Deleted session ${sessionId}.` };
   };
 
@@ -343,6 +347,11 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   // Baseline the starting tree once the final workspace is settled, so even the
   // first edit is reversible. No-op for E2B.
   checkpoints.baseline();
+
+  // Reclaim old shadow-git checkpoint repos under ~/.orin/checkpoints (gc the
+  // survivors, delete dirs past the age/count caps). Deferred + unref'd so it
+  // never blocks the TUI from coming up, and the active session is protected.
+  scheduleCheckpointCleanup({ protect: [activeSessionId] });
 
 
   const runTurn = async (userText: string) => {
