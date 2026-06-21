@@ -232,6 +232,62 @@ describe("runLoop", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("reads the result of a write to the same file in the same turn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "orin-rw-"));
+    const filePath = join(dir, "data.txt");
+    await writeFile(filePath, "stale\n", "utf8");
+
+    const slowWrite: Tool<{ path: string; content: string }> = {
+      name: "write",
+      description: "slow write",
+      schema: z.object({ path: z.string(), content: z.string() }),
+      async execute({ path, content }, ctx) {
+        // Delay so a parallel read would observe stale data without serialization.
+        await new Promise((r) => setTimeout(r, 30));
+        await writeFile(join(ctx.cwd, path), content, "utf8");
+        return { output: "written" };
+      },
+    };
+
+    const read: Tool<{ path: string }> = {
+      name: "read",
+      description: "read",
+      schema: z.object({ path: z.string() }),
+      async execute({ path }, ctx) {
+        return { output: await readFile(join(ctx.cwd, path), "utf8") };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [
+          { id: "tc1", name: "write", arguments: { path: "data.txt", content: "fresh\n" } },
+          { id: "tc2", name: "read", arguments: { path: "data.txt" } },
+        ],
+      },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: dir,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const result = await runLoop(ctx, hooks([slowWrite, read]), {
+      provider,
+      tools: [slowWrite, read],
+      model: "faux:test",
+    });
+
+    const readResult = result.messages.find(
+      (m) => m.role === "tool" && m.content.some((c) => c.type === "toolResult" && c.toolCallId === "tc2"),
+    );
+    const output = readResult?.content.find((c) => c.type === "toolResult")?.output ?? "";
+    expect(output).toBe("fresh\n");
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("executes read from XML embedded in faux assistant text", async () => {
     const provider = createStatefulFauxProvider([
       {
