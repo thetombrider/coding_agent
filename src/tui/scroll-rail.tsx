@@ -37,10 +37,14 @@ export function ScrollRail(props: {
   return (
     <Show when={layout()}>
       {(m) => (
+        // No explicit height: stretch to the flex row instead. Pinning the box to
+        // a fixed `m().track` (read on a lagging revision) let the rail overflow
+        // downward over the approval bar when the scroll row shrank. The thumb
+        // proportions still come from the metrics; the trailing flexGrow remainder
+        // absorbs any slack.
         <box
           flexShrink={0}
           width={1}
-          height={m().track}
           flexDirection="column"
           backgroundColor={props.trackColor}
         >

@@ -23,7 +23,9 @@ export function ToolOutputView(props: {
 }) {
   const formatted = () => formatToolOutputForDisplay(props.output);
   const fg = () => props.fg ?? theme.codeFg;
-  const wrapMode = () => props.wrapMode ?? "none";
+  // Wrap by default so long bash lines reflow inside the (sidebar-narrowed)
+  // column instead of overflowing horizontally over the scroll rail / todo list.
+  const wrapMode = () => props.wrapMode ?? "word";
   const textSelection = () => surfaceSelection(theme.toolOutputBg, fg());
   // Rendered rows = the visible lines plus the optional "more lines" notice.
   const rowCount = () => formatted().lines.length + (formatted().truncated ? 1 : 0);

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createHookRegistry } from "./registry.js";
 import { installApprovalGate } from "./approval-gate.js";
+import type { ApprovalMode } from "../approval/policy.js";
 import type { Tool } from "../tools/types.js";
 import { testAgentContext } from "../test-helpers.js";
 
@@ -81,5 +82,42 @@ describe("installApprovalGate", () => {
     );
 
     expect(confirm).toHaveBeenCalledWith("bash", { command: "git diff" });
+  });
+
+  // Issue #142: switching approval mode mid-session must not crash the loop.
+  // The TUI mutates the shared ref's `mode` between turns; the gate reads it
+  // live on each before_tool, so every mode must resolve cleanly.
+  it("honors mode flips on the shared ref across successive turns", async () => {
+    const hooks = createHookRegistry();
+    const confirm = vi.fn().mockResolvedValue(true);
+    const ref = {
+      mode: "normal" as const as ApprovalMode,
+      autoAcceptCli: false,
+      tools: [bashTool],
+      confirm,
+    };
+    installApprovalGate(hooks, ref);
+
+    const fire = () =>
+      hooks.fireHook("before_tool", { id: "tc", name: "bash", args: { command: "git diff" } }, ctx);
+
+    // normal → prompts
+    expect(await fire()).toBeUndefined();
+    expect(confirm).toHaveBeenCalledTimes(1);
+
+    // switch to plan → blocks, no prompt
+    ref.mode = "plan";
+    expect(await fire()).toEqual({ block: true, reason: "Tool bash blocked in plan mode." });
+    expect(confirm).toHaveBeenCalledTimes(1);
+
+    // switch to auto-accept → runs without prompting
+    ref.mode = "auto-accept";
+    expect(await fire()).toBeUndefined();
+    expect(confirm).toHaveBeenCalledTimes(1);
+
+    // back to normal → prompts again
+    ref.mode = "normal";
+    expect(await fire()).toBeUndefined();
+    expect(confirm).toHaveBeenCalledTimes(2);
   });
 });
