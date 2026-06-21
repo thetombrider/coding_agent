@@ -91,14 +91,25 @@ export function buildDelegateReadMessages(corpus: string, task: string) {
   return messages;
 }
 
-/** @internal inject generate in tests */
-export type DelegateReadGenerate = (
-  options: Parameters<typeof generateText>[0],
-) => Promise<{ text: string; usage?: AiSdkUsage }>;
+/**
+ * @internal inject generate in tests. Takes the model *id* (not a resolved
+ * handle) so the default wrapper owns provider resolution; injected mocks never
+ * touch a real provider and need no credentials.
+ */
+export type DelegateReadGenerate = (options: {
+  model: string;
+  system: string;
+  messages: Array<{ role: "user"; content: string }>;
+  maxOutputTokens: number;
+  abortSignal?: AbortSignal;
+}) => Promise<{ text: string; usage?: AiSdkUsage }>;
+
+const defaultDelegateReadGenerate: DelegateReadGenerate = ({ model, ...rest }) =>
+  generateText({ ...rest, model: resolveLanguageModel(model) });
 
 export async function runDelegateRead(
   options: DelegateReadOptions,
-  generate: DelegateReadGenerate = generateText,
+  generate: DelegateReadGenerate = defaultDelegateReadGenerate,
 ): Promise<DelegateReadResult> {
   const { files, warnings } = await resolveInputPaths(
     options.cwd,
@@ -116,7 +127,7 @@ export async function runDelegateRead(
   const model = options.model ?? defaultCheapModel();
 
   const { text, usage } = await generate({
-    model: resolveLanguageModel(model),
+    model,
     system: DELEGATE_READ_SYSTEM,
     messages: buildDelegateReadMessages(corpus, options.task),
     maxOutputTokens: 8192,
