@@ -13,7 +13,7 @@ export type AgentEvent =
   | { type: "todo_update"; todos: TodoItem[] }
   | { type: "subagent_start"; id: string; description: string; agent: string; isolation?: "shared" | "worktree" | "sandbox"; model?: string }
   | { type: "subagent_end"; id: string; agent: string; turns: number; summary: string }
-  | { type: "loop_end"; reason: "complete" | "terminate" | "error" };
+  | { type: "loop_end"; reason: "complete" | "terminate" | "error" | "cancelled" };
 
 export type AgentEventSink = (event: AgentEvent) => void;
 

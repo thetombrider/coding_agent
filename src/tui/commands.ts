@@ -76,7 +76,7 @@ const HELP_LINES = [
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
   "/help                         show this help",
-  "/exit                         quit",
+  "/exit                         quit (Ctrl+C when idle)",
 ];
 
 function modeInfo(ctx: CommandContext): string {

@@ -73,6 +73,8 @@ export interface SessionController {
   handleEvent: (event: AgentEvent) => void;
   requestApproval: (name: string, args: unknown) => Promise<boolean>;
   respondApproval: (approved: boolean) => void;
+  /** Deny a pending approval gate, if any — used when stopping a turn. */
+  rejectPendingApproval: () => void;
   subscribe: (listener: SessionListener) => () => void;
   getState: () => SessionState;
   beginTurn: (userText: string) => void;
@@ -90,7 +92,8 @@ export interface SessionController {
   setSessionCost: (snapshot: Pick<SessionCostSnapshot, "costUsd" | "tokens">) => void;
 }
 
-const IDLE_HINT = `scroll · ${clipboardHintText()} · /exit`;
+const IDLE_HINT = `scroll · ${clipboardHintText()} · Ctrl+C exit`;
+const RUNNING_HINT = "Working… · Ctrl+C stop";
 
 const TOOL_VERBS: Record<string, string> = {
   read: "Reading",
@@ -259,7 +262,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingReasoning: "",
         currentTools: [],
         phase: "running",
-        statusHint: "Working…",
+        statusHint: RUNNING_HINT,
       });
     },
 
@@ -457,7 +460,18 @@ export function createSessionController(meta: SessionMeta): SessionController {
       update({
         pendingApproval: null,
         phase: "running",
-        statusHint: "Working…",
+        statusHint: RUNNING_HINT,
+      });
+    },
+
+    rejectPendingApproval() {
+      if (state.phase !== "approval" || !approvalResolver) return;
+      approvalResolver(false);
+      approvalResolver = null;
+      update({
+        pendingApproval: null,
+        phase: "running",
+        statusHint: RUNNING_HINT,
       });
     },
   };

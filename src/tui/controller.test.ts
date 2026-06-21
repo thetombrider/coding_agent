@@ -53,6 +53,14 @@ describe("createSessionController", () => {
     expect(controller.getState().pendingApproval).toBeNull();
   });
 
+  it("rejectPendingApproval denies a waiting approval gate", async () => {
+    const controller = createSessionController(meta);
+    const pending = controller.requestApproval("bash", { command: "ls" });
+    controller.rejectPendingApproval();
+    await expect(pending).resolves.toBe(false);
+    expect(controller.getState().phase).toBe("running");
+  });
+
   it("manages input buffer", () => {
     const controller = createSessionController(meta);
     controller.appendInput("hi");
