@@ -8,6 +8,14 @@ const COMPACT_THRESHOLD = 0.85;
 const DEFAULT_KEEP_LAST_K = 3;
 const DEFAULT_TOOL_RESULT_TOKEN_THRESHOLD = 2000;
 const DEFAULT_KEEP_LAST_N_TURNS = 20;
+/** Recent tool-output budget preserved when pruning under overflow (opencode-style). */
+const PRUNE_PROTECT_TOKENS = 40_000;
+/** Skip pruning when it would free fewer tokens than this. */
+const PRUNE_MINIMUM_TOKENS = 20_000;
+/** Hard cap on a single tool result when context is near the window. */
+const MAX_TOOL_RESULT_TOKENS = 16_000;
+/** Message-level cut budget when turn-based summarisation cannot help (pi-style). */
+const DEFAULT_KEEP_RECENT_TOKENS = 20_000;
 const ELIDED_PREFIX = "[result elided";
 
 const SUMMARY_SYSTEM = (
@@ -89,6 +97,92 @@ export function isElidedToolResult(text: string): boolean {
 function elideToolOutput(output: string): string {
   const lines = output.split("\n").length;
   return `[result elided — ${lines} lines. Re-run tool if needed.]`;
+}
+
+function mapToolResults(
+  messages: Message[],
+  fn: (output: string, block: Extract<Message["content"][number], { type: "toolResult" }>) => string,
+): Message[] {
+  return messages.map((msg) => {
+    if (msg.role !== "tool") return msg;
+    const content = msg.content.map((block) => {
+      if (block.type !== "toolResult") return block;
+      if (isElidedToolResult(block.output)) return block;
+      const next = fn(block.output, block);
+      return next === block.output ? block : { ...block, output: next };
+    });
+    const changed = content.some((block, i) => block !== msg.content[i]);
+    return changed ? { ...msg, content } : msg;
+  });
+}
+
+/** Cap individual bloated tool results when nearing the context window. */
+export function capOversizedToolResults(messages: Message[], contextWindow: number): Message[] {
+  if (!shouldCompact(messages, contextWindow)) return messages;
+  return mapToolResults(messages, (output) =>
+    estimateTokens(output) > MAX_TOOL_RESULT_TOKENS ? elideToolOutput(output) : output,
+  );
+}
+
+/**
+ * Walk backwards and elide older tool output once the recent budget is full.
+ * Works within a single user turn — unlike turn-based eviction.
+ */
+export function pruneOverflowToolResults(messages: Message[], contextWindow: number): Message[] {
+  if (!shouldCompact(messages, contextWindow)) return messages;
+
+  let protectedTokens = 0;
+  let prunedTokens = 0;
+  const elideIndices = new Set<number>();
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]!;
+    if (msg.role !== "tool") continue;
+    for (const block of msg.content) {
+      if (block.type !== "toolResult") continue;
+      if (isElidedToolResult(block.output)) continue;
+      const tokens = estimateTokens(block.output);
+      if (protectedTokens + tokens <= PRUNE_PROTECT_TOKENS) {
+        protectedTokens += tokens;
+        continue;
+      }
+      prunedTokens += tokens;
+      elideIndices.add(i);
+    }
+  }
+
+  if (prunedTokens < PRUNE_MINIMUM_TOKENS) return messages;
+
+  return messages.map((msg, index) => {
+    if (!elideIndices.has(index) || msg.role !== "tool") return msg;
+    const content = msg.content.map((block) => {
+      if (block.type !== "toolResult") return block;
+      if (isElidedToolResult(block.output)) return block;
+      return { ...block, output: elideToolOutput(block.output) };
+    });
+    return { ...msg, content };
+  });
+}
+
+function isValidCutPoint(msg: Message): boolean {
+  return msg.role === "user" || msg.role === "assistant";
+}
+
+/** Index of the first message to keep when preserving a recent token budget. */
+export function findMessageCutIndex(messages: Message[], keepRecentTokens: number): number {
+  const cutPoints: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (isValidCutPoint(messages[i]!)) cutPoints.push(i);
+  }
+  if (cutPoints.length === 0) return messages.length;
+
+  let accumulated = 0;
+  for (let ci = cutPoints.length - 1; ci >= 0; ci--) {
+    const start = cutPoints[ci]!;
+    accumulated += estimateMessageTokens(messages.slice(start));
+    if (accumulated >= keepRecentTokens) return start;
+  }
+  return cutPoints[0] ?? 0;
 }
 
 /** Replace stale, large tool results with short stubs. Returns a new array. */
@@ -197,4 +291,66 @@ export async function summariseOldTurns(
   };
 
   return [summaryMessage, ...recentMessages];
+}
+
+/** Summarise older messages when turn boundaries cannot split the context (single-turn sessions). */
+export async function summariseOldMessages(
+  messages: Message[],
+  model: string,
+  keepRecentTokens = DEFAULT_KEEP_RECENT_TOKENS,
+  generate: SummariseGenerate = defaultSummariseGenerate,
+  recordCall?: LlmCallRecorder,
+): Promise<Message[]> {
+  const cutIndex = findMessageCutIndex(messages, keepRecentTokens);
+  if (cutIndex <= 0) return messages;
+
+  const oldMessages = stripReasoningBlocks(messages.slice(0, cutIndex));
+  const recentMessages = messages.slice(cutIndex);
+  if (oldMessages.length === 0) return messages;
+
+  const corpus = formatMessagesForSummary(oldMessages);
+  const { text, usage } = await generate({
+    model,
+    system: SUMMARY_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: `Summarise this portion of a coding-agent session:\n\n${corpus}`,
+      },
+    ],
+    maxOutputTokens: 4096,
+  });
+
+  if (recordCall && usage) {
+    recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
+  }
+
+  const summaryMessage: Message = {
+    role: "assistant",
+    content: [{ type: "text", text: text.trim() }],
+  };
+
+  return [summaryMessage, ...recentMessages];
+}
+
+/**
+ * Full auto-compact pipeline: cap/prune tool output, then summarise by turn or
+ * by message cut when a single turn has grown too large.
+ */
+export async function compactMessages(
+  messages: Message[],
+  model: string,
+  contextWindow: number,
+  keepLastNTurns = DEFAULT_KEEP_LAST_N_TURNS,
+  generate: SummariseGenerate = defaultSummariseGenerate,
+  recordCall?: LlmCallRecorder,
+): Promise<Message[]> {
+  let result = capOversizedToolResults(messages, contextWindow);
+  result = pruneOverflowToolResults(result, contextWindow);
+  if (!shouldCompact(result, contextWindow)) return result;
+
+  result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall);
+  if (!shouldCompact(result, contextWindow)) return result;
+
+  return summariseOldMessages(result, model, DEFAULT_KEEP_RECENT_TOKENS, generate, recordCall);
 }
