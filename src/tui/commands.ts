@@ -38,6 +38,8 @@ export type CommandResult =
   | { type: "clear" }
   | { type: "new" }
   | { type: "sessions" }
+  | { type: "checkpoints" }
+  | { type: "restore"; id?: string }
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
   | { type: "set-isolation"; isolation: IsolationMode; message: string }
@@ -69,6 +71,8 @@ const HELP_LINES = [
   "/settings isolation [mode]    set subagent isolation floor (shared|worktree|sandbox)",
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/sessions                     browse and resume saved sessions",
+  "/checkpoints                  list workspace checkpoints for this session",
+  "/restore [id]                 roll the working tree back (latest checkpoint if no id)",
   "/new                          archive this session and start a new one",
   "/clear                        clear the conversation",
   "/help                         show this help",
@@ -337,6 +341,8 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "clear":
     case "new":
     case "sessions":
+    case "checkpoints":
+    case "restore":
     case "set-model":
     case "set-mode":
     case "set-isolation":
@@ -374,6 +380,12 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
       return { type: "new" };
     case "/sessions":
       return { type: "sessions" };
+    case "/checkpoints":
+    case "/checkpoint":
+      return { type: "checkpoints" };
+    case "/restore":
+    case "/undo":
+      return { type: "restore", id: arg || undefined };
     case "/help":
       return { type: "info", message: `${KEYBOARD_HINTS}\n${HELP_LINES.join("\n")}` };
     case "/mode":

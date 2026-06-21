@@ -61,6 +61,19 @@ describe("processCommand", () => {
     expect(processCommand("/sessions", ctx).type).toBe("sessions");
   });
 
+  it("handles /checkpoints", () => {
+    const r = processCommand("/checkpoints", ctx);
+    expect(r.type).toBe("checkpoints");
+    expect(isActionableCommandResult(r)).toBe(true);
+  });
+
+  it("handles /restore with and without an id", () => {
+    expect(processCommand("/restore", ctx)).toEqual({ type: "restore", id: undefined });
+    expect(processCommand("/restore abc123", ctx)).toEqual({ type: "restore", id: "abc123" });
+    expect(processCommand("/undo", ctx)).toEqual({ type: "restore", id: undefined });
+    expect(isActionableCommandResult({ type: "restore" })).toBe(true);
+  });
+
   it("reports unknown commands", () => {
     const r = processCommand("/bogus", ctx);
     expect(r.type).toBe("error");

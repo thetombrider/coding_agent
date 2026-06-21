@@ -33,6 +33,7 @@ import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/pick
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
+import type { CheckpointRecord } from "../checkpoint/manager.js";
 import type { SessionsPaletteState } from "./sessions-palette.js";
 import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
 
@@ -46,6 +47,8 @@ const SLASH_COMMANDS = [
   { name: "providers", label: "/providers", description: "switch LLM provider" },
   { name: "settings",  label: "/settings",  description: "E2B key, isolation, task models" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
+  { name: "checkpoints", label: "/checkpoints", description: "list workspace checkpoints" },
+  { name: "restore",   label: "/restore",   description: "roll back the working tree" },
   { name: "new",       label: "/new",       description: "archive & start new session" },
   { name: "clear",     label: "/clear",     description: "clear conversation" },
   { name: "help",      label: "/help",      description: "show help" },
@@ -144,6 +147,8 @@ export function App(props: {
   onResume: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => { ok: boolean; message: string };
   onListSessions: () => SessionSummary[];
+  onListCheckpoints: () => CheckpointRecord[];
+  onRestoreCheckpoint: (id?: string) => { ok: boolean; message: string };
   activeSessionId: string;
 }) {
   const [state, setState] = createSignal(props.controller.getState());
@@ -449,6 +454,25 @@ export function App(props: {
         setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
         return;
       }
+      case "checkpoints": {
+        const records = props.onListCheckpoints();
+        if (records.length === 0) {
+          props.controller.setStatusHint(
+            "No checkpoints yet — they're created after edits on a local workspace.",
+          );
+          return;
+        }
+        const lines = records.map((r) => `  ${r.id}  ${r.label}  (${formatSessionDate(r.ts)})`);
+        props.controller.setStatusHint(
+          `checkpoints (newest first):\n${lines.join("\n")}\n/restore <id> to roll back`,
+        );
+        return;
+      }
+      case "restore": {
+        const res = props.onRestoreCheckpoint(result.id);
+        props.controller.setStatusHint(res.message);
+        return;
+      }
       case "set-model":
         props.onSetModel(result.model);
         props.controller.setStatusHint(result.message);
@@ -570,6 +594,10 @@ export function App(props: {
         props.controller.setStatusHint(
           `${KEYBOARD_HINTS}  ·  ${SLASH_COMMANDS.map((c) => `${c.label}: ${c.description}`).join("  ·  ")}`,
         );
+      } else if (name === "checkpoints") {
+        applyCommandResult({ type: "checkpoints" });
+      } else if (name === "restore") {
+        applyCommandResult({ type: "restore" });
       }
       return;
     }

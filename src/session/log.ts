@@ -1,6 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import type { CheckpointRecord } from "../checkpoint/manager.js";
 import { SessionCostAccumulator } from "../telemetry/accumulator.js";
 import type { ContentBlock, Message, SessionEvent } from "../types.js";
 
@@ -103,6 +104,26 @@ export function repairDanglingToolCalls(messages: Message[]): Message[] {
     if (fillers.length) repaired.push({ role: "tool", content: fillers });
   }
   return repaired;
+}
+
+/** Replay a session log's persisted checkpoints so /restore works after resume. */
+export function replayCheckpoints(path: string): CheckpointRecord[] {
+  if (!existsSync(path)) return [];
+  const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+  const records: CheckpointRecord[] = [];
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line) as SessionEvent;
+      if (ev.type === "checkpoint") {
+        records.push({ id: ev.checkpointId, label: ev.label, ts: ev.ts, tool: ev.tool });
+      } else if (ev.type === "session_clear") {
+        records.length = 0;
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+  return records;
 }
 
 export interface SessionSummary {

@@ -49,6 +49,7 @@ export type SessionEvent =
   | { type: "tool_result";     ts: string; toolUseId: string; content: ContentBlock[] }
   | { type: "session_meta";    ts: string; sessionId: string; cwd: string; model: string }
   | { type: "session_clear";   ts: string }
+  | { type: "checkpoint";      ts: string; checkpointId: string; label: string; tool: string }
   | { type: "metric";          ts: string; event: MetricEvent };
 
 export type SessionEventCallback = (event: SessionEvent) => void;
