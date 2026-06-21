@@ -1,0 +1,164 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { checkpointsDir } from "./tracker.js";
+
+/**
+ * Shadow-git checkpoint repos under `~/.orin/checkpoints/<session>` are created
+ * per session and, left alone, grow without bound — each `git add -A` snapshot
+ * accumulates loose objects, and dead session dirs are never reclaimed. OpenCode
+ * hit the same problem (anomalyco/opencode#6845, "HUGE snapshot folder") and
+ * mitigated it with a periodic `git gc --prune` per shadow repo plus pruning of
+ * old session dirs. This module is orin's equivalent: it `git gc`s the repos worth
+ * keeping and deletes the rest under an age window + count cap.
+ */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface RetentionOptions {
+  /** Delete shadow repos whose last activity is older than this (default 30d). */
+  maxAgeMs?: number;
+  /** Keep at most this many shadow repos, newest first (default 50). */
+  maxRepos?: number;
+  /** `git gc --prune` window in days for the survivors (default 7). */
+  pruneDays?: number;
+  /** Session ids that must never be deleted (e.g. the active session). */
+  protect?: string[];
+  /** Checkpoints root; overridable for tests. Defaults to {@link checkpointsDir}. */
+  dir?: string;
+}
+
+/** Defaults tuned to stay well within a few hundred MB of shadow history. */
+export const DEFAULT_RETENTION = {
+  maxAgeMs: 30 * DAY_MS,
+  maxRepos: 50,
+  pruneDays: 7,
+} as const;
+
+export interface ShadowRepo {
+  sessionId: string;
+  /** Last-modified time of the shadow git dir, used as a proxy for last activity. */
+  mtimeMs: number;
+}
+
+/**
+ * Decide which shadow repos to delete given an age window and a count cap. Pure
+ * (no I/O) so the policy is unit-testable. Repos are ranked newest-first; a repo
+ * is removed when it is older than `maxAgeMs` OR falls beyond the newest
+ * `maxRepos`. Protected ids are always kept and still occupy a keep slot.
+ */
+export function selectReposToPrune(
+  repos: ShadowRepo[],
+  opts: { maxAgeMs: number; maxRepos: number; now: number; protect?: string[] },
+): { remove: string[]; keep: string[] } {
+  const protectedSet = new Set(opts.protect ?? []);
+  const sorted = [...repos].sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const remove = new Set<string>();
+
+  // Age cap: anything past the window goes, unless protected.
+  for (const r of sorted) {
+    if (protectedSet.has(r.sessionId)) continue;
+    if (opts.now - r.mtimeMs > opts.maxAgeMs) remove.add(r.sessionId);
+  }
+
+  // Count cap: keep the newest `maxRepos` survivors; trim the rest (never protected).
+  const survivors = sorted.filter((r) => !remove.has(r.sessionId));
+  survivors.forEach((r, i) => {
+    if (i >= opts.maxRepos && !protectedSet.has(r.sessionId)) remove.add(r.sessionId);
+  });
+
+  return {
+    remove: sorted.filter((r) => remove.has(r.sessionId)).map((r) => r.sessionId),
+    keep: sorted.filter((r) => !remove.has(r.sessionId)).map((r) => r.sessionId),
+  };
+}
+
+/** List the shadow repos under `dir`, newest-first is not guaranteed (caller sorts). */
+export function listShadowRepos(dir: string = checkpointsDir()): ShadowRepo[] {
+  if (!existsSync(dir)) return [];
+  const out: ShadowRepo[] = [];
+  for (const name of readdirSync(dir)) {
+    try {
+      const st = statSync(join(dir, name));
+      if (st.isDirectory()) out.push({ sessionId: name, mtimeMs: st.mtimeMs });
+    } catch {
+      // ignore entries that vanished or can't be stat'd
+    }
+  }
+  return out;
+}
+
+/** Delete a single session's shadow repo. Returns false when there was nothing to delete. */
+export function removeCheckpointRepo(sessionId: string, dir: string = checkpointsDir()): boolean {
+  const full = join(dir, sessionId);
+  if (!existsSync(full)) return false;
+  rmSync(full, { recursive: true, force: true });
+  return true;
+}
+
+const GIT_GC_TIMEOUT_MS = 30_000;
+
+/**
+ * Repack and prune a shadow repo's objects. Best-effort: a missing/invalid git dir
+ * or a failing git is swallowed so cleanup never throws into the caller.
+ */
+export function gcShadowRepo(gitDir: string, pruneDays: number = DEFAULT_RETENTION.pruneDays): void {
+  if (!existsSync(join(gitDir, "HEAD"))) return;
+  try {
+    spawnSync("git", [`--git-dir=${gitDir}`, "gc", "--quiet", `--prune=${pruneDays}.days`], {
+      encoding: "utf8",
+      timeout: GIT_GC_TIMEOUT_MS,
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+export interface CleanupResult {
+  removed: string[];
+  kept: string[];
+}
+
+/**
+ * Run one pass of checkpoint cleanup: delete shadow repos beyond the age/count
+ * caps, then `git gc --prune` the survivors. Synchronous and best-effort — callers
+ * that must not block startup should use {@link scheduleCheckpointCleanup}.
+ */
+export function runCheckpointCleanup(opts: RetentionOptions = {}): CleanupResult {
+  const dir = opts.dir ?? checkpointsDir();
+  const maxAgeMs = opts.maxAgeMs ?? DEFAULT_RETENTION.maxAgeMs;
+  const maxRepos = opts.maxRepos ?? DEFAULT_RETENTION.maxRepos;
+  const pruneDays = opts.pruneDays ?? DEFAULT_RETENTION.pruneDays;
+
+  const repos = listShadowRepos(dir);
+  if (repos.length === 0) return { removed: [], kept: [] };
+
+  const { remove, keep } = selectReposToPrune(repos, {
+    maxAgeMs,
+    maxRepos,
+    now: Date.now(),
+    protect: opts.protect,
+  });
+
+  for (const id of remove) removeCheckpointRepo(id, dir);
+  for (const id of keep) gcShadowRepo(join(dir, id), pruneDays);
+
+  return { removed: remove, kept: keep };
+}
+
+/**
+ * Kick off a cleanup pass off the startup path so it never blocks the TUI from
+ * coming up. Deferred to a later tick, run on an unref'd timer (won't keep the
+ * process alive), and fully error-swallowed.
+ */
+export function scheduleCheckpointCleanup(opts: RetentionOptions = {}): void {
+  const timer = setTimeout(() => {
+    try {
+      runCheckpointCleanup(opts);
+    } catch {
+      // best-effort: cleanup must never crash the session
+    }
+  }, 0);
+  // Don't let the cleanup timer hold the event loop open on exit.
+  timer.unref?.();
+}
