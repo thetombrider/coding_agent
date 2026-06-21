@@ -9,6 +9,7 @@ import {
   listSessions,
   openLog,
   rebuildSessionCost,
+  replayCheckpoints,
   replayLog,
   resolveStartupSessionId,
 } from "./log.js";
@@ -121,6 +122,34 @@ describe("openLog / replayLog round-trip", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ role: "user" });
     expect(messages[0]?.content[0]).toMatchObject({ text: "after" });
+  });
+
+  it("replayCheckpoints reads persisted checkpoints and skips messages", async () => {
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "hi" }] });
+    log.write({ type: "checkpoint", ts: "t2", checkpointId: "aaa111", label: "session baseline", tool: "baseline" });
+    log.write({ type: "checkpoint", ts: "t3", checkpointId: "bbb222", label: "after edit", tool: "edit" });
+    await log.close();
+
+    const cps = replayCheckpoints(path);
+    expect(cps).toEqual([
+      { id: "aaa111", label: "session baseline", ts: "t2", tool: "baseline" },
+      { id: "bbb222", label: "after edit", ts: "t3", tool: "edit" },
+    ]);
+    // checkpoint events are not part of the message transcript.
+    expect(replayLog(path)).toHaveLength(1);
+  });
+
+  it("replayCheckpoints resets on session_clear", async () => {
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "checkpoint", ts: "t1", checkpointId: "aaa111", label: "baseline", tool: "baseline" });
+    log.write({ type: "session_clear", ts: "t2" });
+    log.write({ type: "checkpoint", ts: "t3", checkpointId: "ccc333", label: "after edit", tool: "edit" });
+    await log.close();
+
+    expect(replayCheckpoints(path).map((c) => c.id)).toEqual(["ccc333"]);
   });
 
   it("skips session_meta events entirely on replay", async () => {

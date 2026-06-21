@@ -10,7 +10,9 @@ import { saveConfig, saveProviderConfig, saveE2BApiKey } from "../config/config.
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider, resolveActiveProvider } from "../provider/registry.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
-import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayLog, sessionPath, deleteSession } from "../session/log.js";
+import { createCheckpointManager } from "../checkpoint/manager.js";
+import { isMutatingTool } from "../checkpoint/tracker.js";
+import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayCheckpoints, replayLog, sessionPath, deleteSession } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
 import { SessionCostAccumulator } from "../telemetry/accumulator.js";
 import { createDefaultSinks, installTelemetry } from "../telemetry/install.js";
@@ -72,6 +74,22 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   };
   writeMeta();
 
+  // Workspace checkpoints: a shadow git repo per session snapshots the local tree
+  // after each mutating tool so the user can /restore. No-op under E2B (disposable).
+  const checkpoints = createCheckpointManager({
+    getSessionId: () => activeSessionId,
+    getWorkTree: () => config.ctx.cwd,
+    isLocalWorkspace: () => config.ctx.workspace.kind === "local",
+    record: (rec) =>
+      log.write({
+        type: "checkpoint",
+        ts: rec.ts,
+        checkpointId: rec.id,
+        label: rec.label,
+        tool: rec.tool,
+      }),
+  });
+
   // Telemetry: the sinks are created once (the session sink writes through the
   // live `log` binding, which is reassigned on resume/new). `reinstallTelemetry`
   // re-subscribes with the current sessionId/provider so metrics never carry a
@@ -111,6 +129,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     activeSessionId = resumeSessionId;
     log = openLog(sessionPath(activeSessionId));
     if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
+    // Seed the resumed session's checkpoints so /restore can target them.
+    checkpoints.bind(activeSessionId, replayCheckpoints(sessionPath(activeSessionId)));
     // Rebuild the cost accumulator from the resumed log so the header total is
     // correct (and continues to grow) before the next turn.
     reinstallTelemetry(rebuildSessionCost(sessionPath(activeSessionId)));
@@ -146,6 +166,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     log = openLog(sessionPath(activeSessionId));
     if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
     writeMeta();
+    // Fresh session: empty checkpoint list, then baseline the current tree.
+    checkpoints.bind(activeSessionId, []);
+    checkpoints.baseline();
     reinstallTelemetry();
     controller.clearHistory();
     controller.setTodos([]);
@@ -165,6 +188,15 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     confirm: controller.requestApproval,
   };
   installCoreHooks(config.hooks, approvalRef);
+
+  // After each mutating tool on the primary agent's local tree, snapshot a
+  // checkpoint. Subagents (depth > 0) may run in isolated trees, so skip them.
+  config.hooks.on("after_tool", ({ name }, ctx) => {
+    if ((ctx.depth ?? 0) > 0 || !isMutatingTool(name)) return;
+    const rec = checkpoints.afterTool(name);
+    if (rec) controller.setStatusHint(`checkpoint ${rec.id} — /restore ${rec.id} to undo`);
+  });
+
   reinstallTelemetry();
 
   let activeTools = config.tools;
@@ -281,6 +313,10 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     await bootstrapE2BSandbox();
   }
 
+  // Baseline the starting tree once the final workspace is settled, so even the
+  // first edit is reversible. No-op for E2B.
+  checkpoints.baseline();
+
 
   const runTurn = async (userText: string) => {
     if (!config.meta.faux) {
@@ -362,6 +398,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onResume,
           onDeleteSession,
           onListSessions: listSessions,
+          onListCheckpoints: () => checkpoints.list(),
+          onRestoreCheckpoint: (id) => checkpoints.restore(id),
           activeSessionId,
         }),
       renderer,
