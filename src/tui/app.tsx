@@ -986,7 +986,15 @@ export function App(props: {
         />
       </box>
 
-      <box flexDirection="row" flexGrow={1}>
+      {/*
+        Clip the scroll row to its own bounds. When the approval bar appears the
+        row shrinks (flexGrow/flexShrink), but the ScrollRail (stale metrics) and
+        the TodoSidebar (long todo lists) have flexShrink=0 children that would
+        otherwise overflow downward; the approval bar, a later sibling, then
+        paints over that overflow — the "approval bar overlapping the rail /
+        sidebar" bug. overflow:hidden + minHeight:0 keeps everything inside the row.
+      */}
+      <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         <scrollbox
           ref={scrollRef}
           flexGrow={1}
@@ -995,6 +1003,11 @@ export function App(props: {
           contentOptions={{ flexDirection: "column" }}
           {...hiddenNativeScrollbar}
           on:scroll={bumpScrollRail}
+          // Re-measure the rail when the scroll row actually resizes (e.g. the
+          // approval bar appearing shrinks it). Fires after layout, so the rail
+          // reads the fresh viewport height instead of the stale taller one the
+          // queueMicrotask bump below would otherwise catch.
+          onSizeChange={bumpScrollRail}
         >
           <Show
             when={hasContent()}
