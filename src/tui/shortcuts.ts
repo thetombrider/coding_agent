@@ -14,7 +14,7 @@ export function isPlainSelectionCopyShortcut(key: ShortcutKey): boolean {
   return key.name === "c" && !key.ctrl && !key.meta && !key.shift;
 }
 
-/** Quit — Ctrl+C only, not Ctrl+Shift+C (which is copy in many TUIs). */
+/** Stop a running turn when busy; exit when idle — Ctrl+C only, not Ctrl+Shift+C (copy). */
 export function isInterruptShortcut(key: ShortcutKey): boolean {
   return key.name === "c" && key.ctrl && !key.shift && !key.meta;
 }

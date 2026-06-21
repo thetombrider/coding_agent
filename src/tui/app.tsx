@@ -130,6 +130,7 @@ function currentTurn(state: SessionState): Turn | null {
 export function App(props: {
   controller: SessionController;
   onSubmit: (text: string) => void | Promise<void>;
+  onStopTurn: () => void;
   onExit: () => void;
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
@@ -160,6 +161,15 @@ export function App(props: {
   const renderer = useRenderer();
   onCleanup(props.controller.subscribe(setState));
   useSpinnerClock();
+
+  const canStopTurn = () =>
+    submitting() || state().phase === "running" || state().phase === "approval";
+
+  const handleStopTurn = () => {
+    if (!canStopTurn()) return;
+    props.onStopTurn();
+    props.controller.setStatusHint("Stopping…");
+  };
 
   const copyShortcutsEnabled = () =>
     state().phase === "input"
@@ -816,6 +826,10 @@ export function App(props: {
         props.controller.setStatusHint("configuration cancelled");
         return;
       }
+      if (canStopTurn()) {
+        handleStopTurn();
+        return;
+      }
       props.onExit();
       return;
     }
@@ -824,6 +838,11 @@ export function App(props: {
       if (key.name === "y") props.controller.respondApproval(true);
       if (key.name === "n") props.controller.respondApproval(false);
       if (key.name === "escape" && !renderer.hasSelection) props.controller.respondApproval(false);
+      return;
+    }
+
+    if (phase === "running" && key.name === "escape" && !renderer.hasSelection) {
+      handleStopTurn();
       return;
     }
 

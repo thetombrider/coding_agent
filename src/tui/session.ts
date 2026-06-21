@@ -31,6 +31,10 @@ import { messagesToTurns } from "./messages-to-turns.js";
 import { restoreTerminal } from "./terminal.js";
 import { terminalStartupCopyHint } from "./terminal-env.js";
 import { terminalBg, terminalFg, theme } from "./theme.js";
+import { isAbortError } from "../util/abort.js";
+
+/** Max time to wait for an in-flight turn to settle after abort before teardown. */
+const TURN_STOP_TIMEOUT_MS = 5000;
 
 const hex2 = (n: number) => n.toString(16).padStart(2, "0");
 const osc = (code: number, c: { r: number; g: number; b: number }) =>
@@ -222,6 +226,19 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     resolveExit = resolve;
   });
 
+  let turnAbort: AbortController | null = null;
+  const activeTurn = { promise: null as Promise<void> | null };
+
+  const stopTurn = () => {
+    controller.rejectPendingApproval();
+    turnAbort?.abort();
+  };
+
+  const requestExit = () => {
+    stopTurn();
+    resolveExit();
+  };
+
   const setModel = (model: string) => {
     activeModel = model;
     if (config.ctx.loopHost) config.ctx.loopHost.model = model;
@@ -339,11 +356,16 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       }
     }
 
+    turnAbort?.abort();
+    const abort = new AbortController();
+    turnAbort = abort;
+
     const userContent = [{ type: "text" as const, text: userText }];
     config.ctx.messages.push({ role: "user", content: userContent });
     log.write({ type: "user_message", ts: new Date().toISOString(), content: userContent });
     controller.beginTurn(userText);
 
+    let cancelled = false;
     try {
       await runLoop(config.ctx, config.hooks, {
         provider: config.provider,
@@ -352,12 +374,31 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         system: config.system,
         sessionId: activeSessionId,
         onEvent: log.write,
+        signal: abort.signal,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      controller.handleEvent({ type: "text_delta", text: `\nError: ${message}` });
+      if (abort.signal.aborted || isAbortError(err)) {
+        cancelled = true;
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        controller.handleEvent({ type: "text_delta", text: `\nError: ${message}` });
+      }
     } finally {
+      if (turnAbort === abort) turnAbort = null;
       controller.finalizeTurn();
+      if (cancelled || abort.signal.aborted) {
+        controller.setStatusHint("Turn stopped — ready for input");
+      }
+    }
+  };
+
+  const runTurnTracked = async (userText: string) => {
+    const turn = runTurn(userText);
+    activeTurn.promise = turn;
+    try {
+      await turn;
+    } finally {
+      if (activeTurn.promise === turn) activeTurn.promise = null;
     }
   };
 
@@ -391,8 +432,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       () =>
         App({
           controller,
-          onSubmit: runTurn,
-          onExit: resolveExit,
+          onSubmit: runTurnTracked,
+          onStopTurn: stopTurn,
+          onExit: requestExit,
           onSetModel: setModel,
           onSetMode: setApprovalMode,
           onSetIsolation: setSubagentIsolation,
@@ -429,13 +471,21 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
     if (config.initialMessage) {
       queueMicrotask(() => {
-        void runTurn(config.initialMessage!);
+        void runTurnTracked(config.initialMessage!);
       });
     }
 
     await exitPromise;
   } finally {
     process.removeListener("exit", onProcessExit);
+    stopTurn();
+    const pendingTurn = activeTurn.promise;
+    if (pendingTurn) {
+      await Promise.race([
+        pendingTurn.then(() => undefined, () => undefined),
+        new Promise((resolve) => setTimeout(resolve, TURN_STOP_TIMEOUT_MS)),
+      ]);
+    }
     await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
     disposeTelemetry();
     await config.ctx.workspace.dispose();

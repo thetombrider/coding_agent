@@ -208,7 +208,7 @@ class SpanConsumer implements OtelSpanConsumer {
     });
   }
 
-  private onLoopEnd(reason: "complete" | "terminate" | "error"): void {
+  private onLoopEnd(reason: "complete" | "terminate" | "error" | "cancelled"): void {
     const endTime = Date.now();
     this.apply((rt) => {
       this.closeOpenChildren(endTime);

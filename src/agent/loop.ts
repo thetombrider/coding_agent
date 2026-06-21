@@ -15,6 +15,7 @@ import {
 } from "./compaction.js";
 import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, writeMutationKey } from "./mutation-queue.js";
+import { isAbortError } from "../util/abort.js";
 
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
@@ -202,6 +203,11 @@ export async function runLoop(
   hooks.emit({ type: "turn_start", id: turnId });
 
   while (true) {
+    if (options.signal?.aborted) {
+      hooks.emit({ type: "loop_end", reason: "cancelled" });
+      break;
+    }
+
     if (options.maxTurns !== undefined && assistantTurns >= options.maxTurns) {
       hooks.emit({ type: "loop_end", reason: "terminate" });
       break;
@@ -238,22 +244,31 @@ export async function runLoop(
     const llmCallId = randomUUID();
     hooks.emit({ type: "llm_start", id: llmCallId, model: options.model });
 
-    const rawMessage = await options.provider(
-      promptMessages,
-      {
-        model: options.model,
-        system: options.system,
-        tools: toProviderTools(options.tools),
-        signal: options.signal,
-        sessionId: options.sessionId,
-      },
-      (event) => {
-        if (event.type === "text_delta") hooks.emit({ type: "text_delta", text: event.text });
-        if (event.type === "reasoning_delta") {
-          hooks.emit({ type: "reasoning_delta", text: event.text });
-        }
-      },
-    );
+    let rawMessage;
+    try {
+      rawMessage = await options.provider(
+        promptMessages,
+        {
+          model: options.model,
+          system: options.system,
+          tools: toProviderTools(options.tools),
+          signal: options.signal,
+          sessionId: options.sessionId,
+        },
+        (event) => {
+          if (event.type === "text_delta") hooks.emit({ type: "text_delta", text: event.text });
+          if (event.type === "reasoning_delta") {
+            hooks.emit({ type: "reasoning_delta", text: event.text });
+          }
+        },
+      );
+    } catch (err) {
+      if (options.signal?.aborted || isAbortError(err)) {
+        hooks.emit({ type: "loop_end", reason: "cancelled" });
+        break;
+      }
+      throw err;
+    }
 
     const { message, usedFallback } = enrichAssistantMessage(rawMessage, knownTools);
     const ts = () => new Date().toISOString();

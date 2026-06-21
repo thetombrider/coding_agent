@@ -516,4 +516,56 @@ describe("runLoop", () => {
     const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
     expect(output).toContain("at most one todo");
   });
+
+  it("stops cleanly when the turn signal is aborted mid-tool", async () => {
+    const slowTool: Tool<{ n: number }> = {
+      name: "slow",
+      description: "slow noop",
+      schema: z.object({ n: z.number() }),
+      async execute(_args, _ctx, signal) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 5000);
+          signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        });
+        return { output: "ok" };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "slow", arguments: { n: 1 } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([slowTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    const abort = new AbortController();
+    const loopPromise = runLoop(ctx, registry, {
+      provider,
+      tools: [slowTool],
+      model: "faux:test",
+      signal: abort.signal,
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    abort.abort();
+    await loopPromise;
+
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "cancelled")).toBe(true);
+    expect(lastAssistantText(ctx)).toBe("");
+  });
 });
