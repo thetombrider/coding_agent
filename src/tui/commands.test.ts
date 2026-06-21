@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { processCommand, isActionableCommandResult, type CommandContext } from "./commands.js";
 import type { ProviderSummary } from "../provider/registry.js";
 
@@ -272,12 +272,10 @@ describe("processCommand", () => {
       expect(isActionableCommandResult(r)).toBe(true);
     });
 
-    it("reports configured E2B status", async () => {
-      vi.stubEnv("E2B_API_KEY", "test-key");
+    it("opens the settings menu with no argument", () => {
       const r = processCommand("/settings", ctx);
-      expect(r.type).toBe("info");
-      if (r.type === "info") expect(r.message).toContain("configured");
-      vi.unstubAllEnvs();
+      expect(r.type).toBe("open-settings");
+      expect(isActionableCommandResult(r)).toBe(true);
     });
 
     it("rejects unknown settings", () => {
