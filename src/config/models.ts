@@ -76,10 +76,10 @@ export function resolvePresetModel(
   providerId?: string,
 ): string {
   const cfg = loadConfig();
-  const override = cfg.models.roles?.[agent]?.trim();
+  const provider = getProvider(providerId ?? activeProviderId()) ?? resolveActiveProvider();
+  const override = cfg.models.roles?.[provider.id]?.[agent]?.trim();
   const builtin = ROLE_MODEL_DEFAULTS[agent];
   if (override || builtin) {
-    const provider = getProvider(providerId ?? activeProviderId()) ?? resolveActiveProvider();
     // Explicit config override wins when the provider supports it.
     if (override && modelLikelySupported(provider, override)) return override;
     // Otherwise prefer the role's built-in model when the provider supports it.

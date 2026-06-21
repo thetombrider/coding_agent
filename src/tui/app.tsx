@@ -135,7 +135,7 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onSetIsolation: (isolation: IsolationMode) => void;
-  onSetRoleModel: (role: AgentPreset, model: string) => void;
+  onSetRoleModel: (role: AgentPreset, model: string, providerId: string) => void;
   onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (
     provider: string,
@@ -280,6 +280,11 @@ export function App(props: {
   });
 
   const pickerModels = () => pickerModelList();
+
+  // Provider the role-model menu reads from and writes to. Role overrides are
+  // provider-scoped, so configuring a role pins it to the active provider's
+  // models — switching providers (via /providers) configures a different set.
+  const roleProviderId = () => state().meta.provider ?? activeProviderId();
 
   // Role-model picker: the provider's curated models plus a leading sentinel
   // that clears the override back to the role's tier default.
@@ -652,7 +657,7 @@ export function App(props: {
       }
       // role
       const list = roleModelList();
-      const current = loadConfig().models.roles?.[item.role]?.trim();
+      const current = loadConfig().models.roles?.[roleProviderId()]?.[item.role]?.trim();
       const currentIdx = current ? list.indexOf(current) : 0;
       setPalette({ phase: "settings-role", index: Math.max(0, currentIdx), role: item.role });
       return;
@@ -672,7 +677,7 @@ export function App(props: {
       const choice = list[p.index];
       if (choice === undefined) return;
       const model = choice === ROLE_MODEL_DEFAULT ? "" : choice;
-      props.onSetRoleModel(p.role, model);
+      props.onSetRoleModel(p.role, model, roleProviderId());
       const roleIdx = SETTINGS_ITEMS.findIndex((i) => i.kind === "role" && i.role === p.role);
       setPalette({ phase: "settings", index: Math.max(0, roleIdx) });
       return;
@@ -1234,6 +1239,9 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "settings"}>
+                <text fg={theme.secondary}>
+                  Task model overrides apply to the active provider · {roleProviderId()}
+                </text>
                 <For each={SETTINGS_ITEMS}>
                   {(item, i) => {
                     const selected = () => (p() as { phase: "settings"; index: number }).index === i();
@@ -1249,7 +1257,7 @@ export function App(props: {
                         ? (hasE2BApiKey() ? "configured" : "not configured")
                         : item.kind === "isolation"
                           ? cfg().subagent.isolation
-                          : (cfg().models.roles?.[item.role]?.trim() || "default");
+                          : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
@@ -1282,6 +1290,9 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "settings-role"}>
+                <text fg={theme.secondary}>
+                  {(p() as { phase: "settings-role"; role: AgentPreset }).role} model · provider {roleProviderId()}
+                </text>
                 <scrollbox
                   ref={modelListScrollRef}
                   height={Math.min(roleModelList().length, MODEL_LIST_MAX_VISIBLE)}
@@ -1292,10 +1303,10 @@ export function App(props: {
                     {(model, i) => {
                       const sp = () => p() as { phase: "settings-role"; index: number; role: AgentPreset };
                       const selected = () => sp().index === i();
-                      const override = () => loadConfig().models.roles?.[sp().role]?.trim() ?? "";
+                      const providerId = () => roleProviderId();
+                      const override = () => loadConfig().models.roles?.[providerId()]?.[sp().role]?.trim() ?? "";
                       const isCurrent = () =>
                         model === ROLE_MODEL_DEFAULT ? override() === "" : model === override();
-                      const providerId = () => state().meta.provider ?? activeProviderId();
                       const pricingLabel = () =>
                         model === ROLE_MODEL_DEFAULT
                           ? ""

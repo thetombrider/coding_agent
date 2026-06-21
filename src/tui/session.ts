@@ -265,11 +265,14 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   };
 
   // Persisted only — `resolvePresetModel` reads `models.roles` from config each
-  // time the task tool spawns a subagent, so no live ref needs rewiring.
-  const setRoleModel = (role: AgentPreset, model: string) => {
-    saveRoleModel(role, model);
+  // time the task tool spawns a subagent, so no live ref needs rewiring. The
+  // override is stored per provider so it only applies where the model is valid.
+  const setRoleModel = (role: AgentPreset, model: string, providerId: string) => {
+    saveRoleModel(providerId, role, model);
     controller.setStatusHint(
-      model ? `task model · ${role} → ${model}` : `task model · ${role} → default`,
+      model
+        ? `task model · ${providerId} · ${role} → ${model}`
+        : `task model · ${providerId} · ${role} → default`,
     );
   };
 
