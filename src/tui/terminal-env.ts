@@ -3,6 +3,17 @@ export function blocksNativeCopyShortcut(env: NodeJS.ProcessEnv = process.env): 
   return env.TERM_PROGRAM === "Apple_Terminal";
 }
 
+/**
+ * OpenTUI probes Kitty graphics on startup. Terminal.app does not support it and
+ * echoes the probe response (e.g. `Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA`) into the
+ * prompt. Disable the probe unless the user already set OPENTUI_GRAPHICS.
+ */
+export function applyTerminalEnvOverrides(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.TERM_PROGRAM === "Apple_Terminal" && env.OPENTUI_GRAPHICS === undefined) {
+    env.OPENTUI_GRAPHICS = "0";
+  }
+}
+
 export function selectionCopyHint(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,

@@ -30,7 +30,7 @@ import { App } from "./app.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { messagesToTurns } from "./messages-to-turns.js";
 import { restoreTerminal } from "./terminal.js";
-import { terminalStartupCopyHint } from "./terminal-env.js";
+import { applyTerminalEnvOverrides, terminalStartupCopyHint } from "./terminal-env.js";
 import { terminalBg, terminalFg, theme } from "./theme.js";
 import { isAbortError } from "../util/abort.js";
 
@@ -422,6 +422,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
   let renderer: Awaited<ReturnType<typeof createCliRenderer>> | undefined;
   try {
+    applyTerminalEnvOverrides();
     renderer = await createCliRenderer({
       exitOnCtrlC: false,
       backgroundColor: theme.bg,
