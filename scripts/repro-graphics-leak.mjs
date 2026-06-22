@@ -40,7 +40,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const TIMEOUT_MS = Number(process.env.REPRO_TIMEOUT_MS ?? 6000);
+// Fall back to the default if REPRO_TIMEOUT_MS is unset or not a positive number
+// (an invalid value would make setTimeout fire immediately → a false "CLEAN").
+const parsedTimeout = Number(process.env.REPRO_TIMEOUT_MS);
+const TIMEOUT_MS = Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 6000;
 const DEBUG = process.env.REPRO_DEBUG === "1";
 
 const dbg = (...a) => DEBUG && console.error("[repro]", ...a);
@@ -119,6 +122,8 @@ const finish = (code, reason) => {
     } catch {}
     if (leaked) {
       console.error("LEAK: OpenTUI graphics probe (Gi=31337…) was written to the terminal.");
+    } else if (code === 125) {
+      console.error(`UNTESTABLE: ${reason}`);
     } else {
       console.error("CLEAN: no graphics probe observed within the window.");
     }
@@ -145,7 +150,16 @@ term.onData((data) => {
 
 term.onExit(({ exitCode }) => {
   dbg("app exited", exitCode);
-  finish(leaked ? 1 : 0, "app exited");
+  if (leaked) {
+    finish(1, "app exited after probe was seen");
+  } else if (exitCode !== 0) {
+    // The app crashed / failed to start before we could judge it. Don't pass
+    // this off as a clean run — report it as untestable so a bisect skips it
+    // (exit 125) rather than mislabelling the commit as good or bad.
+    finish(125, `app exited with code ${exitCode} before any probe`);
+  } else {
+    finish(0, "app exited cleanly with no probe");
+  }
 });
 
 // No probe within the window → treat as clean (GOOD).
