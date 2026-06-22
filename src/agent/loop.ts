@@ -352,10 +352,11 @@ export function lastAssistantText(ctx: AgentContext): string {
   for (let i = ctx.messages.length - 1; i >= 0; i--) {
     const m = ctx.messages[i];
     if (m.role !== "assistant") continue;
-    return m.content
+    const text = m.content
       .filter((c): c is { type: "text"; text: string } => c.type === "text")
       .map((c) => c.text)
       .join("");
+    if (text) return text;
   }
   return "";
 }

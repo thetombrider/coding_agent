@@ -196,7 +196,7 @@ export async function runSubagentTask(
       loopError = err instanceof Error ? err : new Error(String(err));
     }
 
-    const summary = lastAssistantText(childCtx) || "(no summary returned)";
+    const summary = lastAssistantText(childCtx) || summarizeToolActivity(childCtx);
     const turns = currentTurnCount(childCtx.messages);
 
     // Commit the worktree's work onto its branch before it is removed, and tell
@@ -247,6 +247,27 @@ export async function runSubagentTask(
       await childWorkspace.dispose().catch(() => {});
     }
   }
+}
+
+/**
+ * When the subagent produced no assistant text at all (e.g. it only called tools),
+ * build a fallback summary from the tools that were invoked and their outcomes.
+ */
+function summarizeToolActivity(ctx: AgentContext): string {
+  const toolEntries: string[] = [];
+  for (let i = 0; i < ctx.messages.length; i++) {
+    const m = ctx.messages[i];
+    if (m.role !== "assistant") continue;
+    for (const block of m.content) {
+      if (block.type === "toolCall") {
+        const argSummary = JSON.stringify(block.arguments);
+        toolEntries.push(`${block.name}(${argSummary.length > 80 ? argSummary.slice(0, 80) + "…" : argSummary})`);
+      }
+    }
+  }
+  if (toolEntries.length === 0) return "(no summary returned)";
+  const unique = [...new Set(toolEntries.map((e) => e.split("(")[0]))];
+  return `Subagent completed its run (${toolEntries.length} tool call${toolEntries.length === 1 ? "" : "s"} across ${unique.length} tool${unique.length === 1 ? "" : "s"}: ${unique.join(", ")}). Review the tool activity below for details.`;
 }
 
 /** Build the parent-facing note describing where a worktree subagent's work landed. */
