@@ -6,7 +6,7 @@ import { todowriteSchema } from "../tools/todowrite.js";
 import { clipboardHintText } from "./shortcuts.js";
 
 export type ToolStatus = "running" | "done" | "error";
-export type SessionPhase = "input" | "running" | "approval";
+export type SessionPhase = "input" | "running" | "approval" | "question";
 
 /** Nested tools run inside a parent `task` subagent loop. */
 export interface SubagentContext {
@@ -29,6 +29,12 @@ export interface ToolEntry {
 export interface PendingApproval {
   name: string;
   args: unknown;
+}
+
+/** A question the agent asked the user, awaiting a choice via `askuser`. */
+export interface PendingQuestion {
+  question: string;
+  options: string[];
 }
 
 export interface Turn {
@@ -67,6 +73,7 @@ export interface SessionState {
   todos: TodoItem[];
   phase: SessionPhase;
   pendingApproval: PendingApproval | null;
+  pendingQuestion: PendingQuestion | null;
   input: string;
   statusHint: string;
 }
@@ -79,6 +86,12 @@ export interface SessionController {
   respondApproval: (approved: boolean) => void;
   /** Deny a pending approval gate, if any — used when stopping a turn. */
   rejectPendingApproval: () => void;
+  /** Ask the user a multiple-choice question and await their answer (`askuser`). */
+  requestQuestion: (question: string, options: string[]) => Promise<string | null>;
+  /** Resolve a pending question with the user's chosen option or free-text reply. */
+  respondQuestion: (answer: string) => void;
+  /** Dismiss a pending question without an answer — used when stopping a turn. */
+  rejectPendingQuestion: () => void;
   subscribe: (listener: SessionListener) => () => void;
   getState: () => SessionState;
   beginTurn: (userText: string) => void;
@@ -204,12 +217,14 @@ export function createSessionController(meta: SessionMeta): SessionController {
     todos: [],
     phase: "input",
     pendingApproval: null,
+    pendingQuestion: null,
     input: "",
     statusHint: IDLE_HINT,
   };
 
   const listeners = new Set<SessionListener>();
   let approvalResolver: ((approved: boolean) => void) | null = null;
+  let questionResolver: ((answer: string | null) => void) | null = null;
 
   // Defer listener calls so Solid (and other UI runtimes) never receive
   // synchronous writes while they are mid-render — that triggers
@@ -289,6 +304,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingReasoning: "",
         currentTools: [],
         phase: "input",
+        pendingQuestion: null,
         statusHint: IDLE_HINT,
       });
     },
@@ -302,6 +318,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         currentTools: [],
         todos: [],
         phase: "input",
+        pendingQuestion: null,
         statusHint: IDLE_HINT,
       });
     },
@@ -314,6 +331,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingReasoning: "",
         currentTools: [],
         phase: "input",
+        pendingQuestion: null,
         statusHint: IDLE_HINT,
       });
     },
@@ -477,6 +495,39 @@ export function createSessionController(meta: SessionMeta): SessionController {
       approvalResolver = null;
       update({
         pendingApproval: null,
+        phase: "running",
+        statusHint: RUNNING_HINT,
+      });
+    },
+
+    requestQuestion(question, options) {
+      return new Promise<string | null>((resolve) => {
+        questionResolver = resolve;
+        update({
+          phase: "question",
+          pendingQuestion: { question, options },
+          statusHint: "↑↓ choose · Enter answer · type a custom reply · Esc skip",
+        });
+      });
+    },
+
+    respondQuestion(answer) {
+      if (!questionResolver) return;
+      questionResolver(answer);
+      questionResolver = null;
+      update({
+        pendingQuestion: null,
+        phase: "running",
+        statusHint: RUNNING_HINT,
+      });
+    },
+
+    rejectPendingQuestion() {
+      if (state.phase !== "question" || !questionResolver) return;
+      questionResolver(null);
+      questionResolver = null;
+      update({
+        pendingQuestion: null,
         phase: "running",
         statusHint: RUNNING_HINT,
       });

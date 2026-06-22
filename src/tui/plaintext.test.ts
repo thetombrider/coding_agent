@@ -16,6 +16,7 @@ const baseState = (): SessionState => ({
   currentTools: [],
   phase: "input",
   pendingApproval: null,
+  pendingQuestion: null,
   input: "",
   statusHint: "",
   todos: [],

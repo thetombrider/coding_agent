@@ -1,3 +1,4 @@
+import { askUserTool } from "./askuser.js";
 import { bashTool } from "./bash.js";
 import { delegateReadTool } from "./delegate-read.js";
 import { editTool } from "./edit.js";
@@ -27,13 +28,17 @@ const ALL_TOOLS: AnyTool[] = [
   delegateReadTool,
   todowriteTool,
   taskTool,
+  askUserTool,
 ];
 
 /**
- * Tools excluded from subagent child loops — parent owns the plan and mutating
- * file ops, and there is no recursion in v1. `fetch` is read-only, so it stays.
+ * Tools excluded from subagent child loops — the parent owns the plan, the
+ * mutating file ops, and the user dialogue (no recursion in v1), so subagents
+ * don't plan (`todowrite`), spawn further subagents (`task`), batch file
+ * mutations (`file_op`), or interrupt the user (`askuser`). `fetch` is
+ * read-only, so it stays.
  */
-const CHILD_EXCLUDED = new Set(["todowrite", "task", "file_op"]);
+const CHILD_EXCLUDED = new Set(["todowrite", "task", "file_op", "askuser"]);
 
 export function getCoreTools(): AnyTool[] {
   return [...ALL_TOOLS];

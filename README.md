@@ -220,8 +220,10 @@ runLoop(ctx, emit):
 
 Everything is **messages of typed content blocks** (`text`, `toolCall`,
 `toolResult`). The tool set is deliberately small — `read`, `write`, `edit`,
-`bash`, `grep`, `find`, `ls`, plus `delegate_read` (cheap-model reads), `task`
-(subagents), and `todowrite` (a live plan). The provider layer wraps the AI SDK's
+`bash`, `grep`, `find`, `ls`, plus `fetch` (read a URL), `file_op` (batch file
+mutations), `delegate_read` (cheap-model reads), `task` (subagents), `todowrite`
+(a live plan), and `askuser` (pause to ask the user a multiple-choice question).
+The provider layer wraps the AI SDK's
 `streamText` behind one function and resolves the active backend through a registry
 on every turn, so switching models or providers takes effect on the next turn with
 no rewiring.
@@ -242,7 +244,7 @@ src/
   types.ts        # message + content-block data model
   agent/          # the loop, compaction, presets, isolation, mutation queue
   provider/       # streamAssistant, registry, providers/ (openrouter, anthropic, regolo) + faux
-  tools/          # read, write, edit, bash, grep, find, ls, delegate_read, task, todowrite (+ .txt descriptions)
+  tools/          # read, write, edit, bash, grep, find, ls, fetch, file_op, delegate_read, task, todowrite, askuser (+ .txt descriptions)
   approval/       # approval modes + policy
   edit/           # fuzzy replacer chain for the edit tool
   delegate/       # delegate_read implementation
