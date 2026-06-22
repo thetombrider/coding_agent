@@ -1,13 +1,25 @@
 import { bg, bold, createTextAttributes, fg, italic, StyledText, type TextChunk } from "@opentui/core";
+import { useTerminalDimensions } from "@opentui/solid";
 import { For, type JSX, Show } from "solid-js";
 import {
   type Block,
+  displayWidth,
+  fitColumnWidths,
+  type InlinePart,
+  normalizeRow,
   parseBlocks,
   parseInline,
-  plainTextLength,
   tableColumnWidths,
+  wrapInlineParts,
 } from "./markdown-parse.js";
 import { surfaceSelection, theme } from "./theme.js";
+
+/**
+ * Horizontal space the conversation column loses to chrome: the root box pads
+ * 2 on each side and the scroll rail takes 1. Tables cap to the remainder so
+ * wide content wraps inside cells instead of overflowing and shredding borders.
+ */
+const TABLE_CHROME = 5;
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -41,12 +53,13 @@ function styled(node: StyledText): JSX.Element {
 }
 
 /**
- * Inline chunks for a table cell. Renders bold/italic/code styling but keeps
- * each chunk's width equal to its plain-text length (no padding around code),
- * so column widths and the right border stay aligned. Header cells are bold.
+ * Inline chunks for one wrapped line of a table cell. Renders bold/italic/code
+ * styling but keeps each chunk's width equal to its display width (no padding
+ * around code), so column widths and the right border stay aligned. Header cells
+ * are bold.
  */
-function cellChunks(cell: string, header: boolean): TextChunk[] {
-  return parseInline(cell).map((part) => {
+function cellChunks(parts: InlinePart[], header: boolean): TextChunk[] {
+  return parts.map((part) => {
     if (header) return fg(theme.heading)(bold(part.value));
     switch (part.kind) {
       case "bold":
@@ -61,30 +74,56 @@ function cellChunks(cell: string, header: boolean): TextChunk[] {
   });
 }
 
-function rowText(cells: string[], widths: number[], header: boolean): StyledText {
+/** Build one physical row line: border + each column's wrapped line padded to its width. */
+function rowLineText(cells: InlinePart[][], widths: number[], header: boolean): StyledText {
   const sep = (s: string) => fg(theme.border)(s);
   const chunks: TextChunk[] = [sep("│ ")];
-  cells.forEach((cell, index) => {
-    chunks.push(...cellChunks(cell, header));
-    chunks.push(fg(theme.fg)(" ".repeat(Math.max(0, (widths[index] ?? 3) - plainTextLength(cell)))));
-    chunks.push(sep(index < cells.length - 1 ? " │ " : " │"));
+  widths.forEach((width, index) => {
+    const parts = cells[index] ?? [];
+    const used = parts.reduce((sum, part) => sum + displayWidth(part.value), 0);
+    chunks.push(...cellChunks(parts, header));
+    chunks.push(fg(theme.fg)(" ".repeat(Math.max(0, width - used))));
+    chunks.push(sep(index < widths.length - 1 ? " │ " : " │"));
   });
   return new StyledText(chunks);
 }
 
+/** Wrap a logical row across columns into the physical lines it spans. */
+function rowLines(cells: string[], widths: number[], header: boolean): StyledText[] {
+  const wrapped = widths.map((width, index) => wrapInlineParts(parseInline(cells[index] ?? ""), width));
+  const height = Math.max(1, ...wrapped.map((lines) => lines.length));
+  return Array.from({ length: height }, (_, line) =>
+    rowLineText(wrapped.map((lines) => lines[line] ?? []), widths, header),
+  );
+}
+
 function TableBlock(props: { headers: string[]; rows: string[][] }) {
-  const widths = () => tableColumnWidths(props.headers, props.rows);
-  const top = () => `┌${widths().map((w) => "─".repeat(w + 2)).join("┬")}┐`;
-  const divider = () => `├${widths().map((w) => "─".repeat(w + 2)).join("┼")}┤`;
-  const bottom = () => `└${widths().map((w) => "─".repeat(w + 2)).join("┴")}┘`;
+  const dimensions = useTerminalDimensions();
+  const columns = () => props.headers.length;
+  const rows = () => props.rows.map((row) => normalizeRow(row, columns()));
+  const widths = () => {
+    const natural = tableColumnWidths(props.headers, rows());
+    const available = dimensions().width - TABLE_CHROME;
+    return available > 0 ? fitColumnWidths(natural, available) : natural;
+  };
+  const border = (left: string, mid: string, right: string) =>
+    `${left}${widths().map((w) => "─".repeat(w + 2)).join(mid)}${right}`;
 
   return (
     <box flexDirection="column" marginTop={1} marginBottom={1}>
-      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{top()}</text>
-      <text selectable {...surfaceSelection(theme.bg)}>{styled(rowText(props.headers, widths(), true))}</text>
-      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{divider()}</text>
-      <For each={props.rows}>{(row) => <text selectable {...surfaceSelection(theme.bg)}>{styled(rowText(row, widths(), false))}</text>}</For>
-      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{bottom()}</text>
+      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{border("┌", "┬", "┐")}</text>
+      <For each={rowLines(props.headers, widths(), true)}>
+        {(line) => <text selectable {...surfaceSelection(theme.bg)}>{styled(line)}</text>}
+      </For>
+      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{border("├", "┼", "┤")}</text>
+      <For each={rows()}>
+        {(row) => (
+          <For each={rowLines(row, widths(), false)}>
+            {(line) => <text selectable {...surfaceSelection(theme.bg)}>{styled(line)}</text>}
+          </For>
+        )}
+      </For>
+      <text selectable {...surfaceSelection(theme.bg)} fg={theme.border}>{border("└", "┴", "┘")}</text>
     </box>
   );
 }
