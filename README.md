@@ -23,11 +23,13 @@ build plan live in [`SPEC.md`](./SPEC.md).
 - **Agentic loop** — streams an assistant turn, executes any tool calls it
   produces, feeds the results back, and repeats until the task is done.
 - **A focused tool set** — `read`, `write`, `edit`, `bash`, `grep`, `find`,
-  `ls`, and `delegate_read`. The `edit` tool applies exact-match replacements
-  with a fuzzy fallback chain and renders unified diffs.
+  `ls`, `fetch`, `file_op`, and `delegate_read`. The `edit` tool applies
+  exact-match replacements with a fuzzy fallback chain and renders unified
+  diffs; `fetch` pulls a URL (HTML → markdown, SSRF-guarded); `file_op`
+  deletes or moves a single file.
 - **Approval gate** — three modes you can switch on the fly: `normal` (ask
   before writes/commands), `allow all` (auto-accept), and `plan` (read-only —
-  blocks `write`/`edit`/`bash`).
+  blocks `write`/`edit`/`bash`/`file_op`).
 - **Interactive TUI** — streaming markdown, live diffs, a slash-command palette,
   and a session browser.
 - **Pluggable LLM providers** — a provider registry behind a single interface.
@@ -263,7 +265,7 @@ src/
   types.ts        # message + content-block data model
   agent/          # the loop, compaction, mutation queue
   provider/       # streamAssistant, registry, faux + OpenAI-compatible base, providers/ (openrouter, regolo)
-  tools/          # read, write, edit, bash, grep, find, ls, delegate_read (+ .txt descriptions)
+  tools/          # read, write, edit, bash, grep, find, ls, fetch, file_op, delegate_read (+ .txt descriptions)
   approval/       # approval modes + policy
   edit/           # fuzzy replacer chain for the edit tool
   delegate/       # delegate_read implementation

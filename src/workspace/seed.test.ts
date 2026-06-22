@@ -59,6 +59,9 @@ describe("seedRepoIntoWorkspace", () => {
       readFile: async () => "",
       writeFile: async () => {},
       list: async () => [],
+      stat: async () => null,
+      deleteFile: async () => {},
+      move: async () => {},
       dispose: async () => {},
     };
   }

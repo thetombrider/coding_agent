@@ -1,6 +1,8 @@
 import { bashTool } from "./bash.js";
 import { delegateReadTool } from "./delegate-read.js";
 import { editTool } from "./edit.js";
+import { fetchTool } from "./fetch.js";
+import { fileOpTool } from "./file-op.js";
 import { findTool } from "./find.js";
 import { grepTool } from "./grep.js";
 import { lsTool } from "./ls.js";
@@ -20,13 +22,18 @@ const ALL_TOOLS: AnyTool[] = [
   grepTool,
   findTool,
   lsTool,
+  fetchTool,
+  fileOpTool,
   delegateReadTool,
   todowriteTool,
   taskTool,
 ];
 
-/** Tools excluded from subagent child loops — parent owns the plan; no recursion in v1. */
-const CHILD_EXCLUDED = new Set(["todowrite", "task"]);
+/**
+ * Tools excluded from subagent child loops — parent owns the plan and mutating
+ * file ops, and there is no recursion in v1. `fetch` is read-only, so it stays.
+ */
+const CHILD_EXCLUDED = new Set(["todowrite", "task", "file_op"]);
 
 export function getCoreTools(): AnyTool[] {
   return [...ALL_TOOLS];

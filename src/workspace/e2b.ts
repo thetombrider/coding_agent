@@ -34,6 +34,19 @@ export async function createE2BWorkspace(): Promise<Workspace> {
       const entries = await sbx.files.list(p);
       return entries.map((e) => e.name);
     },
+    async stat(p) {
+      if (!(await sbx.files.exists(p))) return null;
+      // FileType is a string enum ("file" | "dir"); compare as string to avoid
+      // a static value import of the e2b module (kept dynamic in createE2BWorkspace).
+      const type = (await sbx.files.getInfo(p)).type as string | undefined;
+      return { isFile: type === "file", isDirectory: type === "dir" };
+    },
+    async deleteFile(p) {
+      await sbx.files.remove(p);
+    },
+    async move(source, destination) {
+      await sbx.files.rename(source, destination);
+    },
     dispose: async () => {
       await sbx.kill();
     },

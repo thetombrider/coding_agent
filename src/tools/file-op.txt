@@ -1,0 +1,6 @@
+Delete or move a single file. Files only — directories are refused (use bash "rm -r" or "mv" for those).
+
+operation "delete": remove the file at source.
+operation "move": rename or relocate source to destination. The destination's parent directory must already exist.
+
+Paths resolve against the workspace root and must stay inside it. Requires approval.
