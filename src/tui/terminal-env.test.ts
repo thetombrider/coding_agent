@@ -3,6 +3,7 @@ import {
   applyTerminalEnvOverrides,
   blocksNativeCopyShortcut,
   consumeTerminalCapabilityLeak,
+  containsMouseSequence,
   containsTerminalCapabilityLeak,
   sanitizePromptInput,
   selectionCopyHint,
@@ -84,5 +85,43 @@ describe("terminal capability leak handling", () => {
     expect(consumeTerminalCapabilityLeak(`${LEAK} hi`)).toBe(false);
     expect(consumeTerminalCapabilityLeak("hello")).toBe(false);
     expect(consumeTerminalCapabilityLeak("")).toBe(false);
+  });
+});
+
+describe("mouse report leak handling", () => {
+  // SGR mouse reports: press, any-event move, and release.
+  const PRESS = "\x1b[<0;36;19M";
+  const MOVE = "\x1b[<35;40;12M";
+  const RELEASE = "\x1b[<0;36;19m";
+
+  it("detects SGR mouse reports, with or without the leading ESC", () => {
+    expect(containsMouseSequence(PRESS)).toBe(true);
+    expect(containsMouseSequence(MOVE)).toBe(true);
+    expect(containsMouseSequence(RELEASE)).toBe(true);
+    // Terminals/inputs that drop the control byte keep the printable tail.
+    expect(containsMouseSequence("[<64;5;5M")).toBe(true);
+  });
+
+  it("does not flag ordinary input", () => {
+    expect(containsMouseSequence("")).toBe(false);
+    expect(containsMouseSequence("hello world")).toBe(false);
+    expect(containsMouseSequence("if (a[<b]) return;")).toBe(false);
+    expect(containsMouseSequence("compare a < b and c > d")).toBe(false);
+  });
+
+  it("strips leaked mouse reports from prompt input but keeps real text", () => {
+    expect(sanitizePromptInput(PRESS)).toBe("");
+    expect(sanitizePromptInput(`sk-${PRESS}abc123`)).toBe("sk-abc123");
+    // Mouse movement piles up many reports in the field — all are removed.
+    expect(sanitizePromptInput(`${MOVE}${MOVE}${RELEASE}`)).toBe("");
+    expect(sanitizePromptInput(`key${MOVE}${PRESS}`)).toBe("key");
+    // ESC-stripped residue is stripped too.
+    expect(sanitizePromptInput("[<35;40;12Mtoken")).toBe("token");
+  });
+
+  it("leaves ordinary input untouched (and identity-stable)", () => {
+    const normal = "my-secret-api-key-value";
+    expect(sanitizePromptInput(normal)).toBe(normal);
+    expect(sanitizePromptInput("arr[<idx>]")).toBe("arr[<idx>]");
   });
 });

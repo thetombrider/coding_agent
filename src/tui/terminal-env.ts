@@ -34,12 +34,37 @@ export function containsTerminalCapabilityLeak(text: string): boolean {
 }
 
 /**
- * Remove any leaked Kitty graphics capability query from prompt input. The cheap
- * `includes` guard keeps this a no-op for ordinary keystrokes.
+ * OpenTUI enables SGR mouse reporting (modes 1000/1002/1003 + 1006), so every
+ * click, drag, or move emits an SGR mouse report: `ESC [ < Cb ; Cx ; Cy (M|m)`.
+ * OpenTUI consumes these for selection and hover, but any that reach a prompt
+ * field — most visibly while typing or pasting an API key into the provider
+ * setup box — render as literal `<35;36;19M` garbage that piles up as the mouse
+ * moves (issue #183). We strip them from prompt input exactly like the Kitty
+ * probe. The leading ESC is optional because some terminals/inputs drop the
+ * control byte and keep only the printable tail.
+ */
+const MOUSE_SGR_REPORT_SOURCE = String.raw`(?:\x1b)?\[<\d+;\d+;\d+[Mm]`;
+
+/** Global matcher used to strip every mouse report from a string. */
+export const MOUSE_SGR_REPORT_RE = new RegExp(MOUSE_SGR_REPORT_SOURCE, "g");
+
+/** True when `text` contains an SGR mouse report. */
+export function containsMouseSequence(text: string): boolean {
+  if (!text || !text.includes("[<")) return false;
+  return new RegExp(MOUSE_SGR_REPORT_SOURCE).test(text);
+}
+
+/**
+ * Remove terminal noise that leaks into prompt input — the Kitty graphics
+ * capability query and SGR mouse reports. Each cheap `includes` guard keeps this
+ * a no-op for ordinary keystrokes.
  */
 export function sanitizePromptInput(value: string): string {
-  if (!value || !value.includes("a=q")) return value;
-  return value.replace(KITTY_GRAPHICS_QUERY_LEAK_RE, "");
+  if (!value) return value;
+  let out = value;
+  if (out.includes("a=q")) out = out.replace(KITTY_GRAPHICS_QUERY_LEAK_RE, "");
+  if (out.includes("[<")) out = out.replace(MOUSE_SGR_REPORT_RE, "");
+  return out;
 }
 
 /**
