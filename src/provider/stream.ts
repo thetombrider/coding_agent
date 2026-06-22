@@ -20,7 +20,7 @@ function toolCallNames(messages: Message[]): Map<string, string> {
   return names;
 }
 
-function toAiMessages(messages: Message[]): ModelMessage[] {
+export function toAiMessages(messages: Message[]): ModelMessage[] {
   const callNames = toolCallNames(messages);
   const result: ModelMessage[] = [];
 
