@@ -131,6 +131,19 @@ export function costBadge(opts: { costUsd?: number | null; tokenTotals?: number;
   return "";
 }
 
+/**
+ * Muted header badge for how full the context window is: the latest main-loop
+ * prompt size as a percentage of the active model's context window. Empty until
+ * both a context reading and a window size are known, so it never shows a bogus
+ * 0% before the first turn or while the window is still resolving.
+ */
+export function contextBadge(opts: { contextTokens?: number; contextWindow?: number }): string {
+  const { contextTokens, contextWindow } = opts;
+  if (!contextTokens || !contextWindow || contextWindow <= 0) return "";
+  const pct = Math.min(100, Math.round((contextTokens / contextWindow) * 100));
+  return `· ${pct}% ctx`;
+}
+
 /** Per-session cost label for the /sessions palette; `—` when unpriced. */
 export function formatSessionCost(costUsd?: number | null): string {
   return costUsd != null ? formatCostUsd(costUsd) : "—";
@@ -147,6 +160,22 @@ function formatPerMRate(rate: number): string {
 export function formatModelPricingLabel(pricing?: ModelPricing): string {
   if (!pricing) return "—";
   return `in ${formatPerMRate(pricing.inputPerM)} · out ${formatPerMRate(pricing.outputPerM)}/M`;
+}
+
+/**
+ * Compact context-window suffix for the /model picker, e.g. `200k ctx`, `1M ctx`.
+ * Empty when the window is unknown so the row just omits it (no `—` noise next to
+ * the pricing label).
+ */
+export function formatContextWindowLabel(tokens?: number): string {
+  if (!tokens || tokens <= 0) return "";
+  const compact =
+    tokens >= 1_000_000
+      ? `${+(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`
+      : tokens >= 1_000
+        ? `${+(tokens / 1_000).toFixed(tokens % 1_000 === 0 ? 0 : 1)}k`
+        : `${tokens}`;
+  return `${compact} ctx`;
 }
 
 export function toolSummary(_name: string, args: unknown): string {
@@ -413,6 +442,8 @@ export function Header(props: {
   sandbox?: string;
   costUsd?: number | null;
   tokenTotals?: number;
+  contextTokens?: number;
+  contextWindow?: number;
   faux?: boolean;
 }) {
   const path = () => {
@@ -426,10 +457,13 @@ export function Header(props: {
   const badge = () =>
     costBadge({ costUsd: props.costUsd, tokenTotals: props.tokenTotals, faux: props.faux });
 
+  const context = () =>
+    contextBadge({ contextTokens: props.contextTokens, contextWindow: props.contextWindow });
+
   return (
     <box paddingBottom={1}>
       <text fg={theme.muted} attributes={BOLD}>
-        Orin  {prefix()}{shortModel(props.model)}  {props.approval}{sandboxLabel()}  {path()}{badge() ? `  ${badge()}` : ""}
+        Orin  {prefix()}{shortModel(props.model)}  {props.approval}{sandboxLabel()}  {path()}{badge() ? `  ${badge()}` : ""}{context() ? `  ${context()}` : ""}
       </text>
     </box>
   );

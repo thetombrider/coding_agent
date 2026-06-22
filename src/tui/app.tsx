@@ -7,7 +7,7 @@ import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
-import { ApprovalBar, formatModelPricingLabel, formatSessionCost, Header, TodoSidebar, TurnView } from "./views.js";
+import { ApprovalBar, formatContextWindowLabel, formatModelPricingLabel, formatSessionCost, Header, TodoSidebar, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
@@ -30,6 +30,7 @@ import { pickerModelsForProvider } from "../config/models.js";
 import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
+import { getContextWindow } from "../provider/context-window.js";
 import { activeProviderId, providerConfigFields, providerSummaries, type ProviderSummary } from "../provider/registry.js";
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
@@ -276,6 +277,27 @@ export function App(props: {
       if ((state().meta.provider ?? activeProviderId()) === providerId) {
         setPickerModelList(models);
       }
+    });
+  });
+
+  // Context windows for the picker rows. Resolved off the catalog (cached, so it
+  // costs one fetch per provider) and keyed by model id. Reset per provider/list
+  // change so a model id shared across providers can't show a stale window.
+  const [modelContextWindows, setModelContextWindows] = createSignal<Record<string, number>>({});
+  createEffect(() => {
+    const providerId = state().meta.provider ?? activeProviderId();
+    const models = pickerModelList();
+    void Promise.all(
+      models.map(
+        async (model) => [model, await getContextWindow(model).catch(() => undefined)] as const,
+      ),
+    ).then((entries) => {
+      if ((state().meta.provider ?? activeProviderId()) !== providerId) return;
+      const next: Record<string, number> = {};
+      for (const [model, window] of entries) {
+        if (typeof window === "number" && window > 0) next[model] = window;
+      }
+      setModelContextWindows(next);
     });
   });
 
@@ -1011,6 +1033,8 @@ export function App(props: {
           sandbox={state().meta.sandbox}
           costUsd={state().meta.costUsd}
           tokenTotals={state().meta.tokenTotals}
+          contextTokens={state().meta.contextTokens}
+          contextWindow={state().meta.contextWindow}
           faux={state().meta.faux}
         />
       </box>
@@ -1187,12 +1211,16 @@ export function App(props: {
                             modelPricing,
                           ),
                         );
+                      const contextLabel = () => formatContextWindowLabel(modelContextWindows()[model]);
                       return (
                         <box id={`model-row-${i()}`} flexDirection="row">
                           <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
                             {selected() ? "▶ " : "  "}{model}
                           </text>
                           <text fg={theme.secondary}>  {pricingLabel()}</text>
+                          <Show when={contextLabel()}>
+                            <text fg={theme.secondary}>  {contextLabel()}</text>
+                          </Show>
                           <Show when={isCurrent()}>
                             <text fg={theme.secondary}>  (current)</text>
                           </Show>
@@ -1318,6 +1346,10 @@ export function App(props: {
                           : formatModelPricingLabel(
                               resolveDisplayModelPricing(model, providerId(), modelPricing),
                             );
+                      const contextLabel = () =>
+                        model === ROLE_MODEL_DEFAULT
+                          ? ""
+                          : formatContextWindowLabel(modelContextWindows()[model]);
                       return (
                         <box id={`model-row-${i()}`} flexDirection="row">
                           <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
@@ -1325,6 +1357,9 @@ export function App(props: {
                           </text>
                           <Show when={pricingLabel()}>
                             <text fg={theme.secondary}>  {pricingLabel()}</text>
+                          </Show>
+                          <Show when={contextLabel()}>
+                            <text fg={theme.secondary}>  {contextLabel()}</text>
                           </Show>
                           <Show when={isCurrent()}>
                             <text fg={theme.secondary}>  (current)</text>

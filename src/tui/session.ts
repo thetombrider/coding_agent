@@ -10,6 +10,7 @@ import { saveConfig, saveProviderConfig, saveE2BApiKey, saveRoleModel } from "..
 import type { AgentPreset } from "../agent/presets.js";
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider, resolveActiveProvider } from "../provider/registry.js";
+import { getContextWindow } from "../provider/context-window.js";
 import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { createCheckpointManager } from "../checkpoint/manager.js";
 import { isMutatingTool } from "../checkpoint/tracker.js";
@@ -194,6 +195,17 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   let activeModel = config.model;
   let activeApprovalMode = config.approvalMode;
 
+  // Resolve the active model's context window (provider catalog → config →
+  // default) and fold it into the header meta so the context-fill badge has a
+  // denominator. Async + best-effort: a slow/unreachable catalog just leaves the
+  // badge hidden until it resolves. Skipped under --faux (no real model).
+  const refreshContextWindow = (model: string) => {
+    if (config.meta.faux) return;
+    void getContextWindow(model)
+      .then((contextWindow) => controller.updateMeta({ contextWindow }))
+      .catch(() => {});
+  };
+
   const approvalRef: ApprovalGateRef = {
     mode: activeApprovalMode,
     autoAcceptCli: config.autoAcceptCli,
@@ -229,6 +241,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     recordLlmCall: recordSideLlmCall,
   };
 
+  // Seed the header's context-fill denominator for the starting model.
+  refreshContextWindow(activeModel);
+
   let resolveExit!: () => void;
   const exitPromise = new Promise<void>((resolve) => {
     resolveExit = resolve;
@@ -251,6 +266,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     activeModel = model;
     if (config.ctx.loopHost) config.ctx.loopHost.model = model;
     controller.updateMeta({ model });
+    refreshContextWindow(model);
     saveConfig({ models: { main: model } });
   };
 
@@ -301,6 +317,10 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     reinstallTelemetry(rebuildSessionCost(sessionPath(activeSessionId)));
     if (model && model !== activeModel) {
       setModel(model);
+    } else {
+      // Provider catalogs can disagree on the same model's window, so re-resolve
+      // even when the model id is unchanged.
+      refreshContextWindow(activeModel);
     }
   };
 

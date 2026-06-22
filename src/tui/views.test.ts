@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  contextBadge,
   costBadge,
+  formatContextWindowLabel,
   formatCostUsd,
   formatModelPricingLabel,
   formatSessionCost,
@@ -63,6 +65,19 @@ describe("cost formatting", () => {
     expect(formatModelPricingLabel({ inputPerM: 0.14, outputPerM: 0.28 })).toBe("in $0.14 · out $0.28/M");
     expect(formatModelPricingLabel(undefined)).toBe("—");
   });
+
+  it("formats context window labels compactly for the picker", () => {
+    expect(formatContextWindowLabel(200_000)).toBe("200k ctx");
+    expect(formatContextWindowLabel(128_000)).toBe("128k ctx");
+    expect(formatContextWindowLabel(1_000_000)).toBe("1M ctx");
+    expect(formatContextWindowLabel(1_048_576)).toBe("1M ctx");
+    expect(formatContextWindowLabel(512)).toBe("512 ctx");
+  });
+
+  it("omits the context label when the window is unknown", () => {
+    expect(formatContextWindowLabel(undefined)).toBe("");
+    expect(formatContextWindowLabel(0)).toBe("");
+  });
 });
 
 describe("costBadge", () => {
@@ -81,5 +96,24 @@ describe("costBadge", () => {
   it("is empty before the first turn lands", () => {
     expect(costBadge({ costUsd: null, tokenTotals: 0 })).toBe("");
     expect(costBadge({})).toBe("");
+  });
+});
+
+describe("contextBadge", () => {
+  it("shows the rounded percentage of the window used", () => {
+    expect(contextBadge({ contextTokens: 50_000, contextWindow: 200_000 })).toBe("· 25% ctx");
+    expect(contextBadge({ contextTokens: 33_333, contextWindow: 100_000 })).toBe("· 33% ctx");
+  });
+
+  it("caps at 100% when the context overflows the window", () => {
+    expect(contextBadge({ contextTokens: 250_000, contextWindow: 200_000 })).toBe("· 100% ctx");
+  });
+
+  it("is empty until both the reading and the window are known", () => {
+    expect(contextBadge({ contextWindow: 200_000 })).toBe("");
+    expect(contextBadge({ contextTokens: 50_000 })).toBe("");
+    expect(contextBadge({ contextTokens: 0, contextWindow: 200_000 })).toBe("");
+    expect(contextBadge({ contextTokens: 50_000, contextWindow: 0 })).toBe("");
+    expect(contextBadge({})).toBe("");
   });
 });
