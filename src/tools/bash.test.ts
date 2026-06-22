@@ -69,7 +69,9 @@ describe("bashTool", () => {
 
   it("aborts a long-running command via signal", async () => {
     const controller = new AbortController();
-    const promise = bashTool.execute({ command: "sleep 30" }, ctx, controller.signal);
+    // `exec` makes the shell replace itself with sleep, so the SIGTERM on abort
+    // reaches the sleep directly and closes stdout (no orphaned child).
+    const promise = bashTool.execute({ command: "exec sleep 30" }, ctx, controller.signal);
     controller.abort();
 
     const result = await promise;
