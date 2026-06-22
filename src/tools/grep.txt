@@ -1,1 +1,13 @@
-Search file contents for a regex or literal pattern. Prefer this over bash grep.
+Search file contents with ripgrep. Returns matching lines with file paths and line numbers.
+
+Preferred workflow — grep before reading:
+1. grep to find the exact line where a symbol, function, or pattern lives
+2. Use read with offset + limit to pull only that section (avoids loading the whole file)
+
+Use context=N to include N lines before and after each match when you need surrounding
+code — this replaces a full file read for most inspection tasks.
+
+Tips:
+- Scope broad patterns: add path or glob to avoid noisy cross-repo hits
+- Hunt definitions: grep for "function name|const name =|class Name" to jump straight to the right line
+- After finding a line, read with offset=<line> limit=30 rather than re-reading the whole file
