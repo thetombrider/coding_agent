@@ -19,6 +19,7 @@ import type { Tool } from "./types.js";
 
 export const MAX_SUBAGENT_DEPTH = 1;
 export const MAX_SUBAGENT_TURNS = 25;
+export const MAX_SUBAGENT_TOOL_CALLS = 128;
 
 const schema = z.object({
   description: z.string().describe("Short label for UI/logs."),
@@ -184,6 +185,7 @@ export async function runSubagentTask(
         signal,
         sessionId: host.sessionId,
         maxTurns: MAX_SUBAGENT_TURNS,
+        maxToolCalls: MAX_SUBAGENT_TOOL_CALLS,
         onEvent: host.onEvent,
       });
     } catch (err) {
