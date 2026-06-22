@@ -49,6 +49,32 @@ describe("createLocalWorkspace", () => {
     expect(exitCode).toBe(3);
     await ws.dispose();
   });
+
+  it("caps output at maxBuffer and terminates a runaway command", async () => {
+    const ws = createLocalWorkspace();
+    let bytes = 0;
+    // `yes` streams forever; the byte cap must stop forwarding and kill it so the
+    // call still resolves instead of hanging or exhausting memory (#146).
+    const { truncated } = await ws.exec("yes x", process.cwd(), {
+      onData: (c) => {
+        bytes += c.length;
+      },
+      maxBuffer: 1000,
+    });
+    expect(truncated).toBe(true);
+    expect(bytes).toBeLessThanOrEqual(1000);
+    await ws.dispose();
+  });
+
+  it("leaves truncated unset when output stays under the cap", async () => {
+    const ws = createLocalWorkspace();
+    const { truncated } = await ws.exec("echo hi", process.cwd(), {
+      onData: () => {},
+      maxBuffer: 1000,
+    });
+    expect(truncated).toBeFalsy();
+    await ws.dispose();
+  });
 });
 
 describe("getGitOriginUrl", () => {

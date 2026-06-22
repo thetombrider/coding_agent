@@ -9,6 +9,7 @@ import { defaultCheapModel, resolvePresetModel } from "../config/models.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
 import { loadToolDescription } from "../util/load-txt.js";
+import { isAbortError } from "../util/abort.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
 import { createWorktree, type HarvestResult, type WorktreeHandle } from "../workspace/worktree.js";
@@ -172,17 +173,28 @@ export async function runSubagentTask(
       }
     });
 
-    await runLoop(childCtx, childHooks, {
-      provider: host.provider,
-      tools: preset.tools,
-      model: subagentModel,
-      cheapModel: hostCheap,
-      system: preset.system,
-      signal,
-      sessionId: host.sessionId,
-      maxTurns: MAX_SUBAGENT_TURNS,
-      onEvent: host.onEvent,
-    });
+    let loopError: Error | undefined;
+    try {
+      await runLoop(childCtx, childHooks, {
+        provider: host.provider,
+        tools: preset.tools,
+        model: subagentModel,
+        cheapModel: hostCheap,
+        system: preset.system,
+        signal,
+        sessionId: host.sessionId,
+        maxTurns: MAX_SUBAGENT_TURNS,
+        onEvent: host.onEvent,
+      });
+    } catch (err) {
+      // Cancellation is the user stopping the run — let it propagate unchanged.
+      if (isAbortError(err) || signal.aborted) throw err;
+      // Any other failure (most often the provider rejecting an over-window
+      // request when an exploration read too much) must not reach the parent as
+      // a raw tool error. The child's messages still hold what it discovered, so
+      // fall through and return a best-effort summary flagged as partial (#183).
+      loopError = err instanceof Error ? err : new Error(String(err));
+    }
 
     const summary = lastAssistantText(childCtx) || "(no summary returned)";
     const turns = currentTurnCount(childCtx.messages);
@@ -204,8 +216,13 @@ export async function runSubagentTask(
       summary,
     });
 
-    const header = `Subagent (${preset.agent}) finished — ${turns} turn${turns === 1 ? "" : "s"}`;
-    return { output: `${header}\n\n${summary}${worktreeNote}` };
+    const status = loopError ? "stopped early" : "finished";
+    const header = `Subagent (${preset.agent}) ${status} — ${turns} turn${turns === 1 ? "" : "s"}`;
+    const errorNote = loopError
+      ? `\n\n⚠️ Exploration was cut short (${loopError.message}). The findings above are `
+        + "partial; narrow the scope or investigate the remaining pieces directly if you need more."
+      : "";
+    return { output: `${header}\n\n${summary}${errorNote}${worktreeNote}` };
   } finally {
     if (worktree) {
       // Harvest even when runLoop threw/aborted, so the child's edits are

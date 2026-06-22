@@ -59,6 +59,16 @@ describe("search tools", () => {
       const result = await grepTool.execute({ pattern: "zzznotpresent" }, ctx, sig());
       expect(result.output).toBe("(no matches)");
     });
+
+    it("truncates oversized match output instead of throwing", async () => {
+      // >256 KiB of matches: the byte cap should return partial output with a
+      // note rather than killing the tool with a command-failed error.
+      const big = Array.from({ length: 20_000 }, (_, i) => `match line ${i}`).join("\n") + "\n";
+      await writeTool.execute({ path: "big.txt", content: big }, ctx, sig());
+      const result = await grepTool.execute({ pattern: "match", path: "big.txt" }, ctx, sig());
+      expect(result.output).toContain("[output truncated");
+      expect(result.isError).toBeFalsy();
+    });
   });
 
   describe("findTool", () => {

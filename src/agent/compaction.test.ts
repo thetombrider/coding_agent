@@ -229,6 +229,37 @@ describe("compaction", () => {
     expect(outputs[outputs.length - 1]).toBe(big);
   });
 
+  it("prunes tool output on a small window the absolute budget would have spared", () => {
+    // Four ~3.5k-token results (14k total) sit under the absolute 40k protect
+    // budget, so the old constant pruned nothing. On a small 16k window the
+    // window-relative protect (~8k) forces the older results to be elided while
+    // the most recent stays intact — this is what keeps small-window explore
+    // subagents under the limit instead of erroring (#183).
+    const chunk = "x".repeat(3_500 * 4);
+    const messages: Message[] = [
+      user("one turn"),
+      assistant("first"),
+      toolResult(chunk, "t1"),
+      assistant("second"),
+      toolResult(chunk, "t2"),
+      assistant("third"),
+      toolResult(chunk, "t3"),
+      assistant("fourth"),
+      toolResult(chunk, "t4"),
+    ];
+    const contextWindow = 16_000;
+
+    const compacted = pruneOverflowToolResults(messages, contextWindow);
+    const outputs = compacted
+      .filter((m) => m.role === "tool")
+      .map((m) => m.content[0])
+      .filter((c) => c.type === "toolResult")
+      .map((c) => c.output);
+
+    expect(outputs[0]).toContain("[result elided");
+    expect(outputs[outputs.length - 1]).toBe(chunk);
+  });
+
   it("finds a message cut index that preserves recent context", () => {
     const messages: Message[] = [
       user("old"),
