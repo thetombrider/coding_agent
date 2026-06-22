@@ -28,6 +28,7 @@ import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
 import { App } from "./app.js";
+import { installCrashDiagnostics } from "./crash.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { messagesToTurns } from "./messages-to-turns.js";
 import { forceFullRepaint, restoreTerminal } from "./terminal.js";
@@ -75,6 +76,15 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   await config.hooks.fireHook("session_start", { cwd: config.ctx.cwd }, config.ctx);
 
   let activeSessionId = config.sessionId;
+
+  // Crash breadcrumbs: log JS-level faults to ~/.orin/crash.log and detect a
+  // prior session that died without a clean exit (e.g. a native renderer abort
+  // on resume-from-sleep) so the next launch can surface it. See ./crash.ts.
+  const crash = installCrashDiagnostics({
+    sessionId: activeSessionId,
+    getCwd: () => config.ctx.cwd,
+  });
+
   let log = openLog(sessionPath(activeSessionId));
   const writeMeta = () => {
     log.write({
@@ -467,6 +477,10 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       controller.setStatusHint(
         `${active.displayName} needs setup — run /providers configure ${active.id}`,
       );
+    } else if (crash.previousCrashes.length > 0) {
+      controller.setStatusHint(
+        "Previous Orin session ended unexpectedly — details in ~/.orin/crash.log",
+      );
     } else if (startupCopyHint) {
       controller.setStatusHint(startupCopyHint);
     }
@@ -552,6 +566,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     await log.close();
     renderer?.destroy();
     restoreTerminal();
+    crash.markCleanExit();
+    crash.dispose();
   }
 
   return config.ctx;
