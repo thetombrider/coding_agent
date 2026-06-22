@@ -744,6 +744,52 @@ describe("runLoop", () => {
     expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
   });
 
+  it("stops at maxToolCalls even when the model keeps calling tools", async () => {
+    let executions = 0;
+    const noopTool: Tool<Record<string, never>> = {
+      name: "noop",
+      description: "noop",
+      schema: z.object({}),
+      async execute() {
+        executions += 1;
+        return { output: "ok" };
+      },
+    };
+
+    // Two tool calls per turn; maxToolCalls=3 means the loop stops after turn 2
+    // (3 total calls executed before the check fires on the second batch of 2).
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [
+          { id: "tc1", name: "noop", arguments: {} },
+          { id: "tc2", name: "noop", arguments: {} },
+        ],
+      },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([noopTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [noopTool],
+      model: "faux:test",
+      maxToolCalls: 3,
+    });
+
+    // The loop executes the first batch of 2 tool calls (totalToolCalls=2 < 3),
+    // then the second batch of 2 (totalToolCalls=4 >= 3) triggers the cap.
+    expect(executions).toBe(4);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
+  });
+
   it("exits immediately when a tool returns terminate: true", async () => {
     const terminatingTool: Tool<Record<string, never>> = {
       name: "finish",

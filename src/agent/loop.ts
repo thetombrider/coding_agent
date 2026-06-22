@@ -31,6 +31,8 @@ export interface RunLoopOptions {
   onEvent?: SessionEventCallback;
   /** Cap assistant turns — used by subagent child loops. */
   maxTurns?: number;
+  /** Cap cumulative tool calls across all turns — used by subagent child loops. */
+  maxToolCalls?: number;
 }
 
 interface ToolCallBlock {
@@ -215,6 +217,7 @@ export async function runLoop(
   const knownTools = new Set(options.tools.map((t) => t.name));
   let parseCorrectionRetries = 0;
   let assistantTurns = 0;
+  let totalToolCalls = 0;
 
   const turnId = randomUUID();
   hooks.emit({ type: "turn_start", id: turnId });
@@ -342,6 +345,12 @@ export async function runLoop(
     if (terminateReason) {
       hooks.emit({ type: "loop_end", reason: terminateReason });
       return ctx;
+    }
+
+    totalToolCalls += toolCalls.length;
+    if (options.maxToolCalls !== undefined && totalToolCalls >= options.maxToolCalls) {
+      hooks.emit({ type: "loop_end", reason: "terminate" });
+      break;
     }
   }
 
