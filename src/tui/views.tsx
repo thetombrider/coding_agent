@@ -178,9 +178,28 @@ export function formatContextWindowLabel(tokens?: number): string {
   return `${compact} ctx`;
 }
 
-export function toolSummary(_name: string, args: unknown): string {
+export function toolSummary(name: string, args: unknown): string {
   if (args && typeof args === "object") {
     const record = args as Record<string, unknown>;
+
+    if (name === "read" && typeof record.path === "string") {
+      const offset = typeof record.offset === "number" ? record.offset : undefined;
+      const limit = typeof record.limit === "number" ? record.limit : undefined;
+      const suffix =
+        offset !== undefined && limit !== undefined ? ` :${offset}+${limit}`
+        : offset !== undefined ? ` :${offset}`
+        : "";
+      const label = record.path + suffix;
+      return label.length > 60 ? `…${label.slice(-(57))}` : label;
+    }
+
+    if (name === "grep" && typeof record.pattern === "string") {
+      const context = typeof record.context === "number" ? record.context : undefined;
+      const suffix = context !== undefined ? ` -C${context}` : "";
+      const label = record.pattern + suffix;
+      return label.length > 56 ? `${label.slice(0, 53)}…` : label;
+    }
+
     if (typeof record.path === "string") return record.path;
     if (typeof record.command === "string") {
       const cmd = record.command;
