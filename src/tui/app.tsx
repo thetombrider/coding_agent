@@ -182,7 +182,7 @@ export function App(props: {
   const handleStopTurn = () => {
     if (!canStopTurn()) return;
     props.onStopTurn();
-    props.controller.setStatusHint("Stopping…");
+    props.controller.setStatusHint("Stopping… · please wait");
   };
 
   const copyShortcutsEnabled = () =>
@@ -1508,7 +1508,7 @@ export function App(props: {
         </Show>
 
         <box flexDirection="row">
-          <text fg={theme.accent} attributes={BOLD}>› </text>
+          <text fg={state().phase === "input" && !submitting() ? theme.accent : theme.secondary} attributes={BOLD}>› </text>
           <input
             ref={inputRef}
             flexGrow={1}
