@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   contextBadge,
   costBadge,
+  formatContextWindowLabel,
   formatCostUsd,
   formatModelPricingLabel,
   formatSessionCost,
@@ -63,6 +64,19 @@ describe("cost formatting", () => {
     expect(formatModelPricingLabel({ inputPerM: 3, outputPerM: 15 })).toBe("in $3.00 · out $15.00/M");
     expect(formatModelPricingLabel({ inputPerM: 0.14, outputPerM: 0.28 })).toBe("in $0.14 · out $0.28/M");
     expect(formatModelPricingLabel(undefined)).toBe("—");
+  });
+
+  it("formats context window labels compactly for the picker", () => {
+    expect(formatContextWindowLabel(200_000)).toBe("200k ctx");
+    expect(formatContextWindowLabel(128_000)).toBe("128k ctx");
+    expect(formatContextWindowLabel(1_000_000)).toBe("1M ctx");
+    expect(formatContextWindowLabel(1_048_576)).toBe("1M ctx");
+    expect(formatContextWindowLabel(512)).toBe("512 ctx");
+  });
+
+  it("omits the context label when the window is unknown", () => {
+    expect(formatContextWindowLabel(undefined)).toBe("");
+    expect(formatContextWindowLabel(0)).toBe("");
   });
 });
 

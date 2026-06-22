@@ -162,6 +162,22 @@ export function formatModelPricingLabel(pricing?: ModelPricing): string {
   return `in ${formatPerMRate(pricing.inputPerM)} · out ${formatPerMRate(pricing.outputPerM)}/M`;
 }
 
+/**
+ * Compact context-window suffix for the /model picker, e.g. `200k ctx`, `1M ctx`.
+ * Empty when the window is unknown so the row just omits it (no `—` noise next to
+ * the pricing label).
+ */
+export function formatContextWindowLabel(tokens?: number): string {
+  if (!tokens || tokens <= 0) return "";
+  const compact =
+    tokens >= 1_000_000
+      ? `${+(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`
+      : tokens >= 1_000
+        ? `${+(tokens / 1_000).toFixed(tokens % 1_000 === 0 ? 0 : 1)}k`
+        : `${tokens}`;
+  return `${compact} ctx`;
+}
+
 export function toolSummary(_name: string, args: unknown): string {
   if (args && typeof args === "object") {
     const record = args as Record<string, unknown>;
