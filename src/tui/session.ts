@@ -426,6 +426,13 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     renderer = await createCliRenderer({
       exitOnCtrlC: false,
       backgroundColor: theme.bg,
+      // Forward OPENTUI_GRAPHICS to the *native* renderer so it actually honors
+      // the disable. OpenTUI only forwards env vars to native when asked
+      // (otherwise none are), which is why setting OPENTUI_GRAPHICS=0 alone never
+      // stopped the native Kitty graphics probe — native never saw it. The
+      // forward loop skips undefined vars, so this is a no-op on terminals where
+      // we don't set it (i.e. everything except Terminal.app).
+      forwardEnvKeys: ["OPENTUI_GRAPHICS"],
       // Belt-and-suspenders: if a terminal ever feeds OpenTUI's leaked Kitty
       // graphics probe back on stdin, drop it before it reaches the prompt.
       prependInputHandlers: [consumeTerminalCapabilityLeak],
