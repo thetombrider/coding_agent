@@ -9,6 +9,13 @@ const schema = z.object({
   pattern: z.string().describe("Regex or literal pattern to search for"),
   path: z.string().optional().describe("File or directory to search (default: workspace root)"),
   glob: z.string().optional().describe("Glob filter, e.g. *.ts (ripgrep -g)"),
+  context: z
+    .number()
+    .int()
+    .min(0)
+    .max(20)
+    .optional()
+    .describe("Lines of context before and after each match (ripgrep -C); use instead of reading the whole file"),
 });
 
 export type GrepArgs = z.infer<typeof schema>;
@@ -37,16 +44,16 @@ export const grepTool: Tool<GrepArgs> = {
   name: "grep",
   description: loadToolDescription("grep"),
   schema,
-  async execute({ pattern, path, glob }, ctx, signal) {
+  async execute({ pattern, path, glob, context }, ctx, signal) {
     const target = shellQuote(resolvePath(ctx.cwd, path ?? "."));
     const pat = shellQuote(pattern);
-    const rgArgs = glob
-      ? `rg --line-number --color=never -g ${shellQuote(glob)} -- ${pat} ${target}`
-      : `rg --line-number --color=never -- ${pat} ${target}`;
+    const ctxFlag = context !== undefined ? ` -C ${context}` : "";
+    const globFlag = glob ? ` -g ${shellQuote(glob)}` : "";
+    const rgArgs = `rg --line-number --color=never${ctxFlag}${globFlag} -- ${pat} ${target}`;
     try {
       return { output: await runGrep(ctx, rgArgs, signal) };
     } catch {
-      const grepArgs = `grep -rn -- ${pat} ${target}`;
+      const grepArgs = `grep -rn${context !== undefined ? ` -C ${context}` : ""} -- ${pat} ${target}`;
       return { output: await runGrep(ctx, grepArgs, signal) };
     }
   },
