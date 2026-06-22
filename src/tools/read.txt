@@ -1,1 +1,4 @@
 Read the contents of a file at the given path relative to the workspace root.
+Returns up to 2000 lines by default; large files are truncated with a note telling
+you the next offset. Use `offset` (1-based start line) and `limit` to page through
+the rest of a file instead of pulling it all into context at once.

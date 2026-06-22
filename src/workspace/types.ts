@@ -4,6 +4,12 @@ export interface WorkspaceExecOptions {
   /** Timeout in seconds. */
   timeout?: number;
   env?: Record<string, string>;
+  /**
+   * Hard cap (bytes) on output forwarded to `onData`. Once exceeded the child is
+   * terminated and `truncated` is set, bounding memory and protecting the agent
+   * from a runaway command that would otherwise exhaust the context window (#146).
+   */
+  maxBuffer?: number;
 }
 
 /** Lightweight stat result — enough to distinguish files from directories. */
@@ -19,7 +25,7 @@ export interface Workspace {
     command: string,
     cwd: string,
     opts: WorkspaceExecOptions,
-  ): Promise<{ exitCode: number | null }>;
+  ): Promise<{ exitCode: number | null; truncated?: boolean }>;
 
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;

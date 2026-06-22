@@ -67,6 +67,14 @@ describe("bashTool", () => {
     expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("written\n");
   });
 
+  it("truncates runaway output and does not mark it an error", async () => {
+    // `yes` never exits; the byte cap must stop it, append a note, and return a
+    // normal (non-error) result so the model treats it as capped, not failed.
+    const result = await bashTool.execute({ command: "yes x" }, ctx, new AbortController().signal);
+    expect(result.output).toContain("[output truncated");
+    expect(result.isError).toBeFalsy();
+  });
+
   it("aborts a long-running command via signal", async () => {
     const controller = new AbortController();
     // `exec` makes the shell replace itself with sleep, so the SIGTERM on abort

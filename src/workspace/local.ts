@@ -19,25 +19,47 @@ export function createLocalWorkspace(): Workspace {
 
     exec(command, cwd, opts) {
       return new Promise((resolvePromise, reject) => {
+        // `detached` puts the shell in its own process group so we can signal the
+        // whole tree. Killing only the shell's pid leaves grandchildren (e.g. a
+        // `yes` behind `sh -c`) alive and holding the stdout pipe open, so the
+        // `close` event never fires and the command never resolves.
         const child = spawn(command, {
           cwd,
           shell: true,
+          detached: true,
           env: { ...process.env, ...opts.env },
         });
 
         let settled = false;
         let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+        let forwarded = 0;
+        let truncated = false;
 
         const finish = (exitCode: number | null) => {
           if (settled) return;
           settled = true;
           cleanup();
-          resolvePromise({ exitCode });
+          resolvePromise({ exitCode, truncated });
+        };
+
+        // Signal the child's whole process group (negative pid). Falls back to the
+        // bare pid if the group is already gone or the platform rejects it.
+        const killTree = (signal: NodeJS.Signals) => {
+          if (child.pid === undefined) return;
+          try {
+            process.kill(-child.pid, signal);
+          } catch {
+            try {
+              child.kill(signal);
+            } catch {
+              // already exited — nothing to signal
+            }
+          }
         };
 
         const terminate = () => {
-          child.kill("SIGTERM");
-          forceKillTimer ??= setTimeout(() => child.kill("SIGKILL"), FORCE_KILL_MS);
+          killTree("SIGTERM");
+          forceKillTimer ??= setTimeout(() => killTree("SIGKILL"), FORCE_KILL_MS);
         };
 
         const onAbort = () => terminate();
@@ -55,8 +77,31 @@ export function createLocalWorkspace(): Workspace {
           child.on("close", () => clearTimeout(timer));
         }
 
-        child.stdout.on("data", (chunk: Buffer) => opts.onData(chunk));
-        child.stderr.on("data", (chunk: Buffer) => opts.onData(chunk));
+        // Forward output, but stop and kill the child once it exceeds maxBuffer.
+        // A data listener keeps the pipe in flowing mode (so it is always drained
+        // and never deadlocks), while the byte cap bounds memory and context for
+        // a runaway command producing unbounded output (#146).
+        const onChunk = (chunk: Buffer) => {
+          if (truncated) return;
+          const max = opts.maxBuffer;
+          if (max === undefined) {
+            opts.onData(chunk);
+            return;
+          }
+          const remaining = max - forwarded;
+          if (chunk.length < remaining) {
+            forwarded += chunk.length;
+            opts.onData(chunk);
+            return;
+          }
+          if (remaining > 0) opts.onData(chunk.subarray(0, remaining));
+          forwarded = max;
+          truncated = true;
+          terminate();
+        };
+
+        child.stdout.on("data", onChunk);
+        child.stderr.on("data", onChunk);
         child.on("close", (code) => finish(code));
         child.on("error", (err) => {
           if (settled) return;

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { shellQuote } from "../util/shell.js";
 import { loadToolDescription } from "../util/load-txt.js";
+import { MAX_COMMAND_OUTPUT_BYTES, truncationNote } from "./output-limits.js";
 import type { Tool } from "./types.js";
 
 const schema = z.object({
@@ -18,12 +19,16 @@ async function runGrep(
   signal: AbortSignal,
 ): Promise<string> {
   let output = "";
-  const { exitCode } = await ctx.workspace.exec(command, ctx.cwd, {
+  const { exitCode, truncated } = await ctx.workspace.exec(command, ctx.cwd, {
     onData: (chunk) => {
       output += chunk.toString();
     },
+    maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
     signal,
   });
+  // Truncation is checked before exitCode: capping kills the child (non-zero/null
+  // exit), but the partial matches are still useful — return them, don't throw.
+  if (truncated) return (output || "(no matches)") + truncationNote(MAX_COMMAND_OUTPUT_BYTES);
   if (exitCode === 0 || exitCode === 1) return output || "(no matches)";
   throw new Error(output || `command failed with exit ${exitCode}`);
 }

@@ -18,6 +18,20 @@ const MAX_TOOL_RESULT_TOKENS = 16_000;
 const DEFAULT_KEEP_RECENT_TOKENS = 20_000;
 const ELIDED_PREFIX = "[result elided";
 
+/**
+ * The budgets above are absolute token counts tuned for large (~200k) windows.
+ * On a small window — e.g. a cheap explore subagent model with a 32k window —
+ * those absolutes can exceed the window itself, so pruning/eviction free
+ * nothing and the context never drops below the limit. The provider then
+ * rejects the oversized request and the (sub)agent loop throws (issue #183).
+ * Scaling each budget to a fraction of the live window guarantees compaction
+ * makes progress no matter how small the window, while leaving large windows
+ * untouched (the absolute is the floor of the two).
+ */
+function scaleToWindow(absolute: number, contextWindow: number, fraction: number): number {
+  return Math.max(1, Math.min(absolute, Math.floor(contextWindow * fraction)));
+}
+
 const SUMMARY_SYSTEM = (
   "You compress conversation history for a coding agent. "
   + "Produce a concise session summary preserving decisions, file paths, "
@@ -119,8 +133,9 @@ function mapToolResults(
 /** Cap individual bloated tool results when nearing the context window. */
 export function capOversizedToolResults(messages: Message[], contextWindow: number): Message[] {
   if (!shouldCompact(messages, contextWindow)) return messages;
+  const maxResult = scaleToWindow(MAX_TOOL_RESULT_TOKENS, contextWindow, 0.25);
   return mapToolResults(messages, (output) =>
-    estimateTokens(output) > MAX_TOOL_RESULT_TOKENS ? elideToolOutput(output) : output,
+    estimateTokens(output) > maxResult ? elideToolOutput(output) : output,
   );
 }
 
@@ -131,6 +146,8 @@ export function capOversizedToolResults(messages: Message[], contextWindow: numb
 export function pruneOverflowToolResults(messages: Message[], contextWindow: number): Message[] {
   if (!shouldCompact(messages, contextWindow)) return messages;
 
+  const protectBudget = scaleToWindow(PRUNE_PROTECT_TOKENS, contextWindow, 0.5);
+  const minimumToPrune = scaleToWindow(PRUNE_MINIMUM_TOKENS, contextWindow, 0.25);
   let protectedTokens = 0;
   let prunedTokens = 0;
   const elideIndices = new Set<number>();
@@ -142,7 +159,7 @@ export function pruneOverflowToolResults(messages: Message[], contextWindow: num
       if (block.type !== "toolResult") continue;
       if (isElidedToolResult(block.output)) continue;
       const tokens = estimateTokens(block.output);
-      if (protectedTokens + tokens <= PRUNE_PROTECT_TOKENS) {
+      if (protectedTokens + tokens <= protectBudget) {
         protectedTokens += tokens;
         continue;
       }
@@ -151,7 +168,7 @@ export function pruneOverflowToolResults(messages: Message[], contextWindow: num
     }
   }
 
-  if (prunedTokens < PRUNE_MINIMUM_TOKENS) return messages;
+  if (prunedTokens < minimumToPrune) return messages;
 
   return messages.map((msg, index) => {
     if (!elideIndices.has(index) || msg.role !== "tool") return msg;
@@ -352,5 +369,6 @@ export async function compactMessages(
   result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall);
   if (!shouldCompact(result, contextWindow)) return result;
 
-  return summariseOldMessages(result, model, DEFAULT_KEEP_RECENT_TOKENS, generate, recordCall);
+  const keepRecent = scaleToWindow(DEFAULT_KEEP_RECENT_TOKENS, contextWindow, 0.4);
+  return summariseOldMessages(result, model, keepRecent, generate, recordCall);
 }

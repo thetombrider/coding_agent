@@ -64,13 +64,40 @@ async function execE2B(
   command: string,
   cwd: string,
   opts: WorkspaceExecOptions,
-): Promise<{ exitCode: number | null }> {
+): Promise<{ exitCode: number | null; truncated?: boolean }> {
+  let forwarded = 0;
+  let truncated = false;
+  let killOnOverflow: (() => void) | undefined;
+
+  // Mirror the local workspace: forward output until maxBuffer is reached, then
+  // stop and kill the command so a runaway process cannot exhaust memory or the
+  // context window (#146).
+  const forward = (d: string) => {
+    if (truncated) return;
+    const buf = Buffer.from(d);
+    const max = opts.maxBuffer;
+    if (max === undefined) {
+      opts.onData(buf);
+      return;
+    }
+    const remaining = max - forwarded;
+    if (buf.length < remaining) {
+      forwarded += buf.length;
+      opts.onData(buf);
+      return;
+    }
+    if (remaining > 0) opts.onData(buf.subarray(0, remaining));
+    forwarded = max;
+    truncated = true;
+    killOnOverflow?.();
+  };
+
   const runOpts = {
     cwd,
     envs: opts.env,
     timeoutMs: opts.timeout ? opts.timeout * 1000 : undefined,
-    onStdout: (d: string) => opts.onData(Buffer.from(d)),
-    onStderr: (d: string) => opts.onData(Buffer.from(d)),
+    onStdout: forward,
+    onStderr: forward,
   };
 
   if (opts.signal) {
@@ -85,17 +112,18 @@ async function execE2B(
     opts.signal.addEventListener("abort", abort, { once: true });
     try {
       handle = await sbx.commands.run(command, { ...runOpts, background: true });
+      killOnOverflow = abort;
       if (opts.signal.aborted) {
         await handle.kill();
         throw opts.signal.reason ?? new Error("Aborted");
       }
       const result = await handle.wait();
-      return { exitCode: result.exitCode };
+      return { exitCode: result.exitCode, truncated };
     } finally {
       opts.signal.removeEventListener("abort", abort);
     }
   }
 
   const r = await sbx.commands.run(command, runOpts);
-  return { exitCode: r.exitCode };
+  return { exitCode: r.exitCode, truncated };
 }

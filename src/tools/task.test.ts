@@ -23,7 +23,8 @@ afterEach(() => {
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
-import { createStatefulFauxProvider } from "../provider/faux.js";
+import { createFauxProvider, createStatefulFauxProvider } from "../provider/faux.js";
+import type { StreamAssistantFn } from "../provider/types.js";
 import { getChildTools, getCoreTools } from "./registry.js";
 import { runSubagentTask, taskTool } from "./task.js";
 import type { AgentContext } from "../types.js";
@@ -79,6 +80,59 @@ describe("runSubagentTask", () => {
     expect(result.isError).toBeFalsy();
     expect(result.output).toContain("Subagent (explore) finished");
     expect(result.output).toContain("package.json");
+  });
+
+  it("returns a partial summary instead of throwing when the child loop errors", async () => {
+    let calls = 0;
+    // Turn 1 reports a finding and keeps exploring; turn 2 simulates the provider
+    // rejecting an over-window request. The subagent must surface the partial
+    // finding to the parent, not propagate a raw error (#183).
+    const provider: StreamAssistantFn = (messages, options, emit) => {
+      calls += 1;
+      if (calls === 1) {
+        return createFauxProvider({
+          text: ["Partial findings: inspected the entry point."],
+          toolCalls: [{ id: "ls1", name: "ls", arguments: { path: "." } }],
+          model: options.model,
+        })(messages, options, emit);
+      }
+      throw new Error("context length exceeded");
+    };
+
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
+
+    const result = await runSubagentTask(
+      { description: "scan", prompt: "explore the repo", agent: "explore" },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain("stopped early");
+    expect(result.output).toContain("Partial findings");
+    expect(result.output).toContain("context length exceeded");
+  });
+
+  it("propagates cancellation rather than swallowing it as a partial result", async () => {
+    const controller = new AbortController();
+    const provider: StreamAssistantFn = (messages, options, emit) => {
+      controller.abort();
+      // The loop checks the signal and ends cleanly; this asserts an aborted run
+      // is not reported as an errored exploration.
+      return createFauxProvider({ text: ["interrupted"], model: options.model })(
+        messages,
+        options,
+        emit,
+      );
+    };
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
+
+    const result = await runSubagentTask(
+      { description: "scan", prompt: "explore", agent: "explore" },
+      ctx,
+      controller.signal,
+    );
+    expect(result.output).not.toContain("stopped early");
   });
 
   it("implement defaults to shared and persists edits to the local tree (no E2B)", async () => {
