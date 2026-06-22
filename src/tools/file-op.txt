@@ -1,0 +1,3 @@
+Delete or move a single file within the workspace. Files only — use bash for directories or recursive deletion.
+
+Move requires a destination path whose parent directory already exists. Requires approval before running.

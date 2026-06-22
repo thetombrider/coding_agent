@@ -1,0 +1,3 @@
+Fetch a URL and return its content. HTML pages are converted to markdown by default; use format "text" for plain text or "html" for raw HTML.
+
+Read-only — no approval required. Only http/https URLs are allowed; internal and private network addresses are blocked.
