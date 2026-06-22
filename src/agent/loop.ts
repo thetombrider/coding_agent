@@ -63,10 +63,15 @@ function toProviderTools(tools: AnyTool[]) {
   );
 }
 
-function toolResultMessage(toolCallId: string, output: string, isError?: boolean): Message {
+function toolResultMessage(
+  toolCallId: string,
+  toolName: string,
+  output: string,
+  isError?: boolean,
+): Message {
   return {
     role: "tool",
-    content: [{ type: "toolResult", toolCallId, output, isError }],
+    content: [{ type: "toolResult", toolCallId, toolName, output, isError }],
   };
 }
 
@@ -103,7 +108,7 @@ async function executeSingleTool(
   const tool = registry.get(call.name);
   if (!tool) {
     const output = `Unknown tool: ${call.name}`;
-    const msg = toolResultMessage(call.id, output, true);
+    const msg = toolResultMessage(call.id, call.name, output, true);
     options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
     return { message: msg };
@@ -112,7 +117,7 @@ async function executeSingleTool(
   const argsResult = tool.schema.safeParse(call.arguments);
   if (!argsResult.success) {
     const output = argsResult.error.message;
-    const msg = toolResultMessage(call.id, output, true);
+    const msg = toolResultMessage(call.id, call.name, output, true);
     options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
     return { message: msg };
@@ -128,7 +133,7 @@ async function executeSingleTool(
   );
   if (hookResult && "block" in hookResult && hookResult.block) {
     const output = `[Blocked: ${hookResult.reason}]`;
-    const msg = toolResultMessage(call.id, output, true);
+    const msg = toolResultMessage(call.id, call.name, output, true);
     options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
     return { message: msg };
@@ -154,7 +159,7 @@ async function executeSingleTool(
       output = afterResult.output;
     }
 
-    const msg = toolResultMessage(call.id, output, result.isError);
+    const msg = toolResultMessage(call.id, call.name, output, result.isError);
     options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     hooks.emit({
       type: "tool_end",
@@ -172,7 +177,7 @@ async function executeSingleTool(
     // distinctly and terminate the loop instead of letting the model retry it
     // indefinitely. Recoverable tool errors are still returned for the model.
     const output = critical ? `Critical system error — aborting agent loop: ${detail}` : detail;
-    const msg = toolResultMessage(call.id, output, true);
+    const msg = toolResultMessage(call.id, call.name, output, true);
     options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
     return critical ? { message: msg, terminate: true, systemError: true } : { message: msg };

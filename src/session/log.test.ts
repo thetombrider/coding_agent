@@ -194,8 +194,8 @@ describe("openLog / replayLog round-trip", () => {
     expect(messages[2]).toEqual({
       role: "tool",
       content: [
-        { type: "toolResult", toolCallId: "bash:8", output: "[interrupted — no result recorded]", isError: true },
-        { type: "toolResult", toolCallId: "bash:9", output: "[interrupted — no result recorded]", isError: true },
+        { type: "toolResult", toolCallId: "bash:8", toolName: "bash", output: "[interrupted — no result recorded]", isError: true },
+        { type: "toolResult", toolCallId: "bash:9", toolName: "bash", output: "[interrupted — no result recorded]", isError: true },
       ],
     });
   });

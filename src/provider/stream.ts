@@ -33,7 +33,12 @@ export function toAiMessages(messages: Message[]): ModelMessage[] {
           .map((c) => ({
             type: "tool-result" as const,
             toolCallId: c.toolCallId,
-            toolName: callNames.get(c.toolCallId) ?? "unknown",
+            // Prefer the name persisted on the result block; fall back to the
+            // initiating assistant message (or "unknown") only for legacy logs
+            // recorded before the name was stored alongside the result. After
+            // compaction the assistant message may be gone, so the persisted
+            // name is the only reliable source.
+            toolName: c.toolName ?? callNames.get(c.toolCallId) ?? "unknown",
             output: { type: "text" as const, value: c.output },
           })),
       });
