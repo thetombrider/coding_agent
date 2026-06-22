@@ -1,14 +1,7 @@
 # Orin
 
-**A terminal coding agent CLI.** Give it a prompt and Orin autonomously reads,
-searches, edits, and runs code in your working directory — calling tools in a
-loop, streaming its work to an interactive TUI, and pausing for your approval
-before anything dangerous.
-
-Orin is built on [Bun](https://bun.sh), the [Vercel AI SDK](https://sdk.vercel.ai),
-and a [SolidJS](https://www.solidjs.com)-powered terminal UI
-([`@opentui/solid`](https://github.com/anomalyco/opentui)). The design and phased
-build plan live in [`SPEC.md`](./SPEC.md).
+> A coding agent that lives in your terminal. Give it a prompt and it reads,
+> edits, and runs your code on its own — pausing for your OK before anything risky.
 
 <p align="center">
   <img src="docs/media/welcome.png" alt="Orin's interactive terminal UI welcome screen" width="760">
@@ -16,66 +9,33 @@ build plan live in [`SPEC.md`](./SPEC.md).
   <em>The interactive TUI, shown in offline <code>--faux</code> demo mode.</em>
 </p>
 
----
+Point Orin at a task — *"fix the failing test in `src/foo`"* — and it searches the
+codebase, reads the relevant files, makes edits, runs commands, and checks its own
+work in a loop, streaming every step to an interactive UI. It's safe by default
+(nothing is written or run without your approval) and cheap by design (the
+expensive model thinks; a cheap one does the grunt work).
 
-## Features
+## Highlights
 
-- **Agentic loop** — streams an assistant turn, executes any tool calls it
-  produces, feeds the results back, and repeats until the task is done.
-- **A focused tool set** — `read`, `write`, `edit`, `bash`, `grep`, `find`,
-  `ls`, `fetch`, `file_op`, and `delegate_read`. The `edit` tool applies
-  exact-match replacements with a fuzzy fallback chain and renders unified
-  diffs; `fetch` pulls a URL (HTML → markdown, SSRF-guarded); `file_op`
-  deletes or moves a single file.
-- **Approval gate** — three modes you can switch on the fly: `normal` (ask
-  before writes/commands), `allow all` (auto-accept), and `plan` (read-only —
-  blocks `write`/`edit`/`bash`/`file_op`).
-- **Interactive TUI** — streaming markdown, live diffs, a slash-command palette,
-  and a session browser.
-- **Pluggable LLM providers** — a provider registry behind a single interface.
-  OpenRouter and Regolo AI (EU-hosted, OpenAI-compatible) ship today; the
-  interface anticipates Anthropic, OpenAI, LiteLLM, and gateway backends. Switch
-  at runtime with `/providers`, or store keys with `/providers configure`.
-- **Two model tiers** — a capable **main** model for reasoning and a cheap model
-  for offloaded work. The `delegate_read` tool hands read-heavy tasks (scan a
-  big file, summarize logs) to the cheap model so the bulk never enters the main
-  context.
-- **Role-bound subagent routing** — `task` subagents pick a model by preset:
-  `explore` runs on the **cheap** model (read-only investigation), `implement` on
-  a **code-tuned** model (Kimi K2.7 Code by default), and `review` on **main**.
-  Override per role and provider with `models.roles.<provider>.<preset>` in
-  `~/.orin/config.json` (the `/settings` menu writes these for the active
-  provider); an id the active provider doesn't support falls back to the tier
-  default.
-- **Subagent isolation** — `task` subagents default to `shared` (edit the local
-  working tree, changes persist), with `worktree` (run on a fresh git branch,
-  isolated but persistent — the summary reports the branch + diff) and `sandbox`
-  (ephemeral E2B clone, for untrusted code) as opt-ins. Set the floor with
-  `/settings isolation <mode>` (persisted to `subagent.isolation` in
-  `~/.orin/config.json`, or `ORIN_SUBAGENT_ISOLATION`); it's a guarantee — the
-  agent may escalate to a more-isolated mode per task but never weaken below it.
-- **Context compaction** — old turns are summarized and stale tool output evicted
-  automatically as the context window fills.
-- **Persistent sessions** — every session is an append-only JSONL log under
-  `~/.orin/sessions/`. Browse and resume them with `/sessions` or `--resume`.
-- **Local or remote execution** — run tools on your machine or in an
-  [E2B](https://e2b.dev) cloud sandbox by setting `sandbox.active` to `"e2b"` in
-  `~/.orin/config.json` (requires `E2B_API_KEY`).
-- **Lifecycle hooks** — `before_tool` / `after_tool` / `before_prompt` /
-  `before_compact` / `session_start` / `session_end` interception points (used,
-  for example, to transparently route `bash` through [RTK](https://github.com/rtk-ai/rtk)
-  for command-output compression when it is installed).
-- **Offline demo** — `orin --faux` runs the full TUI with scripted responses and
-  no API key.
-
-## Requirements
-
-- **[Bun](https://bun.sh) ≥ 1.1** — required, not just Node. Orin's TUI relies on
-  Bun's FFI and a Bun preload transform; running it under plain `node` will not
-  work. (Node ≥ 20 is listed for tooling compatibility, but the agent runs on Bun.)
-- A terminal emulator with a real TTY (the TUI cannot be piped).
-- An **[OpenRouter](https://openrouter.ai/keys) API key** for real agent use
-  (not needed for `--faux`).
+- **Autonomous, with a seatbelt** — Orin drives the tools itself, but stops for
+  approval before any file write or shell command. Flip between `normal`,
+  `allow-all`, and read-only `plan` on the fly.
+- **An undo button for the agent** — every change is snapshotted to a shadow git
+  history, so `/undo` rolls your working tree back to any point in the session.
+- **A genuine terminal UI** — streaming markdown, live unified diffs, a
+  slash-command palette, a session browser, and a context-window meter.
+- **Cheap where it counts** — a capable main model reasons and edits; a cheap
+  model handles read-heavy and exploratory work, so most tokens never touch your
+  expensive context.
+- **Parallel subagents** — hand scoped work (`explore`, `implement`, `review`) to
+  isolated subagents that run in the shared tree, a throwaway git worktree, or a
+  cloud sandbox.
+- **Bring your own model** — OpenRouter, Anthropic, and EU-hosted Regolo ship
+  today; switch provider or model mid-session with `/providers` and `/model`.
+- **Never loses the thread** — sessions are resumable logs, context auto-compacts
+  as the window fills, and a project `AGENTS.md` is picked up automatically.
+- **Try it with no API key** — `orin --faux` runs the whole UI offline with
+  scripted responses.
 
 ## Quick start
 
@@ -86,10 +46,19 @@ cd coding_agent
 orin                # start the interactive agent
 ```
 
-`install.sh` is safe to re-run. It seeds `~/.orin/config.json` with defaults. Configure
-API keys in the TUI with `/providers configure` (OpenRouter) and `/settings e2b`
-(E2B — only needed for `sandbox` subagent isolation; `task` works without it on
-`shared`/`worktree`). If Bun isn't on your `PATH` yet, the script prints the line to add.
+Then add a provider key right from the UI — `/providers configure openrouter` — and
+you're off. (`install.sh` is safe to re-run and prints a PATH hint if Bun isn't on
+your `PATH` yet.)
+
+**Just want to look around first?** No key required:
+
+```bash
+orin --faux         # fully offline, scripted demo
+```
+
+> **Requirements:** [Bun](https://bun.sh) ≥ 1.1 (the TUI uses Bun's FFI and a
+> preload transform — plain `node` won't work), a real TTY, and an
+> [OpenRouter](https://openrouter.ai/keys) key (or another provider) for real use.
 
 Prefer to run from source without a global install:
 
@@ -98,69 +67,110 @@ bun install
 bun run start       # === bun src/cli.ts
 ```
 
-Try it with no API key:
+<p align="center">
+  <img src="docs/media/session.png" alt="Orin handling a task: a read tool call followed by the answer" width="760">
+  <br>
+  <em>One turn of the loop: Orin calls the <code>read</code> tool, then answers — streamed live.</em>
+</p>
+
+## Usage
+
+Start interactively, or kick off with a prompt — and there are flags for
+scripting and resuming:
 
 ```bash
-orin --faux         # fully offline, scripted demo
+orin                                     # interactive TUI
+orin "fix the failing test in src/foo"   # interactive, with an opening message
+orin --resume <id>                       # resume a saved session (alias: -r)
+orin --list-sessions                     # list saved sessions (alias: -l)
+orin --plan                              # start in read-only plan mode
+orin --auto-accept                       # start in allow-all mode
+orin --headless <prompt>                 # run one task to completion, stream to stdout, exit
+orin --chat <prompt>                     # single non-agentic completion
+orin --faux                              # offline demo, no API key
 ```
+
+### Slash commands
+
+Type `/` inside the TUI to open the command palette:
+
+| Command | What it does |
+| --- | --- |
+| `/mode [normal\|allow-all\|plan]` | Cycle or set the approval mode |
+| `/model [id\|number]` | Switch the active model |
+| `/providers [id\|number]` | List or switch the active LLM provider |
+| `/providers configure [id]` | Set API keys / provider settings |
+| `/settings` | Open settings (E2B key, subagent isolation, task models) |
+| `/sessions` | Browse and resume saved sessions |
+| `/checkpoints` | List workspace checkpoints for this session |
+| `/undo` · `/restore [id]` | Roll the working tree back (latest checkpoint by default) |
+| `/new` | Archive this session and start a new one |
+| `/clear` | Clear the conversation |
+| `/help` | Show the full command list |
+| `/exit` | Quit |
+
+| Command palette (`/`) | Model picker (`/model`) |
+| :---: | :---: |
+| ![Orin command palette](docs/media/command-palette.png) | ![Orin model picker](docs/media/model-picker.png) |
 
 ## Configuration
 
-Configuration is resolved from **defaults → `~/.orin/config.json` → environment
-variables** (env vars win, so CI/CD works without editing the file). Copy
-[`.env.example`](./.env.example) to `.env` to get started, or edit the config
-file directly.
-
-| Setting | Env var | Notes |
-| --- | --- | --- |
-| OpenRouter API key | `OPENROUTER_API_KEY` | Required for the default backend. Also `provider.openrouter.apiKey` in config. |
-| Regolo API key | `REGOLO_API_KEY` | Optional EU-hosted backend (`/providers regolo`). Also `provider.regolo.apiKey` in config. |
-| Main model | `ORIN_MODEL` | Default agent model (OpenRouter `provider/model` id). |
-| Cheap model | `ORIN_CHEAP_MODEL` | Used by `delegate_read` and compaction. |
-| Approval mode | `ORIN_APPROVAL_MODE` | `normal` \| `auto-accept` \| `plan`. |
-| Subagent isolation | `ORIN_SUBAGENT_ISOLATION` | `shared` \| `worktree` \| `sandbox` floor for `task` subagents (`subagent.isolation` in config; `/settings isolation`). |
-| E2B API key | `E2B_API_KEY` | Optional — for whole-session E2B (`sandbox.active: "e2b"`) or `sandbox` subagent isolation. Also `sandbox.e2b.apiKey` in config. |
-
-Your config, sessions, and keys all live under `~/.orin/` and are untouched by
+Settings resolve from **defaults → `~/.orin/config.json` → environment variables**
+(env vars win, so CI works without editing the file). Copy
+[`.env.example`](./.env.example) to `.env`, or edit the config file directly. Your
+config, sessions, keys, and checkpoints all live under `~/.orin/` and survive
 upgrades.
 
-### Telemetry
+| Setting | Env var | Notes |
+| --- | --- | --- |
+| OpenRouter API key | `OPENROUTER_API_KEY` | Default backend. Also `provider.openrouter.apiKey`. |
+| Anthropic API key | `ANTHROPIC_API_KEY` | Native Messages API (`/providers anthropic`). |
+| Regolo API key | `REGOLO_API_KEY` | EU-hosted, OpenAI-compatible (`/providers regolo`). |
+| Main model | `ORIN_MODEL` | Default agent model (default `anthropic/claude-sonnet-4.6`). |
+| Cheap model | `ORIN_CHEAP_MODEL` | Used by `delegate_read` and compaction (default `deepseek/deepseek-v4-flash`). |
+| Approval mode | `ORIN_APPROVAL_MODE` | `normal` \| `auto-accept` \| `plan`. |
+| Subagent isolation | `ORIN_SUBAGENT_ISOLATION` | `shared` \| `worktree` \| `sandbox` floor for `task` subagents. |
+| E2B API key | `E2B_API_KEY` | Optional — for `sandbox` isolation or whole-session E2B. |
 
-Orin records per-call **cost and token metrics** (turn cost, tool durations, a
-session summary) locally. They append as JSON lines to `~/.orin/metrics.jsonl`
-and are mirrored into the session log. This is on by default and never leaves
-your machine.
+Orin also records **cost and token metrics** locally (`~/.orin/metrics.jsonl`) by
+default — set `ORIN_NO_TELEMETRY=1` to opt out. It can export OpenTelemetry traces
+to Langfuse, Grafana Tempo, Jaeger, and other OTLP backends too.
+
+<details>
+<summary><strong>Telemetry &amp; OpenTelemetry (OTLP) details</strong></summary>
+
+#### Local metrics
+
+Per-call cost and token metrics (turn cost, tool durations, a session summary)
+append as JSON lines to `~/.orin/metrics.jsonl` and mirror into the session log.
+On by default, never leaves your machine.
 
 | Setting | Env var | Notes |
 | --- | --- | --- |
-| Disable local metrics | `ORIN_NO_TELEMETRY=1` | Suppresses the JSONL/stdout sinks. Also `telemetry.enabled: false` in config. |
+| Disable local metrics | `ORIN_NO_TELEMETRY=1` | Suppresses the JSONL/stdout sinks. Also `telemetry.enabled: false`. |
 | Echo metrics to stdout | `ORIN_TELEMETRY_STDOUT=1` | Prints each metric event (debugging). |
-| Metrics file path | — | `telemetry.metricsFile` in config (default `~/.orin/metrics.jsonl`). |
+| Metrics file path | — | `telemetry.metricsFile` (default `~/.orin/metrics.jsonl`). |
 
-#### OpenTelemetry trace export (OTLP)
+#### OTLP trace export
 
-Orin can also export **OTLP traces** following the OpenTelemetry
+Orin can export **OTLP traces** following the OpenTelemetry
 [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/),
 so a session shows up in **Langfuse, Arize Phoenix, Grafana Tempo, Jaeger, or any
 OTLP/HTTP backend** as a trace: a session root span with child **LLM generation
 spans** (model, token usage, cost) and **tool spans** (duration, ok/error).
 
 It is **off by default** and the OpenTelemetry SDK is **lazy-loaded only when an
-endpoint is configured** — there's no startup or bundle cost when off.
-`ORIN_NO_TELEMETRY` does *not* affect OTLP export; it has its own switch.
-
-Enable it by setting an endpoint, either via the standard `OTEL_*` env vars
-(which win over the config file) or under `telemetry.otel` in
-`~/.orin/config.json`:
+endpoint is configured** — no startup or bundle cost when off. `ORIN_NO_TELEMETRY`
+does *not* affect OTLP export; it has its own switch.
 
 | Setting | Env var | Notes |
 | --- | --- | --- |
-| Traces endpoint | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL; `/v1/traces` is appended if missing. Setting it auto-enables export. Also `telemetry.otel.endpoint`. |
-| Traces endpoint (exact) | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used verbatim (wins over the base endpoint). |
-| Headers | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2` — e.g. an `Authorization` token. Also `telemetry.otel.headers`. |
-| Protocol | `OTEL_EXPORTER_OTLP_PROTOCOL` | Default `http/protobuf`. Also `telemetry.otel.protocol`. |
-| Service name | `OTEL_SERVICE_NAME` | Resource `service.name` (default `orin`). Also `telemetry.otel.serviceName`. |
-| Sample ratio | `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | e.g. `traceidratio` + `0.25`. Also `telemetry.otel.sampleRatio`. |
+| Traces endpoint | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL; `/v1/traces` is appended if missing. Setting it auto-enables export. |
+| Traces endpoint (exact) | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used verbatim. |
+| Headers | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2` — e.g. an `Authorization` token. |
+| Protocol | `OTEL_EXPORTER_OTLP_PROTOCOL` | Default `http/protobuf`. |
+| Service name | `OTEL_SERVICE_NAME` | Resource `service.name` (default `orin`). |
+| Sample ratio | `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | e.g. `traceidratio` + `0.25`. |
 
 Example — export to Langfuse via env vars:
 
@@ -170,7 +180,7 @@ export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 pk:sk>"
 orin "summarise src/agent/loop.ts"
 ```
 
-Or in `~/.orin/config.json`:
+Or under `telemetry.otel` in `~/.orin/config.json`:
 
 ```jsonc
 {
@@ -185,53 +195,16 @@ Or in `~/.orin/config.json`:
 }
 ```
 
-Export is best-effort: an unreachable endpoint or exporter failure never throws
-into or stalls the agent loop. Prompt/response **content** is not attached to
-spans yet (`captureContent`, default `false`); only metadata, token counts, and
-cost are exported.
+Export is best-effort: an unreachable endpoint never throws into or stalls the
+agent loop. Prompt/response **content** is not attached to spans (`captureContent`,
+default `false`); only metadata, token counts, and cost are exported.
 
-## Usage
-
-### CLI flags
-
-```bash
-orin                       # interactive TUI
-orin "fix the failing test in src/foo"   # interactive, with an opening message
-orin --resume <id>         # resume a saved session (alias: -r)
-orin --list-sessions       # list saved sessions (alias: -l)
-orin --plan                # start in read-only plan mode
-orin --auto-accept         # start in allow-all mode
-orin --headless <prompt>   # run one task to completion, stream to stdout, exit
-orin --chat <prompt>       # single non-agentic completion
-orin --faux                # offline demo, no API key
-```
-
-### Slash commands
-
-Type these inside the TUI:
-
-| Command | Description |
-| --- | --- |
-| `/mode [normal\|allow-all\|plan]` | Cycle or set the approval mode |
-| `/model [id\|number]` | Switch the active model |
-| `/providers [id\|number]` | List or switch the active LLM provider |
-| `/providers configure [id]` | Set API keys / provider settings in `~/.orin/config.json` |
-| `/sessions` | Browse and resume saved sessions |
-| `/new` | Archive this session and start a new one |
-| `/clear` | Clear the conversation |
-| `/help` | Show the command list |
-| `/exit` | Quit |
-
-Type `/` to open the command palette; `/model` and `/providers` open pickers:
-
-| Command palette (`/`) | Model picker (`/model`) |
-| :---: | :---: |
-| ![Orin command palette](docs/media/command-palette.png) | ![Orin model picker](docs/media/model-picker.png) |
+</details>
 
 ## How it works
 
-The agent loop is small and headless — it never touches the terminal directly,
-it just emits events that the TUI subscribes to:
+The agent loop is small and headless — it never touches the terminal directly, it
+just emits events the TUI subscribes to:
 
 ```
 runLoop(ctx, emit):
@@ -245,30 +218,37 @@ runLoop(ctx, emit):
     if any result terminates: break
 ```
 
-<p align="center">
-  <img src="docs/media/session.png" alt="Orin handling a task: a read tool call followed by the answer" width="760">
-  <br>
-  <em>One turn of the loop: Orin calls the <code>read</code> tool, then answers — streamed live.</em>
-</p>
-
 Everything is **messages of typed content blocks** (`text`, `toolCall`,
-`toolResult`). The provider layer wraps the AI SDK's `streamText` behind one
-function and resolves the active backend through the registry on every turn, so
-switching models or providers takes effect on the next turn with no rewiring.
+`toolResult`). The tool set is deliberately small — `read`, `write`, `edit`,
+`bash`, `grep`, `find`, `ls`, plus `delegate_read` (cheap-model reads), `task`
+(subagents), and `todowrite` (a live plan). The provider layer wraps the AI SDK's
+`streamText` behind one function and resolves the active backend through a registry
+on every turn, so switching models or providers takes effect on the next turn with
+no rewiring.
 
-## Project layout
+The design and phased build plan live in [`SPEC.md`](./SPEC.md). Orin is built on
+[Bun](https://bun.sh), the [Vercel AI SDK](https://sdk.vercel.ai), and a
+[SolidJS](https://www.solidjs.com)-powered terminal UI
+([`@opentui/solid`](https://github.com/anomalyco/opentui)).
+
+<details>
+<summary><strong>Project layout</strong></summary>
 
 ```
 src/
   cli.ts          # Bun bootstrap shim (registers the SolidJS preload)
   main.ts         # arg parsing + entrypoints (interactive / headless / one-shot)
+  cli-args.ts     # CLI flag parsing
   types.ts        # message + content-block data model
-  agent/          # the loop, compaction, mutation queue
-  provider/       # streamAssistant, registry, faux + OpenAI-compatible base, providers/ (openrouter, regolo)
-  tools/          # read, write, edit, bash, grep, find, ls, fetch, file_op, delegate_read (+ .txt descriptions)
+  agent/          # the loop, compaction, presets, isolation, mutation queue
+  provider/       # streamAssistant, registry, providers/ (openrouter, anthropic, regolo) + faux
+  tools/          # read, write, edit, bash, grep, find, ls, delegate_read, task, todowrite (+ .txt descriptions)
   approval/       # approval modes + policy
   edit/           # fuzzy replacer chain for the edit tool
   delegate/       # delegate_read implementation
+  checkpoint/     # shadow-git working-tree snapshots powering /undo and /restore
+  todos/          # session task-list store (todowrite)
+  prompt/         # system prompt + AGENTS.md / SYSTEM.md discovery + environment
   hooks/          # lifecycle hook registry + core hooks (incl. RTK rewrite)
   session/        # append-only JSONL session log
   telemetry/      # cost/token metrics + sinks; otel/ OTLP trace export (gen_ai spans)
@@ -280,6 +260,8 @@ scripts/build.mjs # compiles src/ -> dist/ (Babel: TypeScript + solid universal)
 SPEC.md           # design + phased build plan
 AGENTS.md         # notes for coding agents working in this repo
 ```
+
+</details>
 
 ## Development
 
@@ -300,3 +282,5 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contributor workflow, and
 ## License
 
 [MIT](./LICENSE)
+</content>
+</invoke>
