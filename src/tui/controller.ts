@@ -51,6 +51,10 @@ export interface SessionMeta {
   costUsd?: number | null;
   /** Total tokens across the session — shown in the header when pricing is unknown. */
   tokenTotals?: number;
+  /** Input-side tokens of the latest main-loop turn — how full the context window is. */
+  contextTokens?: number;
+  /** Context window of the active model, in tokens; resolved per model/provider. */
+  contextWindow?: number;
 }
 
 export interface SessionState {
@@ -89,7 +93,9 @@ export interface SessionController {
   setTodos: (todos: TodoItem[]) => void;
   updateMeta: (patch: Partial<SessionMeta>) => void;
   /** Fold a telemetry snapshot into the header meta (running cost + token total). */
-  setSessionCost: (snapshot: Pick<SessionCostSnapshot, "costUsd" | "tokens">) => void;
+  setSessionCost: (
+    snapshot: Pick<SessionCostSnapshot, "costUsd" | "tokens" | "contextTokens">,
+  ) => void;
 }
 
 const IDLE_HINT = `scroll · ${clipboardHintText()} · Ctrl+C exit`;
@@ -346,6 +352,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
           ...state.meta,
           costUsd: snapshot.costUsd,
           tokenTotals: snapshot.tokens.totalTokens,
+          contextTokens: snapshot.contextTokens,
         },
       });
     },

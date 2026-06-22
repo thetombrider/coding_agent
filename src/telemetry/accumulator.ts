@@ -19,6 +19,8 @@ export class SessionCostAccumulator {
   private hasCost = false;
   private pricingMissing = false;
   private readonly tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  /** Input-side tokens of the most recent main-loop turn — the live context fill. */
+  private lastContextTokens = 0;
   private readonly modelMix = new Map<string, ModelUsage>();
   private readonly sourceMix = new Map<TurnSource, number>();
 
@@ -50,6 +52,15 @@ export class SessionCostAccumulator {
     this.tokens.cacheWrite += usage.cacheWrite ?? 0;
     this.tokens.totalTokens += usage.totalTokens;
 
+    // Context fill is a gauge, not a sum: only the main agent loop occupies the
+    // user-visible context window, and each turn replaces the previous reading
+    // (so it falls after compaction prunes history). Subagent / side-path calls
+    // run against their own context and must not move it.
+    if (source === "main_loop") {
+      this.lastContextTokens =
+        usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+    }
+
     const entry = this.modelMix.get(model) ?? {
       turns: 0,
       input: 0,
@@ -78,6 +89,7 @@ export class SessionCostAccumulator {
       pricingMissing: this.pricingMissing,
       turns: this.turns,
       tokens: { ...this.tokens },
+      contextTokens: this.lastContextTokens,
       modelMix: Object.fromEntries(
         [...this.modelMix].map(([model, usage]) => [model, { ...usage }]),
       ),

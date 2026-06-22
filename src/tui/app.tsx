@@ -1006,6 +1006,8 @@ export function App(props: {
           sandbox={state().meta.sandbox}
           costUsd={state().meta.costUsd}
           tokenTotals={state().meta.tokenTotals}
+          contextTokens={state().meta.contextTokens}
+          contextWindow={state().meta.contextWindow}
           faux={state().meta.faux}
         />
       </box>

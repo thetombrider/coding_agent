@@ -57,6 +57,12 @@ export interface SessionCostSummary {
     cacheWrite: number;
     totalTokens: number;
   };
+  /**
+   * Input-side tokens (prompt + cache) of the most recent main-loop turn — i.e.
+   * how full the model's context window currently is. Unlike `tokens`, this is a
+   * point-in-time gauge, not a cumulative sum, so it drops after compaction.
+   */
+  contextTokens?: number;
   modelMix: Record<string, ModelUsage>;
   sourceMix: Partial<Record<TurnSource, number>>;
   durationMs: number;

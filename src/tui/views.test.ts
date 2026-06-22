@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  contextBadge,
   costBadge,
   formatCostUsd,
   formatModelPricingLabel,
@@ -81,5 +82,24 @@ describe("costBadge", () => {
   it("is empty before the first turn lands", () => {
     expect(costBadge({ costUsd: null, tokenTotals: 0 })).toBe("");
     expect(costBadge({})).toBe("");
+  });
+});
+
+describe("contextBadge", () => {
+  it("shows the rounded percentage of the window used", () => {
+    expect(contextBadge({ contextTokens: 50_000, contextWindow: 200_000 })).toBe("· 25% ctx");
+    expect(contextBadge({ contextTokens: 33_333, contextWindow: 100_000 })).toBe("· 33% ctx");
+  });
+
+  it("caps at 100% when the context overflows the window", () => {
+    expect(contextBadge({ contextTokens: 250_000, contextWindow: 200_000 })).toBe("· 100% ctx");
+  });
+
+  it("is empty until both the reading and the window are known", () => {
+    expect(contextBadge({ contextWindow: 200_000 })).toBe("");
+    expect(contextBadge({ contextTokens: 50_000 })).toBe("");
+    expect(contextBadge({ contextTokens: 0, contextWindow: 200_000 })).toBe("");
+    expect(contextBadge({ contextTokens: 50_000, contextWindow: 0 })).toBe("");
+    expect(contextBadge({})).toBe("");
   });
 });
