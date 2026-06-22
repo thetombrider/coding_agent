@@ -92,6 +92,68 @@ describe("createSessionController", () => {
     expect(controller.getState().phase).toBe("running");
   });
 
+  it("keeps the question modal when a sibling tool starts mid-askuser", async () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("plan");
+
+    // askuser blocks here, surfacing the question to the UI.
+    const pending = controller.requestQuestion("Pick one", ["A", "B"]);
+    expect(controller.getState().phase).toBe("question");
+
+    // A sibling tool from the same parallel batch starts while the question
+    // waits. It must record the tool without knocking the UI out of the
+    // question (which would freeze arrow/Enter handling and Ctrl+C).
+    controller.handleEvent({
+      type: "tool_start",
+      id: "read1",
+      name: "read",
+      args: { path: "a.ts" },
+    });
+
+    expect(controller.getState().phase).toBe("question");
+    expect(controller.getState().pendingQuestion).toEqual({
+      question: "Pick one",
+      options: ["A", "B"],
+    });
+    expect(controller.getState().currentTools.some((t) => t.id === "read1")).toBe(true);
+
+    // The user can still answer, and the loop unblocks.
+    controller.respondQuestion("B");
+    await expect(pending).resolves.toBe("B");
+  });
+
+  it("still cancels a pending question after the phase was clobbered", async () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("plan");
+    const pending = controller.requestQuestion("A or B?", ["A", "B"]);
+
+    // Even if a stray event flips the phase, a stop must unblock the prompt.
+    controller.rejectPendingQuestion();
+    await expect(pending).resolves.toBeNull();
+    expect(controller.getState().pendingQuestion).toBeNull();
+  });
+
+  it("keeps the approval modal when a sibling tool starts mid-approval", async () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("do");
+
+    const pending = controller.requestApproval("bash", { command: "ls" });
+    expect(controller.getState().phase).toBe("approval");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "read1",
+      name: "read",
+      args: { path: "a.ts" },
+    });
+
+    expect(controller.getState().phase).toBe("approval");
+    expect(controller.getState().pendingApproval).toEqual({ name: "bash", args: { command: "ls" } });
+
+    controller.respondApproval(true);
+    await expect(pending).resolves.toBe(true);
+  });
+
   it("manages input buffer", () => {
     const controller = createSessionController(meta);
     controller.appendInput("hi");

@@ -393,18 +393,29 @@ export function createSessionController(meta: SessionMeta): SessionController {
           });
           break;
         case "tool_start": {
+          // A pending question/approval is modal. askuser (and the approval
+          // gate) block while their sibling tools in the same parallel batch
+          // keep running and emit their own tool_start — which must NOT reset
+          // the phase or dismiss the prompt. Otherwise the UI desyncs: the
+          // QuestionBar/ApprovalBar stays up but `phase` flips to "running",
+          // so arrow/Enter handling stops and Ctrl+C can't cancel the
+          // still-awaiting prompt. Record the tool, but leave the modal intact.
+          const modalPending = state.pendingQuestion !== null || state.pendingApproval !== null;
           if (event.subagentId) {
             const agent = findSubagentAgent(state.currentTools, event.subagentId);
-            update({
+            const patch: Partial<SessionState> = {
               currentTools: upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
                 name: event.name,
                 args: event.args,
                 status: "running",
               }),
-              pendingApproval: null,
-              phase: "running",
-              statusHint: toolStatusHint(event.name, event.args, agent),
-            });
+            };
+            if (!modalPending) {
+              patch.pendingApproval = null;
+              patch.phase = "running";
+              patch.statusHint = toolStatusHint(event.name, event.args, agent);
+            }
+            update(patch);
             break;
           }
           upsertTool(event.id, {
@@ -414,12 +425,14 @@ export function createSessionController(meta: SessionMeta): SessionController {
           });
           const previewTodos =
             event.name === "todowrite" ? todosFromToolArgs(event.args) : undefined;
-          update({
-            pendingApproval: null,
-            phase: "running",
-            statusHint: toolStatusHint(event.name, event.args),
-            ...(previewTodos ? { todos: previewTodos } : {}),
-          });
+          const patch: Partial<SessionState> = {};
+          if (!modalPending) {
+            patch.pendingApproval = null;
+            patch.phase = "running";
+            patch.statusHint = toolStatusHint(event.name, event.args);
+          }
+          if (previewTodos) patch.todos = previewTodos;
+          update(patch);
           break;
         }
         case "tool_end":
@@ -490,7 +503,10 @@ export function createSessionController(meta: SessionMeta): SessionController {
     },
 
     rejectPendingApproval() {
-      if (state.phase !== "approval" || !approvalResolver) return;
+      // Gate on the resolver, not the phase: a sibling tool's tool_start can
+      // flip the phase off "approval" while the gate is still awaiting, and a
+      // stop must still deny it rather than leave the loop blocked.
+      if (!approvalResolver) return;
       approvalResolver(false);
       approvalResolver = null;
       update({
@@ -523,7 +539,10 @@ export function createSessionController(meta: SessionMeta): SessionController {
     },
 
     rejectPendingQuestion() {
-      if (state.phase !== "question" || !questionResolver) return;
+      // Gate on the resolver, not the phase: a sibling tool's tool_start can
+      // flip the phase off "question" while askuser is still awaiting, and a
+      // stop/skip must still resolve it rather than leave the loop blocked.
+      if (!questionResolver) return;
       questionResolver(null);
       questionResolver = null;
       update({
