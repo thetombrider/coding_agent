@@ -31,6 +31,14 @@ export interface LoopHost {
   recordLlmCall?: LlmCallRecorder;
 }
 
+/**
+ * Pause the loop to ask the interactive user a multiple-choice question and
+ * await their answer. Resolves with the chosen option (or a free-text reply),
+ * or `null` if the user dismissed it without answering. Set only by interactive
+ * sessions — absent in headless/subagent contexts.
+ */
+export type AskUserFn = (question: string, options: string[]) => Promise<string | null>;
+
 export interface AgentContext {
   messages: Message[];
   cwd: string;
@@ -41,6 +49,8 @@ export interface AgentContext {
   depth?: number;
   /** Host loop wiring — set by the session for nested-loop tools. */
   loopHost?: LoopHost;
+  /** Prompt the interactive user a question mid-loop (set by the TUI session). */
+  askUser?: AskUserFn;
 }
 
 export type SessionEvent =

@@ -6,6 +6,10 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "todowrite")).toBe(true);
   });
 
+  it("includes askuser in core tools", () => {
+    expect(getCoreTools().some((t) => t.name === "askuser")).toBe(true);
+  });
+
   it("includes task in core tools without an E2B key (shared/worktree run locally)", () => {
     vi.stubEnv("E2B_API_KEY", "");
     expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
@@ -16,9 +20,10 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
   });
 
-  it("excludes todowrite and task from child tool presets", () => {
+  it("excludes todowrite, task, and askuser from child tool presets", () => {
     expect(getChildTools().some((t) => t.name === "todowrite")).toBe(false);
     expect(getChildTools().some((t) => t.name === "task")).toBe(false);
-    expect(getChildTools().length).toBe(getCoreTools().length - 2);
+    expect(getChildTools().some((t) => t.name === "askuser")).toBe(false);
+    expect(getChildTools().length).toBe(getCoreTools().length - 3);
   });
 });

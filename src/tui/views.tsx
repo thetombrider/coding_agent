@@ -490,3 +490,46 @@ export function ApprovalBar(props: { name: string; args: unknown }) {
     </box>
   );
 }
+
+export function QuestionBar(props: {
+  question: string;
+  options: string[];
+  selectedIndex: number;
+}) {
+  return (
+    <box
+      flexShrink={0}
+      flexDirection="column"
+      marginTop={1}
+      marginBottom={1}
+      paddingLeft={1}
+      paddingRight={1}
+      paddingTop={1}
+      paddingBottom={1}
+      borderStyle="rounded"
+      border
+      borderColor={theme.approval}
+      backgroundColor={theme.codeBg}
+    >
+      <text fg={theme.approval} attributes={BOLD} wrapMode="word">
+        {props.question}
+      </text>
+      <box flexDirection="column" marginTop={1}>
+        <For each={props.options}>
+          {(option, i) => {
+            const selected = () => props.selectedIndex === i();
+            return (
+              <text
+                fg={selected() ? theme.accent : theme.fg}
+                attributes={selected() ? BOLD : 0}
+                wrapMode="word"
+              >
+                {selected() ? "▶ " : "  "}{i() + 1}. {option}
+              </text>
+            );
+          }}
+        </For>
+      </box>
+    </box>
+  );
+}

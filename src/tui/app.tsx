@@ -1,13 +1,13 @@
 import type { InputRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { createTextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/solid";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { SessionController, SessionState, Turn } from "./controller.js";
 import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
 import { useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
-import { ApprovalBar, formatContextWindowLabel, formatModelPricingLabel, formatSessionCost, Header, TodoSidebar, TurnView } from "./views.js";
+import { ApprovalBar, formatContextWindowLabel, formatModelPricingLabel, formatSessionCost, Header, QuestionBar, TodoSidebar, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
@@ -155,6 +155,7 @@ export function App(props: {
 }) {
   const [state, setState] = createSignal(props.controller.getState());
   const [submitting, setSubmitting] = createSignal(false);
+  const [questionIndex, setQuestionIndex] = createSignal(0);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
   const [e2bPrompt, setE2bPrompt] = createSignal(false);
@@ -163,8 +164,20 @@ export function App(props: {
   onCleanup(props.controller.subscribe(setState));
   useSpinnerClock();
 
+  // Reset the highlighted option whenever a new question is posed. Keyed on the
+  // question text via a memo so option navigation (which doesn't change the
+  // text) doesn't get clobbered by the per-keystroke state churn.
+  const questionKey = createMemo(() => state().pendingQuestion?.question ?? null);
+  createEffect(() => {
+    questionKey();
+    setQuestionIndex(0);
+  });
+
   const canStopTurn = () =>
-    submitting() || state().phase === "running" || state().phase === "approval";
+    submitting()
+    || state().phase === "running"
+    || state().phase === "approval"
+    || state().phase === "question";
 
   const handleStopTurn = () => {
     if (!canStopTurn()) return;
@@ -181,6 +194,7 @@ export function App(props: {
 
   const pasteShortcutEnabled = () =>
     state().phase !== "approval"
+    && state().phase !== "question"
     && palette() === null
     && !submitting();
 
@@ -745,6 +759,20 @@ export function App(props: {
   };
 
   const handleSubmit = async (raw: string) => {
+    // A pending question intercepts Enter: a typed reply wins; otherwise the
+    // highlighted option is selected.
+    if (state().phase === "question") {
+      const pending = state().pendingQuestion;
+      if (pending) {
+        const typed = raw.trim();
+        const answer = typed || pending.options[questionIndex()] || "";
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        props.controller.respondQuestion(answer);
+      }
+      return;
+    }
+
     // Provider/E2B config prompts take priority over the command palette.
     if (configPrompt() !== null) {
       handleConfigSubmit(raw);
@@ -870,6 +898,28 @@ export function App(props: {
       if (key.name === "y") props.controller.respondApproval(true);
       if (key.name === "n") props.controller.respondApproval(false);
       if (key.name === "escape" && !renderer.hasSelection) props.controller.respondApproval(false);
+      return;
+    }
+
+    // Question: arrow keys move the highlighted option, Esc skips. Typing a
+    // custom reply and Enter (to submit) fall through to the focused input —
+    // Enter lands in the input's onSubmit → handleSubmit's question branch.
+    if (phase === "question") {
+      const pending = state().pendingQuestion;
+      if (!pending) return;
+      if (key.name === "up") {
+        setQuestionIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.name === "down") {
+        setQuestionIndex((i) => Math.min(pending.options.length - 1, i + 1));
+        return;
+      }
+      if (key.name === "escape" && !renderer.hasSelection) {
+        props.controller.rejectPendingQuestion();
+        props.controller.setStatusHint("Question skipped — continuing");
+        return;
+      }
       return;
     }
 
@@ -1109,6 +1159,18 @@ export function App(props: {
         {(pending) => (
           <box flexShrink={0}>
             <ApprovalBar name={pending().name} args={pending().args} />
+          </box>
+        )}
+      </Show>
+
+      <Show when={state().pendingQuestion}>
+        {(pending) => (
+          <box flexShrink={0}>
+            <QuestionBar
+              question={pending().question}
+              options={pending().options}
+              selectedIndex={questionIndex()}
+            />
           </box>
         )}
       </Show>

@@ -61,6 +61,37 @@ describe("createSessionController", () => {
     expect(controller.getState().phase).toBe("running");
   });
 
+  it("resolves a question with the chosen answer via respondQuestion", async () => {
+    const controller = createSessionController(meta);
+    const pending = controller.requestQuestion("Which DB?", ["Postgres", "SQLite"]);
+    expect(controller.getState().phase).toBe("question");
+    expect(controller.getState().pendingQuestion).toEqual({
+      question: "Which DB?",
+      options: ["Postgres", "SQLite"],
+    });
+
+    controller.respondQuestion("SQLite");
+    await expect(pending).resolves.toBe("SQLite");
+    expect(controller.getState().pendingQuestion).toBeNull();
+    expect(controller.getState().phase).toBe("running");
+  });
+
+  it("rejectPendingQuestion dismisses a waiting question with null", async () => {
+    const controller = createSessionController(meta);
+    const pending = controller.requestQuestion("A or B?", ["A", "B"]);
+    controller.rejectPendingQuestion();
+    await expect(pending).resolves.toBeNull();
+    expect(controller.getState().phase).toBe("running");
+    expect(controller.getState().pendingQuestion).toBeNull();
+  });
+
+  it("rejectPendingQuestion is a no-op when no question is pending", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("hi");
+    controller.rejectPendingQuestion();
+    expect(controller.getState().phase).toBe("running");
+  });
+
   it("manages input buffer", () => {
     const controller = createSessionController(meta);
     controller.appendInput("hi");

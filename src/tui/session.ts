@@ -64,6 +64,8 @@ export interface TuiSessionConfig {
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
   const controller = createSessionController(config.meta);
+  // Let the askuser tool pause the loop and surface a question to this UI.
+  config.ctx.askUser = controller.requestQuestion;
   config.ctx.todos = rebuildTodosFromMessages(config.ctx.messages);
   controller.setTodos(config.ctx.todos);
   if (config.ctx.messages.length > 0) {
@@ -254,6 +256,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
   const stopTurn = () => {
     controller.rejectPendingApproval();
+    controller.rejectPendingQuestion();
     turnAbort?.abort();
   };
 
