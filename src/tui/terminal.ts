@@ -1,3 +1,30 @@
+/**
+ * Force OpenTUI to repaint every cell on the next frame.
+ *
+ * OpenTUI's native layer writes its Kitty graphics capability probe straight to
+ * the terminal fd, so we cannot filter it on the way out. Terminal.app paints
+ * that probe as literal text inside the prompt. A normal diff render won't clear
+ * it (those cells are unchanged in OpenTUI's own model), but a *forced* full
+ * repaint rewrites the whole screen — native `render(ptr, force=true)` — which
+ * overwrites the stray bytes. Safe and visually identical on terminals that
+ * never leaked. Best-effort: tolerant of OpenTUI internals changing shape.
+ */
+export function forceFullRepaint(renderer: unknown): void {
+  try {
+    const r = renderer as {
+      forceFullRepaintRequested?: boolean;
+      requestRender?: () => void;
+    };
+    if (!r || typeof r.requestRender !== "function") return;
+    if ("forceFullRepaintRequested" in (r as object)) {
+      r.forceFullRepaintRequested = true;
+    }
+    r.requestRender();
+  } catch {
+    // best-effort: a repaint nudge must never crash the session
+  }
+}
+
 /** Best-effort terminal restore after the TUI exits or crashes. */
 export function restoreTerminal(): void {
   if (!process.stdout.isTTY) return;

@@ -12,6 +12,15 @@
 // picked up when Bun runs from the repo directory. That's why `orin` worked
 // from the clone but crashed from anywhere else.
 //
+// Disable OpenTUI's Kitty graphics capability probe on terminals that can't
+// handle it (Terminal.app) BEFORE @opentui/core is loaded — it reads and caches
+// OPENTUI_GRAPHICS on first access and forwards it to the native renderer at
+// construction. This side-effect module must be evaluated before the preload
+// below, and ES modules evaluate static imports in source order, so it goes
+// first. (A plain top-level statement here would run *after* every static
+// import had already been evaluated, i.e. too late.)
+import "./tui/terminal-env-preload.js";
+
 // Importing the preload here registers that plugin programmatically, regardless
 // of the current directory. It must run before SolidJS is loaded, so the real
 // entrypoint is pulled in via a dynamic import afterwards.
