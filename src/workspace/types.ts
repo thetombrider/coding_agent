@@ -6,6 +6,12 @@ export interface WorkspaceExecOptions {
   env?: Record<string, string>;
 }
 
+/** Lightweight stat result — enough to distinguish files from directories. */
+export interface FileStat {
+  isFile: boolean;
+  isDirectory: boolean;
+}
+
 export interface Workspace {
   readonly kind: SandboxKind;
 
@@ -18,6 +24,12 @@ export interface Workspace {
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
   list(path: string): Promise<string[]>;
+  /** Stat a path; resolves to `null` when it does not exist. */
+  stat(path: string): Promise<FileStat | null>;
+  /** Delete a single file (callers must ensure it is not a directory). */
+  deleteFile(path: string): Promise<void>;
+  /** Move/rename a path from `source` to `destination`. */
+  move(source: string, destination: string): Promise<void>;
 
   dispose(): Promise<void>;
 }
