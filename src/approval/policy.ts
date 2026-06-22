@@ -2,7 +2,7 @@ import { loadConfig } from "../config/config.js";
 
 export type ApprovalMode = "normal" | "auto-accept" | "plan";
 
-const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
+const WRITE_TOOLS = new Set(["write", "edit", "bash", "file_op"]);
 
 /** Cycle order for `/mode` with no argument. */
 export const APPROVAL_MODES: readonly ApprovalMode[] = ["normal", "auto-accept", "plan"];

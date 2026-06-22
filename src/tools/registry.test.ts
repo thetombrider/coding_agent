@@ -20,10 +20,15 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
   });
 
-  it("excludes todowrite, task, and askuser from child tool presets", () => {
+  it("excludes todowrite, task, file_op, and askuser from child tool presets", () => {
     expect(getChildTools().some((t) => t.name === "todowrite")).toBe(false);
     expect(getChildTools().some((t) => t.name === "task")).toBe(false);
+    expect(getChildTools().some((t) => t.name === "file_op")).toBe(false);
     expect(getChildTools().some((t) => t.name === "askuser")).toBe(false);
-    expect(getChildTools().length).toBe(getCoreTools().length - 3);
+    expect(getChildTools().length).toBe(getCoreTools().length - 4);
+  });
+
+  it("includes the read-only fetch tool in child tool presets", () => {
+    expect(getChildTools().some((t) => t.name === "fetch")).toBe(true);
   });
 });

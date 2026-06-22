@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
-import { readdir, readFile as fsReadFile, writeFile as fsWriteFile, mkdir } from "node:fs/promises";
+import {
+  readdir,
+  readFile as fsReadFile,
+  writeFile as fsWriteFile,
+  mkdir,
+  stat as fsStat,
+  unlink,
+  rename,
+} from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Workspace } from "./types.js";
 
@@ -70,6 +78,24 @@ export function createLocalWorkspace(): Workspace {
 
     async list(path) {
       return readdir(path);
+    },
+
+    async stat(path) {
+      try {
+        const s = await fsStat(path);
+        return { isFile: s.isFile(), isDirectory: s.isDirectory() };
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw err;
+      }
+    },
+
+    async deleteFile(path) {
+      await unlink(path);
+    },
+
+    async move(source, destination) {
+      await rename(source, destination);
     },
 
     async dispose() {},

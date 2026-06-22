@@ -1,0 +1,5 @@
+Fetch a web page or file over http(s) and return its contents. Read-only.
+
+Use format "markdown" (default) to convert an HTML page to readable markdown, "text" for plain text, or "html" for the raw response body. Non-HTML responses (JSON, plain text) are returned as-is. Output is truncated at 100KB.
+
+Refuses non-http(s) schemes and private/loopback hosts (localhost, 127.x, 10.x, 192.168.x, 172.16-31.x, link-local). Non-2xx responses return an error with the status code.
