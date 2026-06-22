@@ -624,4 +624,87 @@ describe("runLoop", () => {
     expect(observed.some((e) => e.type === "loop_end" && e.reason === "cancelled")).toBe(true);
     expect(lastAssistantText(ctx)).toBe("");
   });
+
+  it("stops at maxTurns even when the model keeps calling tools", async () => {
+    let executions = 0;
+    const noopTool: Tool<Record<string, never>> = {
+      name: "noop",
+      description: "noop",
+      schema: z.object({}),
+      async execute() {
+        executions += 1;
+        return { output: "ok" };
+      },
+    };
+
+    // A single repeating script always asks for another tool call, so the loop
+    // would never complete on its own — only maxTurns can stop it.
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc", name: "noop", arguments: {} }] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([noopTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [noopTool],
+      model: "faux:test",
+      maxTurns: 2,
+    });
+
+    const assistantMessages = ctx.messages.filter((m) => m.role === "assistant");
+    expect(assistantMessages).toHaveLength(2);
+    expect(executions).toBe(2);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
+  });
+
+  it("exits immediately when a tool returns terminate: true", async () => {
+    const terminatingTool: Tool<Record<string, never>> = {
+      name: "finish",
+      description: "ends the loop",
+      schema: z.object({}),
+      async execute() {
+        return { output: "stopping", terminate: true };
+      },
+    };
+
+    // Second script would emit final text — it must never run because the
+    // terminating tool short-circuits the loop.
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "finish", arguments: {} }] },
+      { text: ["this should never be reached"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([terminatingTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [terminatingTool],
+      model: "faux:test",
+    });
+
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
+    // Only the tool-call turn ran; the follow-up text turn was skipped.
+    expect(ctx.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(lastAssistantText(ctx)).not.toContain("never be reached");
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
+    expect(output).toBe("stopping");
+  });
 });
