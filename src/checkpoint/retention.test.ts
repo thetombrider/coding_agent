@@ -13,6 +13,18 @@ import {
 } from "./retention.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Generous ceiling: spawning a child (not awaiting it) should take well under this.
+const GIT_GC_TIMEOUT_BUDGET_MS = 1000;
+
+// Wait for a spawned git gc to finish so it isn't still writing into the temp
+// dir when the test tears it down.
+function waitForChild(child: import("node:child_process").ChildProcess | undefined): Promise<void> {
+  if (!child) return Promise.resolve();
+  return new Promise((resolve) => {
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+}
 
 describe("selectReposToPrune", () => {
   const now = 1_000 * DAY_MS;
@@ -96,15 +108,28 @@ describe("retention filesystem operations", () => {
     expect(removeCheckpointRepo("s1", dir)).toBe(false);
   });
 
-  it("gcShadowRepo is a no-op on a non-repo and succeeds on a real one", () => {
-    expect(() => gcShadowRepo(join(dir, "missing"))).not.toThrow();
+  it("gcShadowRepo is a no-op on a non-repo and succeeds on a real one", async () => {
+    expect(gcShadowRepo(join(dir, "missing"))).toBeUndefined();
     const gitDir = initRepo("s1");
-    expect(() => gcShadowRepo(gitDir, 7)).not.toThrow();
+    const child = gcShadowRepo(gitDir, 7);
+    expect(child).toBeDefined();
+    await waitForChild(child);
     // gc must not destroy the repo.
     expect(existsSync(join(gitDir, "HEAD"))).toBe(true);
   });
 
-  it("runCheckpointCleanup deletes stale repos, keeps recent ones, and protects the active session", () => {
+  it("gcShadowRepo is non-blocking (returns a live child without awaiting git)", async () => {
+    const gitDir = initRepo("s1");
+    const start = process.hrtime.bigint();
+    const child = gcShadowRepo(gitDir, 7);
+    const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+    // It spawns git and returns immediately — never the multi-second synchronous
+    // `git gc` that froze the event loop during the capability handshake.
+    expect(elapsedMs).toBeLessThan(GIT_GC_TIMEOUT_BUDGET_MS);
+    await waitForChild(child); // settle before teardown
+  });
+
+  it("runCheckpointCleanup deletes stale repos, keeps recent ones, and protects the active session", async () => {
     initRepo("recent", 1 * DAY_MS);
     initRepo("stale", 40 * DAY_MS);
     initRepo("active", 90 * DAY_MS); // stale, but protected
@@ -121,9 +146,10 @@ describe("retention filesystem operations", () => {
     expect(existsSync(join(dir, "recent"))).toBe(true);
     expect(existsSync(join(dir, "active"))).toBe(true);
     expect(result.kept.sort()).toEqual(["active", "recent"]);
+    await result.pending; // let the background gc finish before teardown
   });
 
-  it("runCheckpointCleanup enforces the count cap", () => {
+  it("runCheckpointCleanup enforces the count cap", async () => {
     for (let i = 0; i < 4; i++) initRepo(`s${i}`, i * 1000); // s0 newest
     const result = runCheckpointCleanup({ dir, maxRepos: 2, maxAgeMs: 365 * DAY_MS });
     expect(existsSync(join(dir, "s0"))).toBe(true);
@@ -131,9 +157,13 @@ describe("retention filesystem operations", () => {
     expect(existsSync(join(dir, "s2"))).toBe(false);
     expect(existsSync(join(dir, "s3"))).toBe(false);
     expect(result.kept.length).toBe(2);
+    await result.pending;
   });
 
-  it("runCheckpointCleanup is a no-op when the dir is empty or missing", () => {
-    expect(runCheckpointCleanup({ dir: join(dir, "nope") })).toEqual({ removed: [], kept: [] });
+  it("runCheckpointCleanup is a no-op when the dir is empty or missing", async () => {
+    const result = runCheckpointCleanup({ dir: join(dir, "nope") });
+    expect(result.removed).toEqual([]);
+    expect(result.kept).toEqual([]);
+    await result.pending;
   });
 });

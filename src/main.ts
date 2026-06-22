@@ -5,6 +5,7 @@ import { installCoreHooks } from "./hooks/install.js";
 import type { ApprovalGateRef } from "./hooks/approval-gate.js";
 import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
+import { parseCliArgs } from "./cli-args.js";
 import { loadConfig, ensureConfigFile } from "./config/config.js";
 import { resolveSystemPrompt } from "./prompt/system.js";
 import { defaultCheapModel, defaultMainModel, loadModelConfig } from "./config/models.js";
@@ -29,33 +30,10 @@ function createSessionHooks(): ReturnType<typeof createHookRegistry> {
   return createHookRegistry();
 }
 
-function flagValue(args: string[], ...names: string[]): string | undefined {
-  for (const name of names) {
-    const idx = args.indexOf(name);
-    if (idx !== -1 && idx + 1 < args.length && !args[idx + 1].startsWith("-")) {
-      return args[idx + 1];
-    }
-  }
-  return undefined;
-}
-
 async function main(): Promise<void> {
   ensureConfigFile();
-  const args = process.argv.slice(2);
-  const flags = new Set(args.filter((a) => a.startsWith("-")));
-  const promptParts = args.filter((a) => !a.startsWith("-"));
-  const prompt = promptParts.join(" ").trim();
-
-  const useFaux = flags.has("--faux");
-  const headless = flags.has("--headless");
-  const listSessionsFlag = flags.has("--list-sessions") || flags.has("-l");
-  const resumeId = flagValue(args, "--resume", "-r");
-  const autoAcceptCli = flags.has("--auto-accept") || useFaux;
-  const approvalMode = flags.has("--plan")
-    ? "plan"
-    : autoAcceptCli
-      ? "auto-accept"
-      : parseApprovalMode();
+  const { prompt, useFaux, headless, listSessions: listSessionsFlag, chat, resumeId, autoAcceptCli, approvalMode } =
+    parseCliArgs(process.argv.slice(2));
 
   if (listSessionsFlag) {
     printSessionList();
@@ -71,7 +49,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (prompt && flags.has("--chat")) {
+  if (prompt && chat) {
     await runOneShotMode({ prompt, useFaux });
     return;
   }

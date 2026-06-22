@@ -21,7 +21,7 @@ import {
   isSelectionHintShortcut,
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
-import { selectionCopyHint } from "./terminal-env.js";
+import { sanitizePromptInput, selectionCopyHint } from "./terminal-env.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { ISOLATION_MODES, ISOLATION_LABELS, type IsolationMode } from "../agent/isolation.js";
@@ -800,7 +800,12 @@ export function App(props: {
     }
   };
 
-  const handleInput = (value: string) => {
+  const handleInput = (rawValue: string) => {
+    // Strip any Kitty graphics capability probe Terminal.app may have leaked into
+    // the field (no-op for ordinary input). If we cleaned anything, write the
+    // cleaned value back so the InputRenderable doesn't keep the garbage.
+    const value = sanitizePromptInput(rawValue);
+    if (value !== rawValue && inputRef) inputRef.value = value;
     props.controller.setInput(value);
     if (configPrompt() !== null || e2bPrompt()) return;
 

@@ -16,6 +16,7 @@ import {
 import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, mutationLock } from "./mutation-queue.js";
 import { isAbortError } from "../util/abort.js";
+import { isCriticalSystemError } from "../util/system-error.js";
 
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
@@ -42,6 +43,8 @@ interface ToolCallBlock {
 interface ExecutedTool {
   message: Message;
   terminate?: boolean;
+  /** Set when termination is driven by an unrecoverable system failure. */
+  systemError?: boolean;
 }
 
 function toolMap(tools: AnyTool[]): Map<string, AnyTool> {
@@ -162,11 +165,17 @@ async function executeSingleTool(
     });
     return { message: msg, terminate: result.terminate };
   } catch (err) {
-    const output = err instanceof Error ? err.message : String(err);
+    const detail = err instanceof Error ? err.message : String(err);
+    const critical = isCriticalSystemError(err);
+    // A critical system error (disk full, read-only FS, fd exhaustion, OOM…)
+    // is environmental: retrying the same — or any — call is futile. Surface it
+    // distinctly and terminate the loop instead of letting the model retry it
+    // indefinitely. Recoverable tool errors are still returned for the model.
+    const output = critical ? `Critical system error — aborting agent loop: ${detail}` : detail;
     const msg = toolResultMessage(call.id, output, true);
     options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
-    return { message: msg };
+    return critical ? { message: msg, terminate: true, systemError: true } : { message: msg };
   }
 }
 
@@ -315,12 +324,19 @@ export async function runLoop(
 
     const results = await executeToolsParallel(toolCalls, registry, ctx, hooks, options, ts);
 
+    let terminateReason: "terminate" | "error" | undefined;
     for (const result of results) {
       ctx.messages.push(result.message);
       if (result.terminate) {
-        hooks.emit({ type: "loop_end", reason: "terminate" });
-        return ctx;
+        // System failures end the loop with reason "error"; a deliberate tool
+        // terminate (e.g. task) ends it with reason "terminate". Push every
+        // result before returning so no tool call is left without a result.
+        terminateReason = result.systemError ? "error" : (terminateReason ?? "terminate");
       }
+    }
+    if (terminateReason) {
+      hooks.emit({ type: "loop_end", reason: terminateReason });
+      return ctx;
     }
   }
 

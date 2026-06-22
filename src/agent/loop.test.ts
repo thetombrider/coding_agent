@@ -573,6 +573,84 @@ describe("runLoop", () => {
     expect(output).toContain("at most one todo");
   });
 
+  it("terminates the loop on a critical system error instead of retrying", async () => {
+    let calls = 0;
+    const diskFullTool: Tool<{ path: string }> = {
+      name: "write",
+      description: "write a file",
+      schema: z.object({ path: z.string() }),
+      async execute() {
+        calls += 1;
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+      },
+    };
+
+    // Provider would keep issuing the same failing call if the loop did not stop.
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "write", arguments: { path: "a.txt" } }] },
+      { toolCalls: [{ id: "tc2", name: "write", arguments: { path: "a.txt" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([diskFullTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [diskFullTool], model: "faux:test" });
+
+    // The failing tool ran exactly once — the loop did not retry it.
+    expect(calls).toBe(1);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "error")).toBe(true);
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
+    expect(output).toContain("Critical system error");
+  });
+
+  it("returns recoverable tool errors to the model without terminating", async () => {
+    let calls = 0;
+    const flakyTool: Tool<{ path: string }> = {
+      name: "read",
+      description: "read a file",
+      schema: z.object({ path: z.string() }),
+      async execute() {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+        }
+        return { output: "ok" };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "read", arguments: { path: "a.txt" } }] },
+      { toolCalls: [{ id: "tc2", name: "read", arguments: { path: "b.txt" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "read" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([flakyTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [flakyTool], model: "faux:test" });
+
+    // Loop continued past the recoverable error and completed normally.
+    expect(calls).toBe(2);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "complete")).toBe(true);
+    expect(lastAssistantText(ctx)).toBe("done");
+  });
+
   it("stops cleanly when the turn signal is aborted mid-tool", async () => {
     const slowTool: Tool<{ n: number }> = {
       name: "slow",
@@ -623,5 +701,88 @@ describe("runLoop", () => {
 
     expect(observed.some((e) => e.type === "loop_end" && e.reason === "cancelled")).toBe(true);
     expect(lastAssistantText(ctx)).toBe("");
+  });
+
+  it("stops at maxTurns even when the model keeps calling tools", async () => {
+    let executions = 0;
+    const noopTool: Tool<Record<string, never>> = {
+      name: "noop",
+      description: "noop",
+      schema: z.object({}),
+      async execute() {
+        executions += 1;
+        return { output: "ok" };
+      },
+    };
+
+    // A single repeating script always asks for another tool call, so the loop
+    // would never complete on its own — only maxTurns can stop it.
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc", name: "noop", arguments: {} }] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([noopTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [noopTool],
+      model: "faux:test",
+      maxTurns: 2,
+    });
+
+    const assistantMessages = ctx.messages.filter((m) => m.role === "assistant");
+    expect(assistantMessages).toHaveLength(2);
+    expect(executions).toBe(2);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
+  });
+
+  it("exits immediately when a tool returns terminate: true", async () => {
+    const terminatingTool: Tool<Record<string, never>> = {
+      name: "finish",
+      description: "ends the loop",
+      schema: z.object({}),
+      async execute() {
+        return { output: "stopping", terminate: true };
+      },
+    };
+
+    // Second script would emit final text — it must never run because the
+    // terminating tool short-circuits the loop.
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "finish", arguments: {} }] },
+      { text: ["this should never be reached"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([terminatingTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [terminatingTool],
+      model: "faux:test",
+    });
+
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
+    // Only the tool-call turn ran; the follow-up text turn was skipped.
+    expect(ctx.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(lastAssistantText(ctx)).not.toContain("never be reached");
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
+    expect(output).toBe("stopping");
   });
 });
