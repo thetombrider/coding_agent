@@ -6,9 +6,16 @@ const schema = z.object({
   question: z.string().describe("The question to ask the user."),
   options: z
     .array(z.string())
-    .min(2)
-    .max(4)
-    .describe("2–4 distinct, mutually exclusive options for the user to choose between."),
+    .min(2, { message: "Provide at least 2 options." })
+    .max(4, {
+      message:
+        "Provide at most 4 options. If more than four possibilities exist, keep only the "
+        + "4 most important (or combine some) — the user can also reply with free-text.",
+    })
+    .describe(
+      "Between 2 and 4 distinct, mutually exclusive options (never more than 4). "
+      + "If more possibilities exist, present only the 4 most likely.",
+    ),
 });
 
 export type AskUserArgs = z.infer<typeof schema>;

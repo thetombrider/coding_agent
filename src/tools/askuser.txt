@@ -1,5 +1,5 @@
 Ask the user to choose between options when you are genuinely undecided and the choice materially changes what you do next — and you cannot resolve it from the request, the surrounding code, or a sensible default.
 
-Provide a clear question and 2–4 distinct, mutually exclusive options. The loop pauses until the user answers; their reply (a chosen option or free-text) comes back to you as the tool result. Act on it.
+Provide a clear question and 2 to 4 distinct, mutually exclusive options — never more than 4. If more than four possibilities exist, present only the 4 most likely (or group several into one option); the user can always reply with free-text instead of choosing. The loop pauses until the user answers; their reply (a chosen option or free-text) comes back to you as the tool result. Act on it.
 
 Do NOT use this to confirm an action you are about to take — the approval system already gates writes and commands. Do NOT use it for decisions with an obvious default, or to ask permission to keep going. Prefer making a reasonable choice and stating the assumption over interrupting the user. When you do ask, ask once and bundle the decision into a single question rather than drip-feeding several.

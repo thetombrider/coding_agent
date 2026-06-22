@@ -67,4 +67,21 @@ describe("askUserTool", () => {
     expect(askUserTool.schema.safeParse({ question: "x", options: ["only"] }).success).toBe(false);
     expect(askUserTool.schema.safeParse({ question: "x", options: ["a", "b"] }).success).toBe(true);
   });
+
+  it("rejects more than four options with an instructive message", () => {
+    const result = askUserTool.schema.safeParse({
+      question: "x",
+      options: ["a", "b", "c", "d", "e"],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // The model reads this back as the tool error — it must say what to do,
+      // not just "too_big", so the retry reliably trims to four.
+      expect(result.error.issues[0]?.message).toContain("at most 4");
+    }
+    // Exactly four is still allowed.
+    expect(
+      askUserTool.schema.safeParse({ question: "x", options: ["a", "b", "c", "d"] }).success,
+    ).toBe(true);
+  });
 });
