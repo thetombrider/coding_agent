@@ -573,6 +573,84 @@ describe("runLoop", () => {
     expect(output).toContain("at most one todo");
   });
 
+  it("terminates the loop on a critical system error instead of retrying", async () => {
+    let calls = 0;
+    const diskFullTool: Tool<{ path: string }> = {
+      name: "write",
+      description: "write a file",
+      schema: z.object({ path: z.string() }),
+      async execute() {
+        calls += 1;
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+      },
+    };
+
+    // Provider would keep issuing the same failing call if the loop did not stop.
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "write", arguments: { path: "a.txt" } }] },
+      { toolCalls: [{ id: "tc2", name: "write", arguments: { path: "a.txt" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([diskFullTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [diskFullTool], model: "faux:test" });
+
+    // The failing tool ran exactly once — the loop did not retry it.
+    expect(calls).toBe(1);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "error")).toBe(true);
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
+    expect(output).toContain("Critical system error");
+  });
+
+  it("returns recoverable tool errors to the model without terminating", async () => {
+    let calls = 0;
+    const flakyTool: Tool<{ path: string }> = {
+      name: "read",
+      description: "read a file",
+      schema: z.object({ path: z.string() }),
+      async execute() {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+        }
+        return { output: "ok" };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "read", arguments: { path: "a.txt" } }] },
+      { toolCalls: [{ id: "tc2", name: "read", arguments: { path: "b.txt" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "read" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([flakyTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [flakyTool], model: "faux:test" });
+
+    // Loop continued past the recoverable error and completed normally.
+    expect(calls).toBe(2);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "complete")).toBe(true);
+    expect(lastAssistantText(ctx)).toBe("done");
+  });
+
   it("stops cleanly when the turn signal is aborted mid-tool", async () => {
     const slowTool: Tool<{ n: number }> = {
       name: "slow",
