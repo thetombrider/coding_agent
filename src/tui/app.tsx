@@ -1105,7 +1105,10 @@ export function App(props: {
           stickyStart="bottom"
           contentOptions={{ flexDirection: "column" }}
           {...hiddenNativeScrollbar}
-          on:scroll={bumpScrollRail}
+          // onMouseScroll is the channel ScrollBox fires on a wheel event;
+          // on:scroll is an EventEmitter event the box never emits, so the rail
+          // thumb would only refresh on resize without this.
+          onMouseScroll={bumpScrollRail}
           // Re-measure the rail when the scroll row actually resizes (e.g. the
           // approval bar appearing shrinks it). Fires after layout, so the rail
           // reads the fresh viewport height instead of the stale taller one the
