@@ -4,7 +4,7 @@ import { ScrollRail } from "./scroll-rail.js";
 import { hiddenNativeScrollbar, scrollbars, surfaceSelection, theme } from "./theme.js";
 import { formatToolOutputForDisplay, MAX_EXPANDED_VIEW_ROWS } from "./tool-output.js";
 
-function stopToolOutputScrollBubble(
+export function stopToolOutputScrollBubble(
   scrollRef: ScrollBoxRenderable | undefined,
   event: { scroll?: { direction?: string }; stopPropagation: () => void },
 ) {
@@ -89,7 +89,11 @@ export function ToolOutputView(props: {
           scrollY
           contentOptions={{ flexDirection: "column" }}
           {...hiddenNativeScrollbar}
-          on:scroll={(event) => {
+          // onMouseScroll (not on:scroll) is the channel ScrollBox actually
+          // invokes during a wheel event — and it runs before the box scrolls
+          // and bubbles to the parent, so stopPropagation here keeps the outer
+          // conversation view from scrolling in lockstep with this block.
+          onMouseScroll={(event) => {
             stopToolOutputScrollBubble(toolScrollRef, event);
             bumpScrollRail();
           }}
