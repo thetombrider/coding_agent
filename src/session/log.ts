@@ -97,6 +97,7 @@ export function repairDanglingToolCalls(messages: Message[]): Message[] {
       fillers.push({
         type: "toolResult",
         toolCallId: block.id,
+        toolName: block.name,
         output: "[interrupted — no result recorded]",
         isError: true,
       });
