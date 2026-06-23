@@ -260,6 +260,64 @@ describe("compaction", () => {
     expect(outputs[outputs.length - 1]).toBe(chunk);
   });
 
+  it("truncates large tool results in the summarisation corpus but keeps recent turns intact", async () => {
+    // ~5k tokens * 4 chars/token = 20k chars; build something clearly over that
+    const hugeOutput = "x".repeat(20_001) + "\n" + "y".repeat(100);
+    const messages: Message[] = [
+      user("turn 1"),
+      assistant("read big file"),
+      toolResult(hugeOutput, "t1"),
+      user("turn 2"),
+      assistant("analysed"),
+      user("turn 3"),
+      assistant("done"),
+    ];
+
+    let capturedCorpus = "";
+    await summariseOldTurns(
+      messages,
+      "cheap:test",
+      2,
+      async ({ messages: genMessages }) => {
+        capturedCorpus = genMessages[0]?.content ?? "";
+        return { text: "summary" };
+      },
+    );
+
+    expect(capturedCorpus).toContain("[truncated for summary");
+    // The truncation note should report the total line count of the original output
+    expect(capturedCorpus).toContain("2 lines total");
+    // The huge output should not appear verbatim in the corpus
+    expect(capturedCorpus).not.toContain(hugeOutput);
+  });
+
+  it("does not truncate small tool results in the summarisation corpus", async () => {
+    const smallOutput = "short output";
+    const messages: Message[] = [
+      user("turn 1"),
+      assistant("read file"),
+      toolResult(smallOutput, "t1"),
+      user("turn 2"),
+      assistant("done"),
+      user("turn 3"),
+      assistant("finished"),
+    ];
+
+    let capturedCorpus = "";
+    await summariseOldTurns(
+      messages,
+      "cheap:test",
+      2,
+      async ({ messages: genMessages }) => {
+        capturedCorpus = genMessages[0]?.content ?? "";
+        return { text: "summary" };
+      },
+    );
+
+    expect(capturedCorpus).toContain(smallOutput);
+    expect(capturedCorpus).not.toContain("[truncated for summary");
+  });
+
   it("finds a message cut index that preserves recent context", () => {
     const messages: Message[] = [
       user("old"),
