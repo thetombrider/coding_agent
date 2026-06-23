@@ -1,5 +1,6 @@
 import { generateText } from "ai";
 import { resolveLanguageModel } from "../provider/registry.js";
+import { getContextWindow } from "../provider/context-window.js";
 import { aiSdkUsageToUsage, type AiSdkUsage } from "../telemetry/cost.js";
 import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { Message } from "../types.js";
@@ -272,6 +273,47 @@ function prefixTurnCount(totalTurns: number, keepLastN: number): number {
   return Math.floor(totalTurns / 2);
 }
 
+/** Split messages into groups where each group's formatted corpus fits within maxTokensPerChunk. */
+function chunkMessages(messages: Message[], maxTokensPerChunk: number): Message[][] {
+  const chunks: Message[][] = [];
+  let current: Message[] = [];
+  let currentTokens = 0;
+
+  for (const msg of messages) {
+    const t = estimateMessageTokens([msg]);
+    if (current.length > 0 && currentTokens + t > maxTokensPerChunk) {
+      chunks.push(current);
+      current = [msg];
+      currentTokens = t;
+    } else {
+      current.push(msg);
+      currentTokens += t;
+    }
+  }
+
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+async function callGenerate(
+  prompt: string,
+  model: string,
+  maxOutputTokens: number,
+  generate: SummariseGenerate,
+  recordCall: LlmCallRecorder | undefined,
+): Promise<string> {
+  const { text, usage } = await generate({
+    model,
+    system: SUMMARY_SYSTEM,
+    messages: [{ role: "user", content: prompt }],
+    maxOutputTokens,
+  });
+  if (recordCall && usage) {
+    recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
+  }
+  return text.trim();
+}
+
 /** Summarise older turns into one assistant message; keep recent turns verbatim. */
 export async function summariseOldTurns(
   messages: Message[],
@@ -279,6 +321,7 @@ export async function summariseOldTurns(
   keepLastN = DEFAULT_KEEP_LAST_N_TURNS,
   generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
+  cheapWindow?: number,
 ): Promise<Message[]> {
   const turns = sliceTurns(messages);
   const prefixTurns = prefixTurnCount(turns.length, keepLastN);
@@ -293,33 +336,37 @@ export async function summariseOldTurns(
   const endTurn = turns[prefixTurns - 1]!.turn;
   const corpus = formatMessagesForSummary(oldMessages);
 
-  let text: string;
-  let usage: AiSdkUsage | undefined;
+  const resolvedCheapWindow = cheapWindow ?? await getContextWindow(model);
+  const maxCorpusTokens = Math.floor(resolvedCheapWindow * 0.75);
+
+  let summaryText: string;
   try {
-    ({ text, usage } = await generate({
-      model,
-      system: SUMMARY_SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content:
-            `Summarise turns ${startTurn}–${endTurn} of this coding-agent session:\n\n${corpus}`,
-        },
-      ],
-      maxOutputTokens: 4096,
-    }));
+    if (corpus.length / 4 <= maxCorpusTokens) {
+      summaryText = await callGenerate(
+        `Summarise turns ${startTurn}–${endTurn} of this coding-agent session:\n\n${corpus}`,
+        model, 4096, generate, recordCall,
+      );
+    } else {
+      // Corpus too large for the cheap model in one pass — chunk and summarise each piece.
+      const maxChunkTokens = Math.floor(maxCorpusTokens * 0.8);
+      const parts: string[] = [];
+      for (const chunk of chunkMessages(oldMessages, maxChunkTokens)) {
+        const chunkCorpus = formatMessagesForSummary(chunk);
+        parts.push(await callGenerate(
+          `Summarise this portion of a coding-agent session:\n\n${chunkCorpus}`,
+          model, 2048, generate, recordCall,
+        ));
+      }
+      summaryText = parts.join("\n\n");
+    }
   } catch (err) {
     console.warn("[compaction] summariseOldTurns failed, skipping compaction:", err);
     return messages;
   }
 
-  if (recordCall && usage) {
-    recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
-  }
-
   const summaryMessage: Message = {
     role: "assistant",
-    content: [{ type: "text", text: text.trim() }],
+    content: [{ type: "text", text: summaryText }],
   };
 
   return [summaryMessage, ...recentMessages];
@@ -332,6 +379,7 @@ export async function summariseOldMessages(
   keepRecentTokens = DEFAULT_KEEP_RECENT_TOKENS,
   generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
+  cheapWindow?: number,
 ): Promise<Message[]> {
   const cutIndex = findMessageCutIndex(messages, keepRecentTokens);
   if (cutIndex <= 0) return messages;
@@ -341,32 +389,38 @@ export async function summariseOldMessages(
   if (oldMessages.length === 0) return messages;
 
   const corpus = formatMessagesForSummary(oldMessages);
-  let text: string;
-  let usage: AiSdkUsage | undefined;
+
+  const resolvedCheapWindow = cheapWindow ?? await getContextWindow(model);
+  const maxCorpusTokens = Math.floor(resolvedCheapWindow * 0.75);
+
+  let summaryText: string;
   try {
-    ({ text, usage } = await generate({
-      model,
-      system: SUMMARY_SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content: `Summarise this portion of a coding-agent session:\n\n${corpus}`,
-        },
-      ],
-      maxOutputTokens: 4096,
-    }));
+    if (corpus.length / 4 <= maxCorpusTokens) {
+      summaryText = await callGenerate(
+        `Summarise this portion of a coding-agent session:\n\n${corpus}`,
+        model, 4096, generate, recordCall,
+      );
+    } else {
+      // Corpus too large for the cheap model in one pass — chunk and summarise each piece.
+      const maxChunkTokens = Math.floor(maxCorpusTokens * 0.8);
+      const parts: string[] = [];
+      for (const chunk of chunkMessages(oldMessages, maxChunkTokens)) {
+        const chunkCorpus = formatMessagesForSummary(chunk);
+        parts.push(await callGenerate(
+          `Summarise this portion of a coding-agent session:\n\n${chunkCorpus}`,
+          model, 2048, generate, recordCall,
+        ));
+      }
+      summaryText = parts.join("\n\n");
+    }
   } catch (err) {
     console.warn("[compaction] summariseOldMessages failed, skipping compaction:", err);
     return messages;
   }
 
-  if (recordCall && usage) {
-    recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
-  }
-
   const summaryMessage: Message = {
     role: "assistant",
-    content: [{ type: "text", text: text.trim() }],
+    content: [{ type: "text", text: summaryText }],
   };
 
   return [summaryMessage, ...recentMessages];
@@ -388,9 +442,12 @@ export async function compactMessages(
   result = pruneOverflowToolResults(result, contextWindow);
   if (!shouldCompact(result, contextWindow)) return result;
 
-  result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall);
+  // Resolve the cheap model's window once to avoid duplicate lookups.
+  const cheapWindow = await getContextWindow(model);
+
+  result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall, cheapWindow);
   if (!shouldCompact(result, contextWindow)) return result;
 
   const keepRecent = scaleToWindow(DEFAULT_KEEP_RECENT_TOKENS, contextWindow, 0.4);
-  return summariseOldMessages(result, model, keepRecent, generate, recordCall);
+  return summariseOldMessages(result, model, keepRecent, generate, recordCall, cheapWindow);
 }
