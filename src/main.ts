@@ -165,6 +165,9 @@ async function runInteractive(opts: {
       providerConfigured: opts.useFaux || providerConfigured,
     },
   });
+  // Force process exit after TUI cleanup — the renderer can leave active handles
+  // that prevent Node from exiting naturally (user would need Ctrl+C otherwise).
+  process.exit(0);
 }
 
 function formatRelativeTime(ts: string): string {
