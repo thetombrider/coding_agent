@@ -38,6 +38,7 @@ export interface Config {
     vercel?: { apiKey?: string };
     cloudflare?: { apiKey?: string; accountId?: string };
     regolo?: { apiKey?: string };
+    opencode?: { apiKey?: string };
   };
   models: {
     main: string;
@@ -330,6 +331,9 @@ export function loadConfig(): Config {
   if (process.env.REGOLO_API_KEY?.trim()) {
     merged.provider.regolo = { ...merged.provider.regolo, apiKey: process.env.REGOLO_API_KEY.trim() };
   }
+  if (process.env.OPENCODE_API_KEY?.trim()) {
+    merged.provider.opencode = { ...merged.provider.opencode, apiKey: process.env.OPENCODE_API_KEY.trim() };
+  }
   if (process.env.ANTHROPIC_API_KEY?.trim()) {
     merged.provider.anthropic = { ...merged.provider.anthropic, apiKey: process.env.ANTHROPIC_API_KEY.trim() };
   }
@@ -363,6 +367,11 @@ export function hasRegoloApiKey(): boolean {
 /** True when an Anthropic API key is available from the env var or config file. */
 export function hasAnthropicApiKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY?.trim() || loadConfig().provider.anthropic?.apiKey);
+}
+
+/** True when an Opencode API key is available from the env var or config file. */
+export function hasOpencodeApiKey(): boolean {
+  return Boolean(process.env.OPENCODE_API_KEY?.trim() || loadConfig().provider.opencode?.apiKey);
 }
 
 /** True when an E2B API key is available from the env var or config file. */

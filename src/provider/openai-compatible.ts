@@ -10,7 +10,7 @@ export interface OpenAiCompatibleProviderConfig {
   id: string;
   displayName: string;
   envVar: string;
-  configSection: keyof Pick<Config["provider"], "regolo" | "openai">;
+  configSection: keyof Pick<Config["provider"], "regolo" | "openai" | "opencode">;
   baseURL?: string;
   /** Strip this prefix from model ids (e.g. `regolo:`). */
   idPrefix?: string;
