@@ -529,6 +529,38 @@ describe("compaction", () => {
     expect(capturedCorpus).not.toContain(elidedOutput);
   });
 
+  it("retries summariseOldMessages with a smaller keepRecent when the first pass leaves context oversized", async () => {
+    // Single user turn so summariseOldTurns is a no-op (prefixTurnCount(1, 20) = 0).
+    // generate returns a large summary (~465 tokens) so that summary + recent messages
+    // still exceeds the 85% threshold after the first pass; the second pass uses half
+    // the keepRecent budget, keeps fewer recent messages, and fits under the threshold.
+    const contextWindow = 1000; // 85% = 850 tokens
+    // keepRecent pass 1 = scaleToWindow(20000, 1000, 0.4) = 400 → ~630 token recent slice
+    // Large summary (~465 tokens) + 630 recent ≈ 1095 > 850 → loop continues
+    // keepRecent pass 2 = 200 → ~315 token recent slice
+    // Large summary (~465 tokens) + 315 ≈ 780 < 850 → fits
+
+    const messages: Message[] = [
+      user("O".repeat(800)),
+      assistant("A".repeat(1200)),
+      assistant("B".repeat(1200)),
+      assistant("C".repeat(1200)),
+    ];
+    expect(shouldCompact(messages, contextWindow)).toBe(true);
+
+    let callCount = 0;
+    const largeSummaryText = "S".repeat(1800);
+    const generate: SummariseGenerate = async () => {
+      callCount++;
+      return { text: largeSummaryText };
+    };
+
+    const result = await compactMessages(messages, "cheap:test", contextWindow, 20, generate);
+
+    expect(callCount).toBeGreaterThan(1);
+    expect(shouldCompact(result, contextWindow)).toBe(false);
+  });
+
   it("compactMessages shrinks a single-turn session without summarising when pruning suffices", async () => {
     const huge = "line\n".repeat(50_000);
     const messages: Message[] = [
