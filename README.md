@@ -308,6 +308,10 @@ dependencies, rebuild, and re-link the `orin` command.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contributor workflow, and
 [AGENTS.md](./AGENTS.md) for environment-specific caveats.
 
+## References
+
+- [Deepwiki Documentation](https://deepwiki.com/thetombrider/coding_agent)
+
 ## License
 
 [MIT](./LICENSE)
