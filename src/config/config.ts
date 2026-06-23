@@ -287,6 +287,8 @@ const LEGACY_OPENROUTER_PICKER_LISTS: ReadonlyArray<readonly string[]> = [
   ],
 ];
 
+let cachedConfig: Config | undefined;
+
 function pickerMatchesLegacyList(models: string[], legacy: readonly string[]): boolean {
   if (models.length !== legacy.length) return false;
   const set = new Set(models);
@@ -304,8 +306,7 @@ function dropLegacyPickerOverrides(picker: Record<string, string[]>): Record<str
   return rest;
 }
 
-/** Load config: file merged with defaults, then env var overrides applied on top. */
-export function loadConfig(): Config {
+function buildConfig(): Config {
   const raw = readRawConfig();
   const merged = deepMerge(
     DEFAULT_CONFIG as unknown as Record<string, unknown>,
@@ -354,6 +355,25 @@ export function loadConfig(): Config {
   return merged;
 }
 
+/** Load config: file merged with defaults, then env var overrides applied on top. Cached for performance. */
+export function loadConfig(): Config {
+  if (cachedConfig === undefined) {
+    cachedConfig = buildConfig();
+  }
+  return cachedConfig;
+}
+
+/** Invalidate the config cache. Used after config file changes or explicit reload. */
+export function reloadConfig(): Config {
+  cachedConfig = undefined;
+  return loadConfig();
+}
+
+/** Internal: Clear the config cache for testing. */
+export function __testClearCache(): void {
+  cachedConfig = undefined;
+}
+
 /** True when an OpenRouter API key is available from the env var or config file. */
 export function hasOpenRouterApiKey(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey);
@@ -386,6 +406,7 @@ export function saveE2BApiKey(apiKey: string): void {
   const trimmed = apiKey.trim();
   if (!trimmed) return;
   saveConfig({ sandbox: { e2b: { apiKey: trimmed } } });
+  cachedConfig = undefined;
 }
 
 /** Persist provider-specific settings under `provider.<id>.<key>` in config.json. */
@@ -396,6 +417,7 @@ export function saveProviderConfig(providerId: string, values: Record<string, st
     if (trimmed) section[key] = trimmed;
   }
   saveConfig({ provider: { [providerId]: section } } as DeepPartial<Config>);
+  cachedConfig = undefined;
 }
 
 /**
@@ -424,6 +446,7 @@ export function saveRoleModel(providerId: string, role: string, model: string): 
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(current, null, 2) + "\n", "utf8");
   renameSync(tmp, path);
+  cachedConfig = undefined;
 }
 
 /** Deep-merge a partial patch into the persisted config file. Creates the file if absent. */
@@ -439,4 +462,5 @@ export function saveConfig(patch: DeepPartial<Config>): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
   renameSync(tmp, path);
+  cachedConfig = undefined;
 }
