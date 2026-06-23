@@ -25,7 +25,7 @@ function assistant(text: string): Message {
 function toolResult(output: string, id = "tc1"): Message {
   return {
     role: "tool",
-    content: [{ type: "toolResult", toolCallId: id, output }],
+    content: [{ type: "toolResult", toolCallId: id, toolName: "bash", output }],
   };
 }
 

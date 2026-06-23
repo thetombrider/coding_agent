@@ -34,7 +34,7 @@ describe("messagesToTurns", () => {
       },
       {
         role: "tool",
-        content: [{ type: "toolResult", toolCallId: "tc1", output: '{"name":"orin"}', isError: false }],
+        content: [{ type: "toolResult", toolCallId: "tc1", toolName: "read", output: '{"name":"orin"}', isError: false }],
       },
       {
         role: "assistant",
@@ -69,7 +69,7 @@ describe("messagesToTurns", () => {
       },
       {
         role: "tool",
-        content: [{ type: "toolResult", toolCallId: "tc1", output: "src\npackage.json", isError: false }],
+        content: [{ type: "toolResult", toolCallId: "tc1", toolName: "bash", output: "src\npackage.json", isError: false }],
       },
       {
         role: "assistant",
@@ -80,7 +80,7 @@ describe("messagesToTurns", () => {
       },
       {
         role: "tool",
-        content: [{ type: "toolResult", toolCallId: "tc2", output: "# Orin", isError: false }],
+        content: [{ type: "toolResult", toolCallId: "tc2", toolName: "read", output: "# Orin", isError: false }],
       },
       {
         role: "assistant",
@@ -106,7 +106,7 @@ describe("messagesToTurns", () => {
       },
       {
         role: "tool",
-        content: [{ type: "toolResult", toolCallId: "tc1", output: patch, isError: false }],
+        content: [{ type: "toolResult", toolCallId: "tc1", toolName: "edit", output: patch, isError: false }],
       },
       {
         role: "assistant",
@@ -119,7 +119,7 @@ describe("messagesToTurns", () => {
       },
       {
         role: "tool",
-        content: [{ type: "toolResult", toolCallId: "tc2", output: "command failed", isError: true }],
+        content: [{ type: "toolResult", toolCallId: "tc2", toolName: "bash", output: "command failed", isError: true }],
       },
     ];
 
@@ -142,7 +142,7 @@ describe("messagesToTurns", () => {
       },
       {
         role: "tool",
-        content: [{ type: "toolResult", toolCallId: "tc1", output: "ok", isError: false }],
+        content: [{ type: "toolResult", toolCallId: "tc1", toolName: "read", output: "ok", isError: false }],
       },
     ];
 
