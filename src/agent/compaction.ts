@@ -14,6 +14,8 @@ const PRUNE_PROTECT_TOKENS = 40_000;
 const PRUNE_MINIMUM_TOKENS = 20_000;
 /** Hard cap on a single tool result when context is near the window. */
 const MAX_TOOL_RESULT_TOKENS = 16_000;
+/** Characters budget for each tool result embedded in a summarisation prompt (~5k tokens). */
+const SUMMARY_TOOL_RESULT_MAX_CHARS = 5_000 * 4;
 /** Message-level cut budget when turn-based summarisation cannot help (pi-style). */
 const DEFAULT_KEEP_RECENT_TOKENS = 20_000;
 const ELIDED_PREFIX = "[result elided";
@@ -238,6 +240,12 @@ export function stripReasoningBlocks(messages: Message[]): Message[] {
   });
 }
 
+function truncateForSummary(output: string): string {
+  if (output.length <= SUMMARY_TOOL_RESULT_MAX_CHARS) return output;
+  const totalLines = output.split("\n").length;
+  return output.slice(0, SUMMARY_TOOL_RESULT_MAX_CHARS) + `\n[truncated for summary — ${totalLines} lines total]`;
+}
+
 function formatMessagesForSummary(messages: Message[]): string {
   return messages
     .map((m) => {
@@ -249,7 +257,7 @@ function formatMessagesForSummary(messages: Message[]): string {
         }
         if (block.type === "toolResult") {
           const prefix = block.isError ? "[tool_error]" : "[tool_result]";
-          return `${prefix} ${block.output}`;
+          return `${prefix} ${truncateForSummary(block.output)}`;
         }
         return "";
       });
