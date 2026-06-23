@@ -207,8 +207,10 @@ first user message (collapsed to a single line, truncated to 80 chars) so the
 traces list is scannable.
 
 **Content privacy.** Prompt/response and tool **content** is **not** captured by
-default. Set `captureContent: true` (or `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`)
-to opt in. With it **off**, only metadata leaves the process — token counts, cost,
+default. Opt in with `captureContent: true` under `telemetry.otel` in
+`~/.orin/config.json`, the `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`
+env var, or from the TUI via `/settings telemetry on` (also toggleable in the
+`/settings` menu). With it **off**, only metadata leaves the process — token counts, cost,
 model/tool/agent names, IDs, and the short trace-name preview above; no message
 bodies, tool arguments, or tool results. With it **on**, spans gain `input.value` /
 `output.value` attributes carrying **lossless JSON**:

@@ -297,6 +297,20 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     controller.setStatusHint(`subagent isolation → ${isolation}`);
   };
 
+  // Opt-in OTLP content capture (telemetry 7a). The OTel exporter reads
+  // `captureContent` when the consumer is built, so re-subscribe telemetry to
+  // pick up the change this session; seed from the live log to preserve the
+  // running cost total across the reinstall.
+  const setTelemetryCapture = (enabled: boolean) => {
+    saveConfig({ telemetry: { otel: { captureContent: enabled } } });
+    reinstallTelemetry(rebuildSessionCost(sessionPath(activeSessionId)));
+    controller.setStatusHint(
+      enabled
+        ? "telemetry content capture → on (prompts/responses on OTLP spans when an endpoint is set)"
+        : "telemetry content capture → off",
+    );
+  };
+
   // Persisted only — `resolvePresetModel` reads `models.roles` from config each
   // time the task tool spawns a subagent, so no live ref needs rewiring. The
   // override is stored per provider so it only applies where the model is valid.
@@ -495,6 +509,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetModel: setModel,
           onSetMode: setApprovalMode,
           onSetIsolation: setSubagentIsolation,
+          onSetTelemetryCapture: setTelemetryCapture,
           onSetRoleModel: setRoleModel,
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
