@@ -90,39 +90,15 @@ describe("toAiMessages", () => {
     expect(part.toolName).toBe("bash");
   });
 
-  it("resolves tool result names from the preceding assistant tool call", () => {
-    const messages: Message[] = [
-      {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "call_42", name: "bash", arguments: { command: "ls" } }],
-      },
-      {
-        role: "tool",
-        content: [{ type: "toolResult", toolCallId: "call_42", output: "file.txt" }],
-      },
-    ];
-
-    const result = toAiMessages(messages);
-    expect(result[1]).toEqual({
-      role: "tool",
-      content: [
-        {
-          type: "tool-result",
-          toolCallId: "call_42",
-          toolName: "bash",
-          output: { type: "text", value: "file.txt" },
-        },
-      ],
-    });
-  });
-
-  it("falls back to 'unknown' tool name when no matching call exists", () => {
-    const messages: Message[] = [
+  it("falls back to 'unknown' for legacy tool results without a toolName field", () => {
+    // Simulates pre-field log data read from JSON: the type requires toolName but
+    // old persisted records never wrote it — JSON.parse silently omits the key.
+    const messages = [
       {
         role: "tool",
         content: [{ type: "toolResult", toolCallId: "orphan", output: "x" }],
       },
-    ];
+    ] as unknown as Message[];
 
     const result = toAiMessages(messages) as [Extract<ModelMessage, { role: "tool" }>];
     expect(result[0].content[0]).toMatchObject({ toolName: "unknown" });

@@ -11,7 +11,7 @@ export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "toolCall"; id: string; name: string; arguments: unknown }
-  | { type: "toolResult"; toolCallId: string; toolName?: string; output: string; isError?: boolean };
+  | { type: "toolResult"; toolCallId: string; toolName: string; output: string; isError?: boolean };
 
 export interface Message {
   role: Role;

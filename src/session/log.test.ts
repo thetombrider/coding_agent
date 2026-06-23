@@ -89,7 +89,7 @@ describe("openLog / replayLog round-trip", () => {
       type: "tool_result",
       ts: "2026-01-01T00:03:00.000Z",
       toolUseId: "tc1",
-      content: [{ type: "toolResult", toolCallId: "tc1", output: "file contents", isError: false }],
+      content: [{ type: "toolResult", toolCallId: "tc1", toolName: "read", output: "file contents", isError: false }],
     });
     await log.close();
 
@@ -105,7 +105,7 @@ describe("openLog / replayLog round-trip", () => {
     });
     expect(messages[2]).toEqual({
       role: "tool",
-      content: [{ type: "toolResult", toolCallId: "tc1", output: "file contents", isError: false }],
+      content: [{ type: "toolResult", toolCallId: "tc1", toolName: "read", output: "file contents", isError: false }],
     });
   });
 
@@ -213,7 +213,7 @@ describe("openLog / replayLog round-trip", () => {
       type: "tool_result",
       ts: "t3",
       toolUseId: "tc1",
-      content: [{ type: "toolResult", toolCallId: "tc1", output: "ok", isError: false }],
+      content: [{ type: "toolResult", toolCallId: "tc1", toolName: "bash", output: "ok", isError: false }],
     });
     await log.close();
 
@@ -221,7 +221,7 @@ describe("openLog / replayLog round-trip", () => {
     expect(messages).toHaveLength(3);
     expect(messages[2]).toEqual({
       role: "tool",
-      content: [{ type: "toolResult", toolCallId: "tc1", output: "ok", isError: false }],
+      content: [{ type: "toolResult", toolCallId: "tc1", toolName: "bash", output: "ok", isError: false }],
     });
   });
 
