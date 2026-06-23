@@ -19,6 +19,8 @@ const MAX_TOOL_RESULT_TOKENS = 16_000;
 const SUMMARY_TOOL_RESULT_MAX_CHARS = 5_000 * 4;
 /** Message-level cut budget when turn-based summarisation cannot help (pi-style). */
 const DEFAULT_KEEP_RECENT_TOKENS = 20_000;
+/** Maximum number of progressive summarisation passes before giving up. */
+const MAX_COMPACT_ITERATIONS = 3;
 const ELIDED_PREFIX = "[result elided";
 
 /**
@@ -453,6 +455,14 @@ export async function compactMessages(
   result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall, cheapWindow, originalMessages);
   if (!shouldCompact(result, contextWindow)) return result;
 
-  const keepRecent = scaleToWindow(DEFAULT_KEEP_RECENT_TOKENS, contextWindow, 0.4);
-  return summariseOldMessages(result, model, keepRecent, generate, recordCall, cheapWindow, originalMessages);
+  let keepRecent = scaleToWindow(DEFAULT_KEEP_RECENT_TOKENS, contextWindow, 0.4);
+  for (let iter = 0; iter < MAX_COMPACT_ITERATIONS; iter++) {
+    result = await summariseOldMessages(
+      result, model, keepRecent, generate, recordCall, cheapWindow,
+      iter === 0 ? originalMessages : undefined,
+    );
+    if (!shouldCompact(result, contextWindow)) break;
+    keepRecent = Math.max(1, Math.floor(keepRecent / 2));
+  }
+  return result;
 }
