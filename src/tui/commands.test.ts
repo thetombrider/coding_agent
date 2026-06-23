@@ -341,5 +341,32 @@ describe("processCommand", () => {
       const r = processCommand("/settings isolation vm", ctx);
       expect(r.type).toBe("error");
     });
+
+    it("shows the telemetry capture state with no argument", () => {
+      const r = processCommand("/settings telemetry", { ...ctx, currentCaptureContent: false });
+      expect(r.type).toBe("info");
+      if (r.type === "info") expect(r.message).toContain("off");
+    });
+
+    it("turns telemetry content capture on", () => {
+      const r = processCommand("/settings telemetry on", { ...ctx, currentCaptureContent: false });
+      expect(r).toMatchObject({ type: "set-telemetry-capture", enabled: true });
+      expect(isActionableCommandResult(r)).toBe(true);
+    });
+
+    it("turns telemetry content capture off (accepts aliases)", () => {
+      const r = processCommand("/settings telemetry false", { ...ctx, currentCaptureContent: true });
+      expect(r).toMatchObject({ type: "set-telemetry-capture", enabled: false });
+    });
+
+    it("no-ops when the telemetry capture state is unchanged", () => {
+      const r = processCommand("/settings telemetry on", { ...ctx, currentCaptureContent: true });
+      expect(r.type).toBe("info");
+    });
+
+    it("rejects an unknown telemetry value", () => {
+      const r = processCommand("/settings telemetry maybe", ctx);
+      expect(r.type).toBe("error");
+    });
   });
 });

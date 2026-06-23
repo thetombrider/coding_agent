@@ -23,6 +23,8 @@ export interface CommandContext {
   currentMode: ApprovalMode;
   /** Configured subagent isolation floor (`subagent.isolation`). */
   currentIsolation?: IsolationMode;
+  /** Configured OTLP content-capture opt-in (`telemetry.otel.captureContent`). */
+  currentCaptureContent?: boolean;
   knownModels: readonly string[];
   currentProvider?: string;
   providers?: ProviderSummary[];
@@ -43,6 +45,7 @@ export type CommandResult =
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
   | { type: "set-isolation"; isolation: IsolationMode; message: string }
+  | { type: "set-telemetry-capture"; enabled: boolean; message: string }
   | { type: "set-provider"; provider: string; model?: string; message: string }
   | {
       type: "configure-provider";
@@ -67,8 +70,9 @@ const HELP_LINES = [
   "/model [id|number]            switch the model",
   "/providers [id|number]        list or switch the active LLM provider",
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
-  "/settings                     open settings (E2B key, isolation, task models)",
+  "/settings                     open settings (E2B key, isolation, telemetry, task models)",
   "/settings isolation [mode]    set subagent isolation floor (shared|worktree|sandbox)",
+  "/settings telemetry [on|off]  opt in/out of prompt+response capture on OTLP spans",
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/sessions                     browse and resume saved sessions",
   "/checkpoints                  list workspace checkpoints for this session",
@@ -290,6 +294,39 @@ function handleIsolation(value: string | undefined, ctx: CommandContext): Comman
   return { type: "set-isolation", isolation: mode, message: `subagent isolation → ${mode}` };
 }
 
+function telemetryInfo(ctx: CommandContext): string {
+  const on = ctx.currentCaptureContent ?? false;
+  return (
+    `telemetry content capture: ${on ? "on" : "off"} `
+    + "(off by default for privacy)\n"
+    + "When on, prompts, responses, and tool args/results are attached to OTLP "
+    + "spans (only exported when an OTLP endpoint is configured).\n"
+    + "/settings telemetry <on|off> to change"
+  );
+}
+
+const TRUTHY = new Set(["on", "true", "yes", "1", "enable", "enabled"]);
+const FALSY = new Set(["off", "false", "no", "0", "disable", "disabled"]);
+
+function handleTelemetry(value: string | undefined, ctx: CommandContext): CommandResult {
+  if (!value) {
+    return { type: "info", message: telemetryInfo(ctx) };
+  }
+  const v = value.toLowerCase();
+  if (!TRUTHY.has(v) && !FALSY.has(v)) {
+    return { type: "error", message: `unknown value "${value}" — use on or off` };
+  }
+  const enabled = TRUTHY.has(v);
+  if (enabled === (ctx.currentCaptureContent ?? false)) {
+    return { type: "info", message: `telemetry content capture already ${enabled ? "on" : "off"}` };
+  }
+  return {
+    type: "set-telemetry-capture",
+    enabled,
+    message: `telemetry content capture → ${enabled ? "on" : "off"}`,
+  };
+}
+
 function handleSettings(arg: string, ctx: CommandContext): CommandResult {
   const parts = arg.trim().split(/\s+/).filter(Boolean);
   const sub = parts[0]?.toLowerCase();
@@ -300,6 +337,10 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
 
   if (sub === "isolation") {
     return handleIsolation(parts[1], ctx);
+  }
+
+  if (sub === "telemetry" || sub === "capture") {
+    return handleTelemetry(parts[1], ctx);
   }
 
   if (sub === "e2b") {
@@ -319,7 +360,10 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
     };
   }
 
-  return { type: "error", message: `unknown setting "${sub}" — try /settings isolation or /settings e2b` };
+  return {
+    type: "error",
+    message: `unknown setting "${sub}" — try /settings isolation, /settings telemetry, or /settings e2b`,
+  };
 }
 
 function handleProviders(arg: string, ctx: CommandContext): CommandResult {
@@ -346,6 +390,7 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "set-model":
     case "set-mode":
     case "set-isolation":
+    case "set-telemetry-capture":
     case "set-provider":
     case "configure-provider":
       return true;

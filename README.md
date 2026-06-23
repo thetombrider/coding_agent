@@ -156,8 +156,8 @@ On by default, never leaves your machine.
 Orin can export **OTLP traces** following the OpenTelemetry
 [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/),
 so a session shows up in **Langfuse, Arize Phoenix, Grafana Tempo, Jaeger, or any
-OTLP/HTTP backend** as a trace: a session root span with child **LLM generation
-spans** (model, token usage, cost) and **tool spans** (duration, ok/error).
+OTLP/HTTP backend**. Each Q&A turn is exported as its own trace; turns from one
+Orin session share a `session.id` so backends like Langfuse group them together.
 
 It is **off by default** and the OpenTelemetry SDK is **lazy-loaded only when an
 endpoint is configured** — no startup or bundle cost when off. `ORIN_NO_TELEMETRY`
@@ -171,6 +171,7 @@ does *not* affect OTLP export; it has its own switch.
 | Protocol | `OTEL_EXPORTER_OTLP_PROTOCOL` | Default `http/protobuf`. |
 | Service name | `OTEL_SERVICE_NAME` | Resource `service.name` (default `orin`). |
 | Sample ratio | `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | e.g. `traceidratio` + `0.25`. |
+| Capture content | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Opt-in prompt/response capture. **Off by default** — see the privacy note below. |
 
 Example — export to Langfuse via env vars:
 
@@ -196,8 +197,34 @@ Or under `telemetry.otel` in `~/.orin/config.json`:
 ```
 
 Export is best-effort: an unreachable endpoint never throws into or stalls the
-agent loop. Prompt/response **content** is not attached to spans (`captureContent`,
-default `false`); only metadata, token counts, and cost are exported.
+agent loop.
+
+Each Q&A turn is its own trace, with child **LLM generation spans** (model, token
+usage, cost), **tool spans** (duration, ok/error), and **subagent spans**. Every
+span carries an `openinference.span.kind` (`AGENT` / `LLM` / `TOOL`) so Langfuse
+and other backends classify it correctly. The trace root is named after the turn's
+first user message (collapsed to a single line, truncated to 80 chars) so the
+traces list is scannable.
+
+**Content privacy.** Prompt/response and tool **content** is **not** captured by
+default. Opt in with `captureContent: true` under `telemetry.otel` in
+`~/.orin/config.json`, the `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`
+env var, or from the TUI via `/settings telemetry on` (also toggleable in the
+`/settings` menu). With it **off**, only metadata leaves the process — token counts, cost,
+model/tool/agent names, IDs, and the short trace-name preview above; no message
+bodies, tool arguments, or tool results. With it **on**, spans gain `input.value` /
+`output.value` attributes carrying **lossless JSON**:
+
+- **LLM span** — `input.value`: the request (ordered messages incl. the system
+  prompt first, plus tool JSON Schemas in scope). `output.value`: the assistant
+  message, with `tool_calls` preserved as structured JSON (name + parsed
+  arguments) and the `finish_reason` — never flattened to prose.
+- **Tool span** — `input.value`: the call arguments. `output.value`: the result
+  (`application/json` when it parses as JSON, else `text/plain`).
+- **Subagent span** — `input.value`: the subagent prompt. `output.value`: its
+  returned summary.
+
+The exact capture shape is documented in `src/telemetry/otel/semconv.ts`.
 
 </details>
 

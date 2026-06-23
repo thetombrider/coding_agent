@@ -22,6 +22,15 @@ export function parseOtlpHeaders(raw: string): Record<string, string> {
   return headers;
 }
 
+/** Parse a boolean env var (`1`/`true`/`yes`/`on` → true, `0`/`false`/… → false). */
+function parseBoolEnv(raw: string | undefined): boolean | undefined {
+  const v = raw?.trim().toLowerCase();
+  if (!v) return undefined;
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return undefined;
+}
+
 /**
  * Resolve the sample ratio from `OTEL_TRACES_SAMPLER`/`OTEL_TRACES_SAMPLER_ARG`,
  * falling back to the config ratio. `always_off`→0, `always_on`→1, the
@@ -72,6 +81,11 @@ export function resolveOtelConfig(base?: OtelConfig): OtelConfig {
   const serviceName = process.env.OTEL_SERVICE_NAME?.trim() || cfg.serviceName;
   const sampleRatio = resolveSampleRatio(cfg.sampleRatio);
 
+  // Opt-in prompt/response content capture (telemetry 7a). Env wins over config;
+  // the standard GenAI flag toggles it without touching the config file.
+  const captureEnv = parseBoolEnv(process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT);
+  const captureContent = captureEnv ?? cfg.captureContent;
+
   return {
     ...cfg,
     endpoint,
@@ -79,6 +93,7 @@ export function resolveOtelConfig(base?: OtelConfig): OtelConfig {
     protocol,
     serviceName,
     sampleRatio,
+    captureContent,
     enabled: cfg.enabled || Boolean(endpoint),
   };
 }

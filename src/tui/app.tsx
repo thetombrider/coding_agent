@@ -46,7 +46,7 @@ const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
   { name: "mode",      label: "/mode",      description: "set approval mode" },
   { name: "providers", label: "/providers", description: "switch LLM provider" },
-  { name: "settings",  label: "/settings",  description: "E2B key, isolation, task models" },
+  { name: "settings",  label: "/settings",  description: "E2B key, isolation, telemetry, task models" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
   { name: "checkpoints", label: "/checkpoints", description: "list workspace checkpoints" },
   { name: "restore",   label: "/restore",   description: "roll back the working tree" },
@@ -78,11 +78,13 @@ const SETTINGS_ROLES: ReadonlyArray<{ role: AgentPreset; label: string }> = [
 type SettingsItem =
   | { kind: "e2b" }
   | { kind: "isolation" }
+  | { kind: "telemetry-capture" }
   | { kind: "role"; role: AgentPreset; label: string };
 
 const SETTINGS_ITEMS: readonly SettingsItem[] = [
   { kind: "e2b" },
   { kind: "isolation" },
+  { kind: "telemetry-capture" },
   ...SETTINGS_ROLES.map((r) => ({ kind: "role" as const, role: r.role, label: r.label })),
 ];
 
@@ -136,6 +138,7 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onSetIsolation: (isolation: IsolationMode) => void;
+  onSetTelemetryCapture: (enabled: boolean) => void;
   onSetRoleModel: (role: AgentPreset, model: string, providerId: string) => void;
   onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (
@@ -345,6 +348,7 @@ export function App(props: {
       currentModel: meta.model,
       currentMode: coerceApprovalMode(meta.approval) ?? "normal",
       currentIsolation: loadConfig().subagent.isolation,
+      currentCaptureContent: loadConfig().telemetry.otel.captureContent,
       knownModels: pickerModels(),
       currentProvider: meta.provider ?? activeProviderId(),
       providers: providerSummaries(),
@@ -536,6 +540,10 @@ export function App(props: {
         props.onSetIsolation(result.isolation);
         props.controller.setStatusHint(result.message);
         return;
+      case "set-telemetry-capture":
+        props.onSetTelemetryCapture(result.enabled);
+        props.controller.setStatusHint(result.message);
+        return;
       case "set-provider":
         props.onSetProvider(result.provider, result.model);
         props.controller.setStatusHint(result.message);
@@ -689,6 +697,13 @@ export function App(props: {
       if (item.kind === "isolation") {
         const currentIdx = ISOLATION_MODES.indexOf(loadConfig().subagent.isolation);
         setPalette({ phase: "settings-isolation", index: Math.max(0, currentIdx) });
+        return;
+      }
+      if (item.kind === "telemetry-capture") {
+        // Boolean opt-in — flip in place and re-render the menu (new palette
+        // object) so the row reflects the persisted value immediately.
+        props.onSetTelemetryCapture(!loadConfig().telemetry.otel.captureContent);
+        setPalette({ phase: "settings", index: p.index });
         return;
       }
       // role
@@ -1349,13 +1364,17 @@ export function App(props: {
                         ? "E2B API key"
                         : item.kind === "isolation"
                           ? "Subagent isolation"
-                          : item.label;
+                          : item.kind === "telemetry-capture"
+                            ? "Telemetry content capture"
+                            : item.label;
                     const value = () =>
                       item.kind === "e2b"
                         ? (hasE2BApiKey() ? "configured" : "not configured")
                         : item.kind === "isolation"
                           ? cfg().subagent.isolation
-                          : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
+                          : item.kind === "telemetry-capture"
+                            ? (cfg().telemetry.otel.captureContent ? "on" : "off")
+                            : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
