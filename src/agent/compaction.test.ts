@@ -292,6 +292,45 @@ describe("compaction", () => {
     expect(result.some((m) => m.role === "tool" && m.content[0]?.type === "toolResult")).toBe(true);
   });
 
+  it("summariseOldTurns returns original messages when generate throws", async () => {
+    const messages: Message[] = [
+      user("turn 1"),
+      assistant("a"),
+      user("turn 2"),
+      assistant("b"),
+      user("turn 3"),
+      assistant("c"),
+    ];
+
+    const result = await summariseOldTurns(
+      messages,
+      "cheap:test",
+      2,
+      async () => { throw new Error("rate limit"); },
+    );
+
+    expect(result).toBe(messages);
+  });
+
+  it("summariseOldMessages returns original messages when generate throws", async () => {
+    const messages: Message[] = [
+      user("investigate"),
+      assistant("read spec"),
+      toolResult("spec body", "t1"),
+      assistant("read readme"),
+      toolResult("readme body", "t2"),
+    ];
+
+    const result = await summariseOldMessages(
+      messages,
+      "cheap:test",
+      1,
+      async () => { throw new Error("context overflow"); },
+    );
+
+    expect(result).toBe(messages);
+  });
+
   it("compactMessages shrinks a single-turn session without summarising when pruning suffices", async () => {
     const huge = "line\n".repeat(50_000);
     const messages: Message[] = [

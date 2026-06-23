@@ -285,18 +285,25 @@ export async function summariseOldTurns(
   const endTurn = turns[prefixTurns - 1]!.turn;
   const corpus = formatMessagesForSummary(oldMessages);
 
-  const { text, usage } = await generate({
-    model,
-    system: SUMMARY_SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content:
-          `Summarise turns ${startTurn}–${endTurn} of this coding-agent session:\n\n${corpus}`,
-      },
-    ],
-    maxOutputTokens: 4096,
-  });
+  let text: string;
+  let usage: AiSdkUsage | undefined;
+  try {
+    ({ text, usage } = await generate({
+      model,
+      system: SUMMARY_SYSTEM,
+      messages: [
+        {
+          role: "user",
+          content:
+            `Summarise turns ${startTurn}–${endTurn} of this coding-agent session:\n\n${corpus}`,
+        },
+      ],
+      maxOutputTokens: 4096,
+    }));
+  } catch (err) {
+    console.warn("[compaction] summariseOldTurns failed, skipping compaction:", err);
+    return messages;
+  }
 
   if (recordCall && usage) {
     recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
@@ -326,17 +333,24 @@ export async function summariseOldMessages(
   if (oldMessages.length === 0) return messages;
 
   const corpus = formatMessagesForSummary(oldMessages);
-  const { text, usage } = await generate({
-    model,
-    system: SUMMARY_SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content: `Summarise this portion of a coding-agent session:\n\n${corpus}`,
-      },
-    ],
-    maxOutputTokens: 4096,
-  });
+  let text: string;
+  let usage: AiSdkUsage | undefined;
+  try {
+    ({ text, usage } = await generate({
+      model,
+      system: SUMMARY_SYSTEM,
+      messages: [
+        {
+          role: "user",
+          content: `Summarise this portion of a coding-agent session:\n\n${corpus}`,
+        },
+      ],
+      maxOutputTokens: 4096,
+    }));
+  } catch (err) {
+    console.warn("[compaction] summariseOldMessages failed, skipping compaction:", err);
+    return messages;
+  }
 
   if (recordCall && usage) {
     recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
