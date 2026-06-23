@@ -1,12 +1,19 @@
 /**
  * Anthropic provider — native Messages API backend via @ai-sdk/anthropic.
- * Authenticates with a Console API key (env or ~/.orin/config.json).
+ * The Provider object is built by `createAnthropicCompatibleProvider`; this
+ * file owns the Anthropic-specific helpers: credentials, model-id aliases,
+ * and the catalog loader that hits api.anthropic.com/v1/models.
  */
-import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import type { ModelMessage } from "ai";
 import { loadConfig } from "../../config/config.js";
-import type { ModelMetadataProvider, Provider } from "../types.js";
+import { createAnthropicCompatibleProvider } from "../anthropic-compatible.js";
+import type { ModelMetadataProvider } from "../types.js";
+
+// Re-export cache helpers that tests import from this module path.
+export {
+  markAnthropicCacheBreakpoints,
+  anthropicPromptCacheProviderOptions,
+} from "../anthropic-compatible.js";
 
 // ── Credentials ───────────────────────────────────────────────────────────────
 
@@ -52,7 +59,7 @@ export const ANTHROPIC_MODEL_ALIASES: Record<string, string> = {
 
 /** Resolve an Anthropic model id (strip optional `anthropic:` prefix, apply aliases). */
 export function resolveAnthropicModelId(modelId: string): string {
-  let id = modelId.startsWith("anthropic:") ? modelId.slice("anthropic:".length) : modelId;
+  const id = modelId.startsWith("anthropic:") ? modelId.slice("anthropic:".length) : modelId;
   return ANTHROPIC_MODEL_ALIASES[id] ?? id;
 }
 
@@ -84,7 +91,7 @@ let catalogFetchedAt = 0;
 
 /** @internal test helper */
 export function resetAnthropicModelsCache(): void {
-  lookupCache.clear();
+  lookupCache = new Map();
   catalogCache = null;
   catalogIdsCache = null;
   catalogFetchedAt = 0;
@@ -201,38 +208,7 @@ export async function lookupAnthropicContextWindow(
   return undefined;
 }
 
-// ── Prompt cache ──────────────────────────────────────────────────────────────
-
-const EPHEMERAL_CACHE = { type: "ephemeral" as const };
-
-export function supportsAnthropicPromptCaching(modelId: string): boolean {
-  return resolveAnthropicModelId(modelId).startsWith("claude-");
-}
-
-export function anthropicPromptCacheProviderOptions(): SharedV3ProviderOptions {
-  return {
-    anthropic: { cacheControl: EPHEMERAL_CACHE },
-  };
-}
-
-/** Mark the stable conversation prefix for caching (penultimate converted message). */
-export function markAnthropicCacheBreakpoints(aiMessages: ModelMessage[]): void {
-  if (aiMessages.length < 2) return;
-  const target = aiMessages[aiMessages.length - 2]!;
-  target.providerOptions = {
-    ...target.providerOptions,
-    ...anthropicPromptCacheProviderOptions(),
-  };
-}
-
-export function buildAnthropicStreamProviderOptions(
-  modelId: string,
-): SharedV3ProviderOptions | undefined {
-  if (!supportsAnthropicPromptCaching(modelId)) return undefined;
-  return anthropicPromptCacheProviderOptions();
-}
-
-// ── Provider export ─────────────────────────────────────────────────────────
+// ── Provider export ───────────────────────────────────────────────────────────
 
 /** Curated models for `/model` when Anthropic is active (official API ids). */
 export const ANTHROPIC_PICKER_MODELS = [
@@ -261,39 +237,16 @@ const metadata: ModelMetadataProvider = {
   },
 };
 
-export const anthropicProvider: Provider = {
+export const anthropicProvider = createAnthropicCompatibleProvider({
   id: "anthropic",
   displayName: "Anthropic",
-  authStrategy: "api-key",
-  configFields: [
-    {
-      key: "apiKey",
-      label: "Anthropic API key",
-      secret: true,
-      envVar: "ANTHROPIC_API_KEY",
-    },
-  ],
-  isConfigured() {
-    return Boolean(getAnthropicApiKey());
-  },
-  normalizeModelId(modelId) {
-    return resolveAnthropicModelId(modelId);
-  },
-  languageModel(modelId) {
-    return getAnthropic().languageModel(resolveAnthropicModelId(modelId));
-  },
-  streamProviderOptions(modelId) {
-    return buildAnthropicStreamProviderOptions(modelId);
-  },
-  markCacheBreakpoints(aiMessages, modelId) {
-    if (supportsAnthropicPromptCaching(modelId)) {
-      markAnthropicCacheBreakpoints(aiMessages);
-    }
-  },
+  envVar: "ANTHROPIC_API_KEY",
+  configSection: "anthropic",
+  idPrefix: "anthropic:",
+  modelAliases: ANTHROPIC_MODEL_ALIASES,
+  promptCaching: true,
+  supportsPromptCaching: (normalizedId) => normalizedId.startsWith("claude-"),
   metadata,
   pickerModels: ANTHROPIC_PICKER_MODELS,
-  defaultModels: {
-    main: ANTHROPIC_DEFAULT_MAIN,
-    cheap: ANTHROPIC_DEFAULT_CHEAP,
-  },
-};
+  defaultModels: { main: ANTHROPIC_DEFAULT_MAIN, cheap: ANTHROPIC_DEFAULT_CHEAP },
+});

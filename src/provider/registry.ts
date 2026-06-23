@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 import { loadConfig, saveConfig } from "../config/config.js";
 import { anthropicProvider } from "./providers/anthropic.js";
+import { opencodeGoProvider, opencodeZenProvider } from "./providers/opencode.js";
 import { openRouterProvider } from "./providers/openrouter.js";
 import { regoloProvider } from "./providers/regolo.js";
 import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
@@ -125,3 +126,5 @@ export function providerSummaries(): ProviderSummary[] {
 registerProvider(openRouterProvider);
 registerProvider(regoloProvider);
 registerProvider(anthropicProvider);
+registerProvider(opencodeGoProvider);
+registerProvider(opencodeZenProvider);
