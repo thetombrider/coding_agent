@@ -36,7 +36,7 @@ function largeOutput(lines: number): string {
 }
 
 describe("compaction", () => {
-  it("estimates tokens from serialized message size", () => {
+  it("estimates tokens from content block characters", () => {
     const messages = [user("hello")];
     expect(estimateMessageTokens(messages)).toBeGreaterThan(0);
   });
@@ -45,6 +45,13 @@ describe("compaction", () => {
     const messages = [user("x".repeat(4000))];
     expect(shouldCompact(messages, 1000)).toBe(true);
     expect(shouldCompact(messages, 100000)).toBe(false);
+  });
+
+  it("shouldCompact uses knownTokens from the API when provided", () => {
+    const messages = [user("hello")];
+    expect(shouldCompact(messages, 1000, 900)).toBe(true);
+    expect(shouldCompact(messages, 1000, 100)).toBe(false);
+    expect(shouldCompact(messages, 1000, 0)).toBe(false);
   });
 
   it("evicts large tool results from turns older than keepLastK", () => {
@@ -532,14 +539,15 @@ describe("compaction", () => {
 
   it("retries summariseOldMessages with a smaller keepRecent when the first pass leaves context oversized", async () => {
     // Single user turn so summariseOldTurns is a no-op (prefixTurnCount(1, 20) = 0).
-    // generate returns a large summary (~465 tokens) so that summary + recent messages
-    // still exceeds the 85% threshold after the first pass; the second pass uses half
-    // the keepRecent budget, keeps fewer recent messages, and fits under the threshold.
+    // Calibrated for the content-block estimator (chars / 3.5):
+    //   [C] alone = ceil(1200/3.5) = 343 tokens
+    //   [B,C]     = 686 tokens
+    //   summary "S"×1600 = ceil(1600/3.5) = 458 tokens
+    // keepRecent pass 1 = scaleToWindow(20000, 1000, 0.4) = 400 → keeps [B,C] (686 tokens)
+    //   458 + 686 = 1144 > 850 → loop continues
+    // keepRecent pass 2 = 200 → keeps [C] (343 tokens)
+    //   458 + 343 = 801 < 850 → fits
     const contextWindow = 1000; // 85% = 850 tokens
-    // keepRecent pass 1 = scaleToWindow(20000, 1000, 0.4) = 400 → ~630 token recent slice
-    // Large summary (~465 tokens) + 630 recent ≈ 1095 > 850 → loop continues
-    // keepRecent pass 2 = 200 → ~315 token recent slice
-    // Large summary (~465 tokens) + 315 ≈ 780 < 850 → fits
 
     const messages: Message[] = [
       user("O".repeat(800)),
@@ -550,7 +558,7 @@ describe("compaction", () => {
     expect(shouldCompact(messages, contextWindow)).toBe(true);
 
     let callCount = 0;
-    const largeSummaryText = "S".repeat(1800);
+    const largeSummaryText = "S".repeat(1600);
     const generate: SummariseGenerate = async () => {
       callCount++;
       return { text: largeSummaryText };

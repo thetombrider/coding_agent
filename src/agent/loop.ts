@@ -218,6 +218,7 @@ export async function runLoop(
   let parseCorrectionRetries = 0;
   let assistantTurns = 0;
   let totalToolCalls = 0;
+  let lastKnownInputTokens = 0;
 
   const turnId = randomUUID();
   hooks.emit({ type: "turn_start", id: turnId });
@@ -235,7 +236,7 @@ export async function runLoop(
 
     const contextWindow = await getContextWindow(options.model);
 
-    if (shouldCompact(ctx.messages, contextWindow)) {
+    if (shouldCompact(ctx.messages, contextWindow, lastKnownInputTokens || undefined)) {
       await hooks.fireHook("before_compact", { messages: ctx.messages }, ctx, options.signal);
       const cheapModel = options.cheapModel ?? defaultCheapModel();
       ctx.messages = await compactMessages(
@@ -289,6 +290,10 @@ export async function runLoop(
         break;
       }
       throw err;
+    }
+
+    if ((rawMessage.usage?.input ?? 0) > 0) {
+      lastKnownInputTokens = rawMessage.usage!.input;
     }
 
     const { message, usedFallback } = enrichAssistantMessage(rawMessage, knownTools);
