@@ -12,6 +12,7 @@ import {
   stripReasoningBlocks,
   summariseOldMessages,
   summariseOldTurns,
+  type SummariseGenerate,
 } from "./compaction.js";
 
 function user(text: string): Message {
@@ -576,5 +577,63 @@ describe("compaction", () => {
       "[result elided",
     );
     expect(shouldCompact(result, contextWindow)).toBe(false);
+  });
+
+  it("threads the abort signal through to the summarise generate call", async () => {
+    const messages: Message[] = [
+      user("turn 1"),
+      assistant("A".repeat(4000)),
+      user("turn 2"),
+      assistant("B".repeat(4000)),
+      user("turn 3"),
+      assistant("C".repeat(4000)),
+    ];
+    const contextWindow = Math.floor(estimateMessageTokens(messages) * 0.5);
+    expect(shouldCompact(messages, contextWindow)).toBe(true);
+
+    const controller = new AbortController();
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    const generate: SummariseGenerate = async ({ abortSignal }) => {
+      seenSignals.push(abortSignal);
+      return { text: "summary" };
+    };
+
+    await compactMessages(messages, "cheap:test", contextWindow, 20, generate, undefined, controller.signal);
+
+    expect(seenSignals.length).toBeGreaterThan(0);
+    expect(seenSignals.every((s) => s === controller.signal)).toBe(true);
+  });
+
+  it("stops issuing summarise calls once the signal is aborted mid-compaction", async () => {
+    const messages: Message[] = [
+      user("turn 1"),
+      assistant("A".repeat(4000)),
+      user("turn 2"),
+      assistant("B".repeat(4000)),
+      user("turn 3"),
+      assistant("C".repeat(4000)),
+    ];
+    const contextWindow = Math.floor(estimateMessageTokens(messages) * 0.5);
+    expect(shouldCompact(messages, contextWindow)).toBe(true);
+
+    const controller = new AbortController();
+    let callCount = 0;
+    const generate: SummariseGenerate = async () => {
+      callCount++;
+      // Simulate the user cancelling while the cheap-model call is in flight.
+      controller.abort();
+      const err = new Error("The operation was aborted.");
+      err.name = "AbortError";
+      throw err;
+    };
+
+    const result = await compactMessages(
+      messages, "cheap:test", contextWindow, 20, generate, undefined, controller.signal,
+    );
+
+    // The first summarise throws (cancelled) and compaction is skipped; the
+    // retry loop must not re-issue generate calls once the signal is aborted.
+    expect(callCount).toBe(1);
+    expect(result).toEqual(messages);
   });
 });

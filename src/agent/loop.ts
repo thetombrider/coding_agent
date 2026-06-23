@@ -245,6 +245,7 @@ export async function runLoop(
         undefined,
         undefined,
         ctx.loopHost?.recordLlmCall,
+        options.signal,
       );
     }
     const turnIndex = currentTurnCount(ctx.messages);

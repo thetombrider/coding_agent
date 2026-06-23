@@ -64,6 +64,7 @@ export type SummariseGenerate = (options: {
   system: string;
   messages: Array<{ role: "user"; content: string }>;
   maxOutputTokens: number;
+  abortSignal?: AbortSignal;
 }) => Promise<{ text: string; usage?: AiSdkUsage }>;
 
 const defaultSummariseGenerate: SummariseGenerate = ({ model, ...rest }) =>
@@ -303,12 +304,14 @@ async function callGenerate(
   maxOutputTokens: number,
   generate: SummariseGenerate,
   recordCall: LlmCallRecorder | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<string> {
   const { text, usage } = await generate({
     model,
     system: SUMMARY_SYSTEM,
     messages: [{ role: "user", content: prompt }],
     maxOutputTokens,
+    abortSignal: signal,
   });
   if (recordCall && usage) {
     recordCall({ model, usage: aiSdkUsageToUsage(usage), source: "compaction" });
@@ -325,6 +328,7 @@ export async function summariseOldTurns(
   recordCall?: LlmCallRecorder,
   cheapWindow?: number,
   originalMessages?: Message[],
+  signal?: AbortSignal,
 ): Promise<Message[]> {
   const turns = sliceTurns(messages);
   const prefixTurns = prefixTurnCount(turns.length, keepLastN);
@@ -348,7 +352,7 @@ export async function summariseOldTurns(
     if (corpus.length / 4 <= maxCorpusTokens) {
       summaryText = await callGenerate(
         `Summarise turns ${startTurn}–${endTurn} of this coding-agent session:\n\n${corpus}`,
-        model, 4096, generate, recordCall,
+        model, 4096, generate, recordCall, signal,
       );
     } else {
       // Corpus too large for the cheap model in one pass — chunk and summarise each piece.
@@ -358,7 +362,7 @@ export async function summariseOldTurns(
         const chunkCorpus = formatMessagesForSummary(chunk);
         parts.push(await callGenerate(
           `Summarise this portion of a coding-agent session:\n\n${chunkCorpus}`,
-          model, 2048, generate, recordCall,
+          model, 2048, generate, recordCall, signal,
         ));
       }
       summaryText = parts.join("\n\n");
@@ -385,6 +389,7 @@ export async function summariseOldMessages(
   recordCall?: LlmCallRecorder,
   cheapWindow?: number,
   originalMessages?: Message[],
+  signal?: AbortSignal,
 ): Promise<Message[]> {
   const cutIndex = findMessageCutIndex(messages, keepRecentTokens);
   if (cutIndex <= 0) return messages;
@@ -404,7 +409,7 @@ export async function summariseOldMessages(
     if (corpus.length / 4 <= maxCorpusTokens) {
       summaryText = await callGenerate(
         `Summarise this portion of a coding-agent session:\n\n${corpus}`,
-        model, 4096, generate, recordCall,
+        model, 4096, generate, recordCall, signal,
       );
     } else {
       // Corpus too large for the cheap model in one pass — chunk and summarise each piece.
@@ -414,7 +419,7 @@ export async function summariseOldMessages(
         const chunkCorpus = formatMessagesForSummary(chunk);
         parts.push(await callGenerate(
           `Summarise this portion of a coding-agent session:\n\n${chunkCorpus}`,
-          model, 2048, generate, recordCall,
+          model, 2048, generate, recordCall, signal,
         ));
       }
       summaryText = parts.join("\n\n");
@@ -443,6 +448,7 @@ export async function compactMessages(
   keepLastNTurns = DEFAULT_KEEP_LAST_N_TURNS,
   generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
+  signal?: AbortSignal,
 ): Promise<Message[]> {
   const originalMessages = messages;
   let result = capOversizedToolResults(messages, contextWindow);
@@ -452,14 +458,18 @@ export async function compactMessages(
   // Resolve the cheap model's window once to avoid duplicate lookups.
   const cheapWindow = await getContextWindow(model);
 
-  result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall, cheapWindow, originalMessages);
+  result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall, cheapWindow, originalMessages, signal);
   if (!shouldCompact(result, contextWindow)) return result;
 
   let keepRecent = scaleToWindow(DEFAULT_KEEP_RECENT_TOKENS, contextWindow, 0.4);
   for (let iter = 0; iter < MAX_COMPACT_ITERATIONS; iter++) {
+    // A mid-flight cancel aborts the in-progress summarise call above; bail
+    // before re-issuing generate calls that would only abort again.
+    if (signal?.aborted) break;
     result = await summariseOldMessages(
       result, model, keepRecent, generate, recordCall, cheapWindow,
       iter === 0 ? originalMessages : undefined,
+      signal,
     );
     if (!shouldCompact(result, contextWindow)) break;
     keepRecent = Math.max(1, Math.floor(keepRecent / 2));
