@@ -71,11 +71,30 @@ const defaultSummariseGenerate: SummariseGenerate = ({ model, ...rest }) =>
   generateText({ ...rest, model: resolveLanguageModel(model) });
 
 export function estimateMessageTokens(messages: Message[]): number {
-  return JSON.stringify(messages).length / 4;
+  let chars = 0;
+  for (const m of messages) {
+    for (const block of m.content) {
+      if (block.type === "text" || block.type === "reasoning")
+        chars += block.text?.length ?? 0;
+      else if (block.type === "toolCall")
+        chars += block.name.length + JSON.stringify(block.arguments).length;
+      else if (block.type === "toolResult")
+        chars += block.output.length;
+    }
+  }
+  return Math.ceil(chars / 3.5);
 }
 
-export function shouldCompact(messages: Message[], windowSize: number): boolean {
-  return estimateMessageTokens(messages) > windowSize * COMPACT_THRESHOLD;
+/**
+ * Returns true when the context is full enough to warrant compaction.
+ * Pass `knownTokens` (from the last API response's usage.input) for an exact
+ * count; omit it to fall back to character-based estimation.
+ */
+export function shouldCompact(messages: Message[], windowSize: number, knownTokens?: number): boolean {
+  const tokens = knownTokens !== undefined && knownTokens > 0
+    ? knownTokens
+    : estimateMessageTokens(messages);
+  return tokens > windowSize * COMPACT_THRESHOLD;
 }
 
 export function sliceTurns(messages: Message[]): TurnSlice[] {
