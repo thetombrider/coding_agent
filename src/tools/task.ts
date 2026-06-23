@@ -121,6 +121,9 @@ export async function runSubagentTask(
     type: "subagent_start",
     id: subagentId,
     description: args.description,
+    // The subagent's prompt — captured as the subagent span's input.value only
+    // when captureContent is on (telemetry 7a).
+    prompt: args.prompt,
     agent: preset.agent,
     isolation: isolationResult.mode,
     model: subagentModel,

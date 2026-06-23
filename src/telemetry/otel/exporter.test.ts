@@ -9,6 +9,7 @@ import {
   type ReadableSpan,
 } from "@opentelemetry/sdk-trace-node";
 import { SpanStatusCode } from "@opentelemetry/api";
+import { z } from "zod";
 import type { ModelPricing } from "../../config/config.js";
 import type { AssistantMessage } from "../../provider/types.js";
 import { createOtelSpanConsumer, type OtelConsumerOptions } from "./exporter.js";
@@ -383,6 +384,177 @@ describe("createOtelSpanConsumer", () => {
 
     const llm = byName(exporter.getFinishedSpans(), "chat faux:test")!;
     expect(llm.parentSpanContext).toBeUndefined();
+  });
+
+  it("names the trace root from the turn's first user message", async () => {
+    const { exporter, consumer } = harness();
+    consumer.handleEvent({ type: "turn_start", id: "t1", firstUserText: "  refactor the\n loop  " });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const root = exporter.getFinishedSpans().find((s) => s.attributes["orin.turn.id"] === "t1")!;
+    expect(root.name).toBe("refactor the loop");
+    expect(root.attributes["orin.turn.id"]).toBe("t1");
+  });
+
+  it("falls back to `turn` as the trace name when no user text is present", async () => {
+    const { exporter, consumer } = harness();
+    runTurn(consumer);
+    await consumer.flush();
+    expect(byName(exporter.getFinishedSpans(), "turn")).toBeTruthy();
+  });
+
+  it("sets openinference.span.kind on every span (content-free)", async () => {
+    const { exporter, consumer } = harness();
+    consumer.handleEvent({ type: "turn_start", id: "turn-1" });
+    consumer.handleEvent({ type: "tool_start", id: "task-call", name: "task", args: {} });
+    consumer.handleEvent({ type: "subagent_start", id: "sub1", description: "d", agent: "explore" });
+    consumer.handleEvent({ type: "llm_start", id: "c1", model: "faux:test", subagentId: "sub1" });
+    consumer.handleEvent({ type: "assistant_message", id: "c1", message: assistantMessage(), subagentId: "sub1" });
+    consumer.handleEvent({ type: "subagent_end", id: "sub1", agent: "explore", turns: 1, summary: "s" });
+    consumer.handleEvent({ type: "tool_end", id: "task-call", name: "task", output: "ok" });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const spans = exporter.getFinishedSpans();
+    expect(byName(spans, "turn")!.attributes["openinference.span.kind"]).toBe("AGENT");
+    expect(byName(spans, "chat faux:test")!.attributes["openinference.span.kind"]).toBe("LLM");
+    expect(byName(spans, "task")!.attributes["openinference.span.kind"]).toBe("TOOL");
+    expect(byName(spans, "subagent:explore")!.attributes["openinference.span.kind"]).toBe("AGENT");
+  });
+
+  it("emits no content attributes when captureContent is off (default)", async () => {
+    const { exporter, consumer } = harness();
+    consumer.handleEvent({
+      type: "turn_start",
+      id: "t1",
+      firstUserText: "secret prompt",
+    });
+    consumer.handleEvent({
+      type: "llm_start",
+      id: "c1",
+      model: "faux:test",
+      request: { system: "sys", messages: [{ role: "user", content: [{ type: "text", text: "secret" }] }] },
+    });
+    consumer.handleEvent({ type: "assistant_message", id: "c1", message: assistantMessage() });
+    consumer.handleEvent({ type: "tool_start", id: "t1", name: "read", args: { path: "secret.ts" } });
+    consumer.handleEvent({ type: "tool_end", id: "t1", name: "read", output: "secret data" });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    for (const span of exporter.getFinishedSpans()) {
+      expect(span.attributes["input.value"]).toBeUndefined();
+      expect(span.attributes["output.value"]).toBeUndefined();
+      expect(span.attributes["input.mime_type"]).toBeUndefined();
+      expect(span.attributes["output.mime_type"]).toBeUndefined();
+    }
+  });
+});
+
+describe("createOtelSpanConsumer with captureContent: true", () => {
+  const captureCfg: OtelConfig = { ...enabledCfg, captureContent: true };
+
+  function captureHarness() {
+    return harness({ cfg: captureCfg });
+  }
+
+  it("captures lossless LLM input (request) and output (assistant tool_calls as JSON)", async () => {
+    const { exporter, consumer } = captureHarness();
+    consumer.handleEvent({ type: "turn_start", id: "t1", firstUserText: "do it" });
+    consumer.handleEvent({
+      type: "llm_start",
+      id: "c1",
+      model: "faux:test",
+      request: {
+        system: "You are helpful.",
+        messages: [{ role: "user", content: [{ type: "text", text: "read a.ts" }] }],
+        tools: [{ name: "read", description: "Read a file", schema: z.object({ path: z.string() }) }],
+      },
+    });
+    consumer.handleEvent({
+      type: "assistant_message",
+      id: "c1",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "reading" },
+          { type: "toolCall", id: "tc1", name: "read", arguments: { path: "a.ts" } },
+        ],
+        model: "faux:test",
+        usage: { input: 1, output: 1, totalTokens: 2 },
+        stopReason: "tool_calls",
+      },
+    });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const llm = byName(exporter.getFinishedSpans(), "chat faux:test")!;
+    expect(llm.attributes["input.mime_type"]).toBe("application/json");
+    const input = JSON.parse(llm.attributes["input.value"] as string);
+    expect(input.messages[0]).toEqual({ role: "system", content: "You are helpful." });
+    expect(input.messages[1]).toEqual({ role: "user", content: "read a.ts" });
+    expect(input.tools[0].json_schema.properties.path).toBeDefined();
+
+    expect(llm.attributes["output.mime_type"]).toBe("application/json");
+    const output = JSON.parse(llm.attributes["output.value"] as string);
+    expect(output.content).toBe("reading");
+    expect(output.finish_reason).toBe("tool_calls");
+    expect(output.tool_calls).toEqual([{ id: "tc1", name: "read", arguments: { path: "a.ts" } }]);
+  });
+
+  it("captures tool args and result content", async () => {
+    const { exporter, consumer } = captureHarness();
+    consumer.handleEvent({ type: "turn_start", id: "t1" });
+    consumer.handleEvent({ type: "tool_start", id: "tool1", name: "read", args: { path: "a.ts" } });
+    consumer.handleEvent({ type: "tool_end", id: "tool1", name: "read", output: "file body" });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const tool = byName(exporter.getFinishedSpans(), "read")!;
+    expect(tool.attributes["input.value"]).toBe('{"path":"a.ts"}');
+    expect(tool.attributes["input.mime_type"]).toBe("application/json");
+    expect(tool.attributes["output.value"]).toBe("file body");
+    expect(tool.attributes["output.mime_type"]).toBe("text/plain");
+  });
+
+  it("captures subagent prompt and summary", async () => {
+    const { exporter, consumer } = captureHarness();
+    consumer.handleEvent({ type: "turn_start", id: "t1" });
+    consumer.handleEvent({ type: "tool_start", id: "task-call", name: "task", args: {} });
+    consumer.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan",
+      prompt: "scan the whole repo",
+      agent: "explore",
+    });
+    consumer.handleEvent({ type: "subagent_end", id: "sub1", agent: "explore", turns: 2, summary: "found it" });
+    consumer.handleEvent({ type: "tool_end", id: "task-call", name: "task", output: "done" });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const subagent = byName(exporter.getFinishedSpans(), "subagent:explore")!;
+    expect(subagent.attributes["input.value"]).toBe("scan the whole repo");
+    expect(subagent.attributes["output.value"]).toBe("found it");
+  });
+
+  it("snapshots LLM input at emit time, before the live message array mutates", async () => {
+    const { exporter, consumer } = captureHarness();
+    // The request aliases a live array; the loop pushes to it after llm_start.
+    const messages: { role: "user" | "assistant"; content: { type: "text"; text: string }[] }[] = [
+      { role: "user", content: [{ type: "text", text: "first" }] },
+    ];
+    consumer.handleEvent({ type: "turn_start", id: "t1" });
+    consumer.handleEvent({ type: "llm_start", id: "c1", model: "faux:test", request: { messages } });
+    // Mutate after the event is handled — the captured snapshot must not change.
+    messages.push({ role: "assistant", content: [{ type: "text", text: "later" }] });
+    consumer.handleEvent({ type: "assistant_message", id: "c1", message: assistantMessage() });
+    consumer.handleEvent({ type: "loop_end", reason: "complete" });
+    await consumer.flush();
+
+    const input = JSON.parse(byName(exporter.getFinishedSpans(), "chat faux:test")!.attributes["input.value"] as string);
+    expect(input.messages).toHaveLength(1);
+    expect(input.messages[0].content).toBe("first");
   });
 });
 

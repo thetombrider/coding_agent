@@ -20,6 +20,7 @@ const OTEL_ENV = [
   "OTEL_SERVICE_NAME",
   "OTEL_TRACES_SAMPLER",
   "OTEL_TRACES_SAMPLER_ARG",
+  "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
 ];
 
 describe("parseOtlpHeaders", () => {
@@ -81,5 +82,18 @@ describe("resolveOtelConfig", () => {
 
     process.env.OTEL_TRACES_SAMPLER = "always_off";
     expect(resolveOtelConfig(base).sampleRatio).toBe(0);
+  });
+
+  it("toggles captureContent from the GenAI capture env (env wins)", () => {
+    expect(resolveOtelConfig(base).captureContent).toBe(false);
+
+    process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT = "true";
+    expect(resolveOtelConfig(base).captureContent).toBe(true);
+
+    process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT = "false";
+    expect(resolveOtelConfig({ ...base, captureContent: true }).captureContent).toBe(false);
+
+    delete process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT;
+    expect(resolveOtelConfig({ ...base, captureContent: true }).captureContent).toBe(true);
   });
 });

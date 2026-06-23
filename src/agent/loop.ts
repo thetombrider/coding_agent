@@ -220,7 +220,7 @@ export async function runLoop(
   let totalToolCalls = 0;
 
   const turnId = randomUUID();
-  hooks.emit({ type: "turn_start", id: turnId });
+  hooks.emit({ type: "turn_start", id: turnId, firstUserText: latestUserText(ctx.messages) });
 
   while (true) {
     if (options.signal?.aborted) {
@@ -263,7 +263,15 @@ export async function runLoop(
     }
 
     const llmCallId = randomUUID();
-    hooks.emit({ type: "llm_start", id: llmCallId, model: options.model });
+    hooks.emit({
+      type: "llm_start",
+      id: llmCallId,
+      model: options.model,
+      // Carried by reference for opt-in content capture (telemetry 7a). The OTel
+      // exporter snapshots it to JSON only when captureContent is on, so there is
+      // no cost here when it is off (the default).
+      request: { system: options.system, messages: promptMessages, tools: options.tools },
+    });
 
     let rawMessage;
     try {
@@ -356,6 +364,25 @@ export async function runLoop(
   }
 
   return ctx;
+}
+
+/**
+ * The text of the turn's initiating user message — the most recent user message
+ * at turn start — used to name the OTel trace root (telemetry 7a). Returns
+ * undefined when no user text is present (the trace falls back to "turn").
+ */
+function latestUserText(messages: Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    const text = m.content
+      .filter((c): c is { type: "text"; text: string } => c.type === "text")
+      .map((c) => c.text)
+      .join("")
+      .trim();
+    if (text) return text;
+  }
+  return undefined;
 }
 
 export function lastAssistantText(ctx: AgentContext): string {

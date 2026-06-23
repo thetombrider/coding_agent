@@ -26,20 +26,29 @@
  */
 import type { Span } from "@opentelemetry/api";
 import type { ModelPricing } from "../../config/config.js";
-import type { AgentEvent } from "../../agent/events.js";
+import type { AgentEvent, LlmRequestSnapshot } from "../../agent/events.js";
 import type { AssistantMessage } from "../../provider/types.js";
 import { calcCost } from "../cost.js";
 import { resolveOtelConfig, resolveOtelUserId, type OtelConfig } from "./config.js";
 import { loadOtelRuntime, type OtelRuntime, type ProviderDeps } from "./provider.js";
 import {
+  llmInputAttributes,
+  llmOutputAttributes,
   llmRequestAttributes,
   llmResponseAttributes,
   llmSpanName,
+  SPAN_KIND_ATTRIBUTE,
+  SpanKindValue,
   subagentEndAttributes,
+  subagentInputAttributes,
+  subagentOutputAttributes,
   subagentSpanName,
   subagentStartAttributes,
   toolEndAttributes,
+  toolInputAttributes,
+  toolOutputAttributes,
   toolStartAttributes,
+  traceName,
 } from "./semconv.js";
 
 /** Tool name that spawns a subagent — its in-flight span parents the subagent. */
@@ -173,35 +182,49 @@ class SpanConsumer implements OtelSpanConsumer {
   handleEvent(event: AgentEvent): void {
     switch (event.type) {
       case "turn_start":
-        return this.onTurnStart(event.id);
+        return this.onTurnStart(event.id, event.firstUserText);
       case "loop_end":
         return this.onLoopEnd(event.reason);
       case "llm_start":
-        return this.onLlmStart(event.id, event.model, event.subagentId);
+        return this.onLlmStart(event.id, event.model, event.subagentId, event.request);
       case "assistant_message":
         return this.onAssistantMessage(event.id, event.message);
       case "tool_start":
-        return this.onToolStart(event.id, event.name, event.subagentId);
+        return this.onToolStart(event.id, event.name, event.subagentId, event.args);
       case "tool_end":
         return this.onToolEnd(event.id, event.output, event.isError === true);
       case "subagent_start":
-        return this.onSubagentStart(event.id, event.agent, event.isolation, event.model);
+        return this.onSubagentStart(
+          event.id,
+          event.agent,
+          event.isolation,
+          event.model,
+          event.prompt,
+        );
       case "subagent_end":
-        return this.onSubagentEnd(event.id, event.turns);
+        return this.onSubagentEnd(event.id, event.turns, event.summary);
       default:
         return;
     }
   }
 
-  private onTurnStart(turnId: string): void {
+  private onTurnStart(turnId: string, firstUserText?: string): void {
     const startTime = Date.now();
+    // Name the trace from the turn's first user message so the Langfuse list is
+    // scannable; `orin.turn.id` stays the stable identifier. The name is a short
+    // truncated label — content bodies remain gated behind captureContent.
+    const name = traceName(firstUserText);
     this.apply((rt) => {
       this.turnRoot = rt.tracer.startSpan(
-        "turn",
+        name,
         {
           startTime,
           kind: rt.api.SpanKind.INTERNAL,
-          attributes: { "orin.turn.id": turnId, ...this.turnRootAttributes() },
+          attributes: {
+            [SPAN_KIND_ATTRIBUTE]: SpanKindValue.AGENT,
+            "orin.turn.id": turnId,
+            ...this.turnRootAttributes(),
+          },
         },
         rt.api.ROOT_CONTEXT,
       );
@@ -243,15 +266,27 @@ class SpanConsumer implements OtelSpanConsumer {
     this.pendingTaskSpans = [];
   }
 
-  private onLlmStart(id: string, model: string, subagentId?: string): void {
+  private onLlmStart(
+    id: string,
+    model: string,
+    subagentId?: string,
+    request?: LlmRequestSnapshot,
+  ): void {
     const startTime = Date.now();
+    // Snapshot request content to JSON now (synchronously): `request.messages`
+    // aliases the live conversation, which mutates before a deferred drain runs.
+    const contentAttrs =
+      this.cfg.captureContent && request ? llmInputAttributes(request) : undefined;
     this.apply((rt) => {
       const span = rt.tracer.startSpan(
         llmSpanName(model),
         {
           startTime,
           kind: rt.api.SpanKind.CLIENT,
-          attributes: llmRequestAttributes({ requestModel: model, providerId: this.opts.providerId }),
+          attributes: {
+            ...llmRequestAttributes({ requestModel: model, providerId: this.opts.providerId }),
+            ...contentAttrs,
+          },
         },
         this.childParentContext(rt, subagentId),
       );
@@ -261,11 +296,14 @@ class SpanConsumer implements OtelSpanConsumer {
 
   private onAssistantMessage(id: string, message: AssistantMessage): void {
     const endTime = Date.now();
+    const finishReasons = message.stopReason ? [message.stopReason] : undefined;
+    const contentAttrs = this.cfg.captureContent
+      ? llmOutputAttributes(message, message.stopReason)
+      : undefined;
     this.apply(() => {
       const span = this.llmSpans.get(id);
       if (!span) return;
       this.llmSpans.delete(id);
-      const finishReasons = message.stopReason ? [message.stopReason] : undefined;
       if (message.usage) {
         const cost = calcCost(message.model, message.usage, this.opts.pricing, this.opts.providerId);
         span.setAttributes(llmResponseAttributes({ responseModel: message.model, cost, finishReasons }));
@@ -273,19 +311,21 @@ class SpanConsumer implements OtelSpanConsumer {
         span.setAttribute("gen_ai.response.model", message.model);
         if (finishReasons) span.setAttribute("gen_ai.response.finish_reasons", finishReasons);
       }
+      if (contentAttrs) span.setAttributes(contentAttrs);
       span.end(endTime);
     });
   }
 
-  private onToolStart(id: string, name: string, subagentId?: string): void {
+  private onToolStart(id: string, name: string, subagentId?: string, args?: unknown): void {
     const startTime = Date.now();
+    const contentAttrs = this.cfg.captureContent ? toolInputAttributes(args) : undefined;
     this.apply((rt) => {
       const span = rt.tracer.startSpan(
         name,
         {
           startTime,
           kind: rt.api.SpanKind.INTERNAL,
-          attributes: toolStartAttributes({ name, callId: id }),
+          attributes: { ...toolStartAttributes({ name, callId: id }), ...contentAttrs },
         },
         this.childParentContext(rt, subagentId),
       );
@@ -307,6 +347,7 @@ class SpanConsumer implements OtelSpanConsumer {
       const pending = this.pendingTaskSpans.indexOf(id);
       if (pending !== -1) this.pendingTaskSpans.splice(pending, 1);
       span.setAttributes(toolEndAttributes({ ok: !isError, output }));
+      if (this.cfg.captureContent) span.setAttributes(toolOutputAttributes(output));
       if (isError) {
         span.setStatus({ code: rt.api.SpanStatusCode.ERROR });
       }
@@ -319,8 +360,13 @@ class SpanConsumer implements OtelSpanConsumer {
     agent: string,
     isolation?: string,
     model?: string,
+    prompt?: string,
   ): void {
     const startTime = Date.now();
+    const contentAttrs =
+      this.cfg.captureContent && prompt !== undefined
+        ? subagentInputAttributes(prompt)
+        : undefined;
     this.apply((rt) => {
       const taskId = this.pendingTaskSpans.shift();
       const taskSpan = taskId ? this.toolSpans.get(taskId) : undefined;
@@ -332,7 +378,7 @@ class SpanConsumer implements OtelSpanConsumer {
         {
           startTime,
           kind: rt.api.SpanKind.INTERNAL,
-          attributes: subagentStartAttributes({ agent, isolation, model }),
+          attributes: { ...subagentStartAttributes({ agent, isolation, model }), ...contentAttrs },
         },
         parent,
       );
@@ -340,13 +386,18 @@ class SpanConsumer implements OtelSpanConsumer {
     });
   }
 
-  private onSubagentEnd(subagentId: string, turns: number): void {
+  private onSubagentEnd(subagentId: string, turns: number, summary?: string): void {
     const endTime = Date.now();
+    const contentAttrs =
+      this.cfg.captureContent && summary !== undefined
+        ? subagentOutputAttributes(summary)
+        : undefined;
     this.apply(() => {
       const span = this.subagentSpans.get(subagentId);
       if (!span) return;
       this.subagentSpans.delete(subagentId);
       span.setAttributes(subagentEndAttributes({ turns }));
+      if (contentAttrs) span.setAttributes(contentAttrs);
       span.end(endTime);
     });
   }
