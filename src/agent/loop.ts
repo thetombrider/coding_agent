@@ -233,7 +233,6 @@ export async function runLoop(
       break;
     }
 
-    const turnIndex = currentTurnCount(ctx.messages);
     const contextWindow = await getContextWindow(options.model);
 
     if (shouldCompact(ctx.messages, contextWindow)) {
@@ -248,6 +247,7 @@ export async function runLoop(
         ctx.loopHost?.recordLlmCall,
       );
     }
+    const turnIndex = currentTurnCount(ctx.messages);
     ctx.messages = evictStaleToolResults(ctx.messages, turnIndex);
 
     let promptMessages = ctx.messages;
