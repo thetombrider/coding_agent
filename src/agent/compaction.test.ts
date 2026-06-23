@@ -370,6 +370,38 @@ describe("compaction", () => {
     expect(result).toBe(messages);
   });
 
+  it("summariseOldTurns uses multi-pass chunking when corpus exceeds cheap model window", async () => {
+    // 8 turns, keepLastN=2 → 6 turns to summarise.
+    // Each turn is ~100 chars; cheapWindow=100 tokens means each individual message
+    // already overflows a single pass, so chunking must fire and call generate multiple times.
+    const messages: Message[] = Array.from({ length: 8 }, (_, i) => [
+      user(`turn ${i + 1} ${"x".repeat(100)}`),
+      assistant("reply"),
+    ]).flat();
+
+    const calls: string[] = [];
+    const result = await summariseOldTurns(
+      messages,
+      "cheap:test",
+      2,
+      async ({ messages: msgs }) => {
+        calls.push(msgs[0]!.content);
+        return { text: `chunk-summary-${calls.length}` };
+      },
+      undefined,
+      100, // tiny cheap window forces multi-pass
+    );
+
+    expect(calls.length).toBeGreaterThan(1); // multiple generate calls
+    expect(result[0]?.role).toBe("assistant");
+    // Combined summary contains output from each chunk
+    const summaryText = result[0]?.content[0]?.type === "text" ? result[0].content[0].text : "";
+    expect(summaryText).toContain("chunk-summary-1");
+    expect(summaryText).toContain("chunk-summary-2");
+    // Recent turns preserved verbatim
+    expect(result.slice(1)).toEqual(messages.slice(-4));
+  });
+
   it("summariseOldMessages returns original messages when generate throws", async () => {
     const messages: Message[] = [
       user("investigate"),
@@ -387,6 +419,36 @@ describe("compaction", () => {
     );
 
     expect(result).toBe(messages);
+  });
+
+  it("summariseOldMessages uses multi-pass chunking when corpus exceeds cheap model window", async () => {
+    const big = "x".repeat(400);
+    const messages: Message[] = [
+      user("investigate"),
+      assistant("read spec"),
+      toolResult(big, "t1"),
+      assistant("read readme"),
+      toolResult(big, "t2"),
+    ];
+
+    const calls: string[] = [];
+    const result = await summariseOldMessages(
+      messages,
+      "cheap:test",
+      1,
+      async () => {
+        calls.push("generate");
+        return { text: `part-${calls.length}` };
+      },
+      undefined,
+      50, // tiny cheap window forces chunking
+    );
+
+    expect(calls.length).toBeGreaterThan(1);
+    expect(result[0]?.role).toBe("assistant");
+    const text = result[0]?.content[0]?.type === "text" ? result[0].content[0].text : "";
+    expect(text).toContain("part-1");
+    expect(text).toContain("part-2");
   });
 
   it("compactMessages shrinks a single-turn session without summarising when pruning suffices", async () => {
