@@ -322,13 +322,15 @@ export async function summariseOldTurns(
   generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
   cheapWindow?: number,
+  originalMessages?: Message[],
 ): Promise<Message[]> {
   const turns = sliceTurns(messages);
   const prefixTurns = prefixTurnCount(turns.length, keepLastN);
   if (prefixTurns <= 0) return messages;
 
   const splitAt = turns[prefixTurns - 1]!.end;
-  const oldMessages = stripReasoningBlocks(messages.slice(0, splitAt));
+  const sourceForCorpus = originalMessages ?? messages;
+  const oldMessages = stripReasoningBlocks(sourceForCorpus.slice(0, splitAt));
   const recentMessages = messages.slice(splitAt);
   if (oldMessages.length === 0) return messages;
 
@@ -380,11 +382,13 @@ export async function summariseOldMessages(
   generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
   cheapWindow?: number,
+  originalMessages?: Message[],
 ): Promise<Message[]> {
   const cutIndex = findMessageCutIndex(messages, keepRecentTokens);
   if (cutIndex <= 0) return messages;
 
-  const oldMessages = stripReasoningBlocks(messages.slice(0, cutIndex));
+  const sourceForCorpus = originalMessages ?? messages;
+  const oldMessages = stripReasoningBlocks(sourceForCorpus.slice(0, cutIndex));
   const recentMessages = messages.slice(cutIndex);
   if (oldMessages.length === 0) return messages;
 
@@ -438,6 +442,7 @@ export async function compactMessages(
   generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
 ): Promise<Message[]> {
+  const originalMessages = messages;
   let result = capOversizedToolResults(messages, contextWindow);
   result = pruneOverflowToolResults(result, contextWindow);
   if (!shouldCompact(result, contextWindow)) return result;
@@ -445,9 +450,9 @@ export async function compactMessages(
   // Resolve the cheap model's window once to avoid duplicate lookups.
   const cheapWindow = await getContextWindow(model);
 
-  result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall, cheapWindow);
+  result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall, cheapWindow, originalMessages);
   if (!shouldCompact(result, contextWindow)) return result;
 
   const keepRecent = scaleToWindow(DEFAULT_KEEP_RECENT_TOKENS, contextWindow, 0.4);
-  return summariseOldMessages(result, model, keepRecent, generate, recordCall, cheapWindow);
+  return summariseOldMessages(result, model, keepRecent, generate, recordCall, cheapWindow, originalMessages);
 }

@@ -451,6 +451,84 @@ describe("compaction", () => {
     expect(text).toContain("part-2");
   });
 
+  it("summariseOldTurns uses originalMessages for corpus instead of elided stubs", async () => {
+    const realOutput = "real file content with useful information";
+    const elidedOutput = "[result elided — 1 lines. Re-run tool if needed.]";
+
+    const originalMessages: Message[] = [
+      user("turn 1"),
+      assistant("read file"),
+      toolResult(realOutput, "t1"),
+      user("turn 2"),
+      assistant("done"),
+      user("turn 3"),
+      assistant("finished"),
+    ];
+
+    const elidedMessages: Message[] = [
+      user("turn 1"),
+      assistant("read file"),
+      toolResult(elidedOutput, "t1"),
+      user("turn 2"),
+      assistant("done"),
+      user("turn 3"),
+      assistant("finished"),
+    ];
+
+    let capturedCorpus = "";
+    await summariseOldTurns(
+      elidedMessages,
+      "cheap:test",
+      2,
+      async ({ messages: genMessages }) => {
+        capturedCorpus = genMessages[0]?.content ?? "";
+        return { text: "summary" };
+      },
+      undefined,
+      undefined,
+      originalMessages,
+    );
+
+    expect(capturedCorpus).toContain(realOutput);
+    expect(capturedCorpus).not.toContain(elidedOutput);
+  });
+
+  it("summariseOldMessages uses originalMessages for corpus instead of elided stubs", async () => {
+    const realOutput = "real file content with useful information";
+    const elidedOutput = "[result elided — 1 lines. Re-run tool if needed.]";
+
+    const originalMessages: Message[] = [
+      user("investigate"),
+      assistant("read file"),
+      toolResult(realOutput, "t1"),
+      assistant("done"),
+    ];
+
+    const elidedMessages: Message[] = [
+      user("investigate"),
+      assistant("read file"),
+      toolResult(elidedOutput, "t1"),
+      assistant("done"),
+    ];
+
+    let capturedCorpus = "";
+    await summariseOldMessages(
+      elidedMessages,
+      "cheap:test",
+      1,
+      async ({ messages: genMessages }) => {
+        capturedCorpus = genMessages[0]?.content ?? "";
+        return { text: "summary" };
+      },
+      undefined,
+      undefined,
+      originalMessages,
+    );
+
+    expect(capturedCorpus).toContain(realOutput);
+    expect(capturedCorpus).not.toContain(elidedOutput);
+  });
+
   it("compactMessages shrinks a single-turn session without summarising when pruning suffices", async () => {
     const huge = "line\n".repeat(50_000);
     const messages: Message[] = [
