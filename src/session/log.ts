@@ -39,6 +39,7 @@ export function openLog(path: string): LogHandle {
     },
     close: async () => {
       if (fd === null) return;
+      writeSync(fd, JSON.stringify({ type: "session_completed", ts: new Date().toISOString() }) + "\n");
       closeSync(fd);
       fd = null;
     },
@@ -48,6 +49,17 @@ export function openLog(path: string): LogHandle {
 export function replayLog(path: string): Message[] {
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+
+  // If the last line is a clean-close marker the session ended normally — skip
+  // the O(n) repair pass that is only needed for interrupted sessions.
+  let cleanClose = false;
+  const lastLine = lines[lines.length - 1];
+  if (lastLine) {
+    try {
+      cleanClose = (JSON.parse(lastLine) as SessionEvent).type === "session_completed";
+    } catch { /* ignore malformed */ }
+  }
+
   const messages: Message[] = [];
   for (const line of lines) {
     try {
@@ -61,13 +73,13 @@ export function replayLog(path: string): Message[] {
       } else if (ev.type === "session_clear") {
         messages.length = 0;
       }
-      // session_meta, metric, and unknown types: skip (not part of the message
-      // transcript — metric events carry cost/usage telemetry only).
+      // session_meta, session_completed, metric, and unknown types: skip (not
+      // part of the message transcript).
     } catch {
       // ignore malformed lines
     }
   }
-  return repairDanglingToolCalls(messages);
+  return cleanClose ? messages : repairDanglingToolCalls(messages);
 }
 
 /**

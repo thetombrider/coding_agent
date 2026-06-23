@@ -172,12 +172,13 @@ describe("openLog / replayLog round-trip", () => {
     expect(replayLog(path)).toHaveLength(1);
   });
 
-  it("synthesizes results for tool calls left dangling by a killed session", async () => {
+  it("synthesizes results for tool calls left dangling by a killed session", () => {
     const path = join(tmpDir, "session.jsonl");
     const log = openLog(path);
     log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
     // Assistant fired two tool calls; the process was killed before either result
-    // was logged (e.g. mid bash run).
+    // was logged (e.g. mid bash run). Do NOT call log.close() — that would
+    // write session_completed and mark the session as cleanly closed.
     log.write({
       type: "assistant_chunk",
       ts: "t2",
@@ -186,7 +187,6 @@ describe("openLog / replayLog round-trip", () => {
         { type: "toolCall", id: "bash:9", name: "bash", arguments: { command: "pwd" } },
       ],
     });
-    await log.close();
 
     const messages = replayLog(path);
     // user, assistant, and a synthetic tool message filling both calls.
@@ -222,6 +222,55 @@ describe("openLog / replayLog round-trip", () => {
     expect(messages[2]).toEqual({
       role: "tool",
       content: [{ type: "toolResult", toolCallId: "tc1", toolName: "bash", output: "ok", isError: false }],
+    });
+  });
+
+  it("skips repairDanglingToolCalls when session was cleanly closed", async () => {
+    // A cleanly closed session ends with session_completed — the repair pass
+    // must be skipped even if there are tool calls, because they already have
+    // matching tool_result entries.
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
+    log.write({
+      type: "assistant_chunk",
+      ts: "t2",
+      content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }],
+    });
+    log.write({
+      type: "tool_result",
+      ts: "t3",
+      toolUseId: "tc1",
+      content: [{ type: "toolResult", toolCallId: "tc1", toolName: "bash", output: "ok", isError: false }],
+    });
+    await log.close(); // writes session_completed
+
+    const messages = replayLog(path);
+    // No synthetic filler messages — the real tool result is already there.
+    expect(messages).toHaveLength(3);
+    expect(messages[2]).toEqual({
+      role: "tool",
+      content: [{ type: "toolResult", toolCallId: "tc1", toolName: "bash", output: "ok", isError: false }],
+    });
+  });
+
+  it("runs repair pass when session_completed is absent (interrupted session)", () => {
+    // Write an incomplete log without session_completed (as if killed mid-run).
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
+    log.write({
+      type: "assistant_chunk",
+      ts: "t2",
+      content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }],
+    });
+    // No log.close() — simulates hard kill.
+
+    const messages = replayLog(path);
+    expect(messages).toHaveLength(3); // user + assistant + synthetic filler
+    expect(messages[2]).toMatchObject({
+      role: "tool",
+      content: [expect.objectContaining({ toolCallId: "tc1", isError: true })],
     });
   });
 
@@ -333,7 +382,7 @@ describe("listSessions", () => {
       cwd: "/projects/foo",
       model: "test-model",
       createdAt: "2026-01-01T00:00:00.000Z",
-      lastTs: "2026-01-01T00:03:00.000Z",
+      lastTs: expect.any(String), // session_completed ts is real wall-clock time
       turns: 2,
     });
   });
