@@ -1,0 +1,9 @@
+Load the full instructions for a skill into context.
+
+Call skill_list first to see what skills are available. Then call skill_use with the exact skill name to read its step-by-step instructions. Follow those instructions to complete the task.
+
+You can also load a specific supporting file from within the skill directory (e.g. a reference doc or template) by passing its relative path as the `file` parameter.
+
+Example:
+  skill_use({ name: "git-workflow" })
+  skill_use({ name: "deploy-checklist", file: "references/env-vars.md" })

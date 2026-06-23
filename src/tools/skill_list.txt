@@ -1,0 +1,10 @@
+List all available skills (name and description only).
+
+Skills are reusable procedure documents stored as SKILL.md files. They teach you how to perform specific workflows — from project-specific conventions to general patterns you have learned across sessions.
+
+Use this tool at the start of a task to check whether a relevant skill exists before working from scratch. Call skill_use to load the full instructions for a skill once you identify a relevant one.
+
+Skills are discovered from (in priority order):
+  1. .orin/skills/ in the repo root (project-local, highest priority)
+  2. ~/.orin/skills/ (user-global)
+  3. .claude/skills/ in the repo root (cross-agent compatibility)

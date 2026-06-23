@@ -8,6 +8,7 @@ import { findTool } from "./find.js";
 import { grepTool } from "./grep.js";
 import { lsTool } from "./ls.js";
 import { readTool } from "./read.js";
+import { skillListTool, skillUseTool, skillWriteTool } from "./skill.js";
 import { taskTool } from "./task.js";
 import { todowriteTool } from "./todowrite.js";
 import { writeTool } from "./write.js";
@@ -29,6 +30,9 @@ const ALL_TOOLS: AnyTool[] = [
   todowriteTool,
   taskTool,
   askUserTool,
+  skillListTool,
+  skillUseTool,
+  skillWriteTool,
 ];
 
 /**
@@ -38,7 +42,7 @@ const ALL_TOOLS: AnyTool[] = [
  * mutations (`file_op`), or interrupt the user (`askuser`). `fetch` is
  * read-only, so it stays.
  */
-const CHILD_EXCLUDED = new Set(["todowrite", "task", "file_op", "askuser"]);
+const CHILD_EXCLUDED = new Set(["todowrite", "task", "file_op", "askuser", "skill_write"]);
 
 export function getCoreTools(): AnyTool[] {
   return [...ALL_TOOLS];
