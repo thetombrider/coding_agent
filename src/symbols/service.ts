@@ -20,6 +20,11 @@ async function listIndexableFiles(workspace: Workspace, cwd: string): Promise<st
   return [...files].sort();
 }
 
+export interface SymbolServiceOptions {
+  /** Log warm stats to stderr when indexing completes. Headless only — TUI owns the terminal. */
+  logWarmStats?: boolean;
+}
+
 export interface SymbolService {
   readonly ready: boolean;
   warmIndex(workspace: Workspace, cwd: string): Promise<IndexStats>;
@@ -29,7 +34,8 @@ export interface SymbolService {
   allSymbols(): import("./types.js").Symbol[];
 }
 
-export function createSymbolService(): SymbolService {
+export function createSymbolService(options: SymbolServiceOptions = {}): SymbolService {
+  const { logWarmStats = false } = options;
   const index = new SymbolIndex();
   let warming: Promise<IndexStats> | null = null;
   let ready = false;
@@ -73,9 +79,11 @@ export function createSymbolService(): SymbolService {
         references: index.referenceCount,
         elapsedMs: Math.round(performance.now() - start),
       };
-      process.stderr.write(
-        `[symbols] Indexed ${stats.files} files, ${stats.symbols} symbols (${stats.elapsedMs}ms)\n`,
-      );
+      if (logWarmStats) {
+        process.stderr.write(
+          `[symbols] Indexed ${stats.files} files, ${stats.symbols} symbols (${stats.elapsedMs}ms)\n`,
+        );
+      }
       return stats;
     })();
     return warming;

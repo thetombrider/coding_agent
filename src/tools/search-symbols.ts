@@ -42,7 +42,12 @@ export const searchSymbolsTool: Tool<SearchSymbolsArgs> = {
     }
 
     if (!symbols.ready) {
-      await symbols.warmIndex(ctx.workspace, ctx.cwd);
+      try {
+        await symbols.warmIndex(ctx.workspace, ctx.cwd);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { output: msg, isError: true };
+      }
     }
 
     const searchMode = (mode ?? "definitions") as SearchMode;
