@@ -1,3 +1,4 @@
+import { rgPath } from "@vscode/ripgrep";
 import { z } from "zod";
 import { resolvePath } from "../util/paths.js";
 import { shellQuote } from "../util/shell.js";
@@ -20,7 +21,7 @@ const schema = z.object({
 
 export type GrepArgs = z.infer<typeof schema>;
 
-async function runGrep(
+async function runRipgrep(
   ctx: { cwd: string; workspace: import("../workspace/types.js").Workspace },
   command: string,
   signal: AbortSignal,
@@ -49,12 +50,8 @@ export const grepTool: Tool<GrepArgs> = {
     const pat = shellQuote(pattern);
     const ctxFlag = context !== undefined ? ` -C ${context}` : "";
     const globFlag = glob ? ` -g ${shellQuote(glob)}` : "";
-    const rgArgs = `rg --line-number --color=never${ctxFlag}${globFlag} -- ${pat} ${target}`;
-    try {
-      return { output: await runGrep(ctx, rgArgs, signal) };
-    } catch {
-      const grepArgs = `grep -rn${context !== undefined ? ` -C ${context}` : ""} -- ${pat} ${target}`;
-      return { output: await runGrep(ctx, grepArgs, signal) };
-    }
+    const rg = shellQuote(rgPath);
+    const command = `${rg} --line-number --color=never${ctxFlag}${globFlag} -- ${pat} ${target}`;
+    return { output: await runRipgrep(ctx, command, signal) };
   },
 };
