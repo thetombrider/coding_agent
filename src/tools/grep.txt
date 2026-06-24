@@ -9,5 +9,5 @@ code — this replaces a full file read for most inspection tasks.
 
 Tips:
 - Scope broad patterns: add path or glob to avoid noisy cross-repo hits
-- Hunt definitions: grep for "function name|const name =|class Name" to jump straight to the right line
+- Hunt definitions: use search_symbols for named functions/classes; grep for string patterns
 - After finding a line, read with offset=<line> limit=30 rather than re-reading the whole file

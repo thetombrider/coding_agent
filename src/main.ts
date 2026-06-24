@@ -17,6 +17,8 @@ import { createDefaultSinks, installTelemetry } from "./telemetry/install.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
+import { createSymbolService } from "./symbols/service.js";
+import { attachSymbolService } from "./symbols/hook.js";
 import { createLocalWorkspace } from "./workspace/local.js";
 import { hasE2BApiKey } from "./config/config.js";
 
@@ -140,6 +142,7 @@ async function runInteractive(opts: {
   const sandboxPref = loadConfig().sandbox?.active;
   const workspace = createLocalWorkspace();
   const ctx: AgentContext = { cwd: localCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
+  attachSymbolService(ctx, createSymbolService());
   const hooks = createSessionHooks();
 
   await runTuiSession({
@@ -224,6 +227,7 @@ async function runHeadless(opts: {
     messages: [{ role: "user", content: [{ type: "text", text: opts.prompt }] }],
     workspace: createLocalWorkspace(),
   };
+  attachSymbolService(ctx, createSymbolService());
   const { provider, model } = resolveProvider(opts.useFaux);
   const { runLoop } = await import("./agent/loop.js");
   const sessionId = opts.useFaux ? undefined : generateSessionId();
