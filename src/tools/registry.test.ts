@@ -25,4 +25,9 @@ describe("tool registry", () => {
   it("includes the read-only fetch tool in child tool presets", () => {
     expect(getChildTools().some((t) => t.name === "fetch")).toBe(true);
   });
+
+  it("includes the read-only web_search tool in child tool presets", () => {
+    expect(getCoreTools().some((t) => t.name === "web_search")).toBe(true);
+    expect(getChildTools().some((t) => t.name === "web_search")).toBe(true);
+  });
 });

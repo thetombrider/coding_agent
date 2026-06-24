@@ -188,4 +188,12 @@ describe("API key onboarding", () => {
     expect(hasE2BApiKey()).toBe(true);
     expect(loadConfig().sandbox?.e2b?.apiKey).toBe("e2b-trimmed");
   });
+
+  it("saveExaApiKey trims and persists the key", async () => {
+    const { saveExaApiKey, hasExaApiKey, loadConfig } = await import("./config.js");
+    saveExaApiKey("  exa-trimmed  ");
+
+    expect(hasExaApiKey()).toBe(true);
+    expect(loadConfig().tools?.exa?.apiKey).toBe("exa-trimmed");
+  });
 });

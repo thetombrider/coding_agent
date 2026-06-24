@@ -306,6 +306,12 @@ describe("processCommand", () => {
       expect(isActionableCommandResult(r)).toBe(true);
     });
 
+    it("starts Exa configure flow when no key is set", () => {
+      const r = processCommand("/settings exa", ctx);
+      expect(r).toMatchObject({ type: "configure-exa" });
+      expect(isActionableCommandResult(r)).toBe(true);
+    });
+
     it("opens the settings menu with no argument", () => {
       const r = processCommand("/settings", ctx);
       expect(r.type).toBe("open-settings");

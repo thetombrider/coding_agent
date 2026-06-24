@@ -11,7 +11,7 @@ import {
   ISOLATION_MODES,
   type IsolationMode,
 } from "../agent/isolation.js";
-import { hasE2BApiKey } from "../config/config.js";
+import { hasE2BApiKey, hasExaApiKey } from "../config/config.js";
 import type { ModelPricing } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
@@ -55,6 +55,7 @@ export type CommandResult =
       message: string;
     }
   | { type: "configure-e2b"; message: string }
+  | { type: "configure-exa"; message: string }
   | { type: "open-settings" }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
@@ -74,6 +75,7 @@ const HELP_LINES = [
   "/settings isolation [mode]    set subagent isolation floor (shared|worktree|sandbox)",
   "/settings telemetry [on|off]  opt in/out of prompt+response capture on OTLP spans",
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
+  "/settings exa                 configure Exa API key (for web_search tool)",
   "/sessions                     browse and resume saved sessions",
   "/checkpoints                  list workspace checkpoints for this session",
   "/restore [id]                 roll the working tree back (latest checkpoint if no id)",
@@ -359,9 +361,26 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
     };
   }
 
+  if (sub === "exa") {
+    if (hasExaApiKey()) {
+      return {
+        type: "info",
+        message:
+          "Exa API key is configured — the web_search tool is enabled. "
+          + "Run /settings exa to replace it.",
+      };
+    }
+    return {
+      type: "configure-exa",
+      message:
+        "Configure Exa: paste your API key (get one at https://dashboard.exa.ai/api-keys) "
+        + "· Esc to cancel",
+    };
+  }
+
   return {
     type: "error",
-    message: `unknown setting "${sub}" — try /settings isolation, /settings telemetry, or /settings e2b`,
+    message: `unknown setting "${sub}" — try /settings isolation, /settings telemetry, /settings e2b, or /settings exa`,
   };
 }
 
@@ -394,6 +413,8 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "configure-provider":
       return true;
     case "configure-e2b":
+      return true;
+    case "configure-exa":
       return true;
     case "open-settings":
       return true;
