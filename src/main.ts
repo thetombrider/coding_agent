@@ -227,7 +227,7 @@ async function runHeadless(opts: {
     messages: [{ role: "user", content: [{ type: "text", text: opts.prompt }] }],
     workspace: createLocalWorkspace(),
   };
-  attachSymbolService(ctx, createSymbolService());
+  attachSymbolService(ctx, createSymbolService({ logWarmStats: true }));
   const { provider, model } = resolveProvider(opts.useFaux);
   const { runLoop } = await import("./agent/loop.js");
   const sessionId = opts.useFaux ? undefined : generateSessionId();
