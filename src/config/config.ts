@@ -89,6 +89,9 @@ export interface Config {
     /** Write `.orin/todo.md` on each todowrite call for human-editable, committable plans. */
     export?: boolean;
   };
+  tools?: {
+    exa?: { apiKey?: string };
+  };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
@@ -374,11 +377,30 @@ export function hasE2BApiKey(): boolean {
   return Boolean(loadConfig().sandbox?.e2b?.apiKey?.trim());
 }
 
+/** Exa API key from config; undefined when not configured. */
+export function getExaApiKey(): string | undefined {
+  const key = loadConfig().tools?.exa?.apiKey?.trim();
+  return key || undefined;
+}
+
+/** True when an Exa API key is set in config. */
+export function hasExaApiKey(): boolean {
+  return Boolean(getExaApiKey());
+}
+
 /** Persist an E2B API key under `sandbox.e2b.apiKey` in config.json. */
 export function saveE2BApiKey(apiKey: string): void {
   const trimmed = apiKey.trim();
   if (!trimmed) return;
   saveConfig({ sandbox: { e2b: { apiKey: trimmed } } });
+  cachedConfig = undefined;
+}
+
+/** Persist an Exa API key under `tools.exa.apiKey` in config.json. */
+export function saveExaApiKey(apiKey: string): void {
+  const trimmed = apiKey.trim();
+  if (!trimmed) return;
+  saveConfig({ tools: { exa: { apiKey: trimmed } } });
   cachedConfig = undefined;
 }
 

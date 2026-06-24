@@ -27,7 +27,7 @@ import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type Approval
 import { ISOLATION_MODES, ISOLATION_LABELS, type IsolationMode } from "../agent/isolation.js";
 import type { AgentPreset } from "../agent/presets.js";
 import { pickerModelsForProvider } from "../config/models.js";
-import { hasE2BApiKey, loadConfig } from "../config/config.js";
+import { hasE2BApiKey, hasExaApiKey, loadConfig } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { getContextWindow } from "../provider/context-window.js";
@@ -77,12 +77,14 @@ const SETTINGS_ROLES: ReadonlyArray<{ role: AgentPreset; label: string }> = [
 
 type SettingsItem =
   | { kind: "e2b" }
+  | { kind: "exa" }
   | { kind: "isolation" }
   | { kind: "telemetry-capture" }
   | { kind: "role"; role: AgentPreset; label: string };
 
 const SETTINGS_ITEMS: readonly SettingsItem[] = [
   { kind: "e2b" },
+  { kind: "exa" },
   { kind: "isolation" },
   { kind: "telemetry-capture" },
   ...SETTINGS_ROLES.map((r) => ({ kind: "role" as const, role: r.role, label: r.label })),
@@ -148,6 +150,7 @@ export function App(props: {
     activate: boolean,
   ) => void;
   onConfigureE2b: (apiKey: string) => void;
+  onConfigureExa: (apiKey: string) => void;
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -163,6 +166,7 @@ export function App(props: {
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
   const [e2bPrompt, setE2bPrompt] = createSignal(false);
+  const [exaPrompt, setExaPrompt] = createSignal(false);
   const toolExpand = createToolExpandState();
   const renderer = useRenderer();
   onCleanup(props.controller.subscribe(setState));
@@ -194,6 +198,7 @@ export function App(props: {
     && palette() === null
     && configPrompt() === null
     && !e2bPrompt()
+    && !exaPrompt()
     && !submitting();
 
   const pasteShortcutEnabled = () =>
@@ -374,6 +379,12 @@ export function App(props: {
     props.controller.clearInput();
   };
 
+  const closeExaPrompt = () => {
+    setExaPrompt(false);
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+  };
+
   const closeConfigPrompt = () => {
     setConfigPrompt(null);
     if (inputRef) inputRef.value = "";
@@ -416,6 +427,19 @@ export function App(props: {
     props.controller.clearInput();
     closeE2bPrompt();
     props.onConfigureE2b(trimmed);
+  };
+
+  const handleExaSubmit = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      props.controller.setStatusHint("API key required — Esc to cancel");
+      return;
+    }
+
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+    closeExaPrompt();
+    props.onConfigureExa(trimmed);
   };
 
   const handleConfigSubmit = (raw: string) => {
@@ -559,6 +583,10 @@ export function App(props: {
         setE2bPrompt(true);
         props.controller.setStatusHint(result.message);
         return;
+      case "configure-exa":
+        setExaPrompt(true);
+        props.controller.setStatusHint(result.message);
+        return;
       case "open-settings":
         if (inputRef) inputRef.value = "";
         props.controller.clearInput();
@@ -692,6 +720,16 @@ export function App(props: {
         );
         return;
       }
+      if (item.kind === "exa") {
+        setPalette(null);
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        setExaPrompt(true);
+        props.controller.setStatusHint(
+          "Configure Exa: paste your API key (get one at https://dashboard.exa.ai/api-keys) · Esc to cancel",
+        );
+        return;
+      }
       if (item.kind === "isolation") {
         const currentIdx = ISOLATION_MODES.indexOf(loadConfig().subagent.isolation);
         setPalette({ phase: "settings-isolation", index: Math.max(0, currentIdx) });
@@ -795,6 +833,10 @@ export function App(props: {
       handleE2bSubmit(raw);
       return;
     }
+    if (exaPrompt()) {
+      handleExaSubmit(raw);
+      return;
+    }
 
     // If palette is open, Enter selects unless the input is an actionable slash command.
     if (palette() !== null) {
@@ -848,7 +890,7 @@ export function App(props: {
     const value = sanitizePromptInput(rawValue);
     if (value !== rawValue && inputRef) inputRef.value = value;
     props.controller.setInput(value);
-    if (configPrompt() !== null || e2bPrompt()) return;
+    if (configPrompt() !== null || e2bPrompt() || exaPrompt()) return;
 
     const p = palette();
 
@@ -896,6 +938,11 @@ export function App(props: {
       }
       if (e2bPrompt()) {
         closeE2bPrompt();
+        props.controller.setStatusHint("configuration cancelled");
+        return;
+      }
+      if (exaPrompt()) {
+        closeExaPrompt();
         props.controller.setStatusHint("configuration cancelled");
         return;
       }
@@ -952,6 +999,14 @@ export function App(props: {
     if (e2bPrompt()) {
       if (key.name === "escape") {
         closeE2bPrompt();
+        props.controller.setStatusHint("configuration cancelled");
+      }
+      return;
+    }
+
+    if (exaPrompt()) {
+      if (key.name === "escape") {
+        closeExaPrompt();
         props.controller.setStatusHint("configuration cancelled");
       }
       return;
@@ -1227,6 +1282,27 @@ export function App(props: {
           </box>
         </Show>
 
+        <Show when={exaPrompt()}>
+          <box
+            flexShrink={0}
+            flexDirection="column"
+            marginBottom={1}
+            paddingLeft={1}
+            paddingRight={1}
+            borderStyle="rounded"
+            border
+            borderColor={theme.accent}
+            backgroundColor={theme.codeBg}
+          >
+            <text fg={theme.accent} attributes={BOLD}>
+              Exa setup
+            </text>
+            <text fg={theme.secondary}>
+              Paste your Exa API key (saved to ~/.orin/config.json, enables the web_search tool)
+            </text>
+          </box>
+        </Show>
+
         <Show when={palette()}>
           {(p) => (
             <box
@@ -1349,19 +1425,23 @@ export function App(props: {
                     const label = () =>
                       item.kind === "e2b"
                         ? "E2B API key"
-                        : item.kind === "isolation"
-                          ? "Subagent isolation"
-                          : item.kind === "telemetry-capture"
-                            ? "Telemetry content capture"
-                            : item.label;
+                        : item.kind === "exa"
+                          ? "Exa API key"
+                          : item.kind === "isolation"
+                            ? "Subagent isolation"
+                            : item.kind === "telemetry-capture"
+                              ? "Telemetry content capture"
+                              : item.label;
                     const value = () =>
                       item.kind === "e2b"
                         ? (hasE2BApiKey() ? "configured" : "not configured")
-                        : item.kind === "isolation"
-                          ? cfg().subagent.isolation
-                          : item.kind === "telemetry-capture"
-                            ? (cfg().telemetry.otel.captureContent ? "on" : "off")
-                            : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
+                        : item.kind === "exa"
+                          ? (hasExaApiKey() ? "configured" : "not configured")
+                          : item.kind === "isolation"
+                            ? cfg().subagent.isolation
+                            : item.kind === "telemetry-capture"
+                              ? (cfg().telemetry.otel.captureContent ? "on" : "off")
+                              : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>

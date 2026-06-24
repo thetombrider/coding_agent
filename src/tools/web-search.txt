@@ -1,0 +1,5 @@
+Search the public web via Exa and return relevant pages with excerpts. Read-only.
+
+Use this when you need current information, documentation, or sources you do not already have in the repo. Prefer repo tools (grep, read, search_symbols) for code in the workspace; use fetch when you already have a specific URL.
+
+Requires tools.exa.apiKey in ~/.orin/config.json (set with /settings exa). Output is truncated at 100KB.
