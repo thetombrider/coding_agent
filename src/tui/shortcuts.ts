@@ -47,10 +47,10 @@ export function clipboardHintText(
   platform: NodeJS.Platform = process.platform,
 ): string {
   if (platform === "darwin" && blocksNativeCopyShortcut(env)) {
-    return "select · c copy · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand";
+    return "select · c copy · ⌘⇧C all · ⌘V paste · Ctrl+O block · click expand";
   }
   if (platform === "darwin") {
-    return "select · ⌘C · ⌘⇧C all · ⌘V paste · Ctrl+O block · o expand · c expanded";
+    return "select · ⌘C · ⌘⇧C all · ⌘V paste · Ctrl+O block · click expand · c expanded";
   }
-  return "select · Ctrl+Shift+C · Ctrl+Y all · Ctrl+Shift+V paste · Ctrl+O block · o expand · c expanded";
+  return "select · Ctrl+Shift+C · Ctrl+Y all · Ctrl+Shift+V paste · Ctrl+O block · click expand · c expanded";
 }

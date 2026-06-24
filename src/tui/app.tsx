@@ -1055,17 +1055,6 @@ export function App(props: {
         }
       }
     }
-    if (
-      key.name === "o"
-      && phase === "input"
-      && palette() === null
-      && configPrompt() === null
-      && !e2bPrompt()
-      && !submitting()
-    ) {
-      toolExpand.toggleHovered();
-      return;
-    }
     const page = Math.max(3, Math.floor(scrollRef.viewport.height / 2));
     switch (key.name) {
       case "up":
