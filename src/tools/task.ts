@@ -171,7 +171,8 @@ export async function runSubagentTask(
         event.type === "tool_start" ||
         event.type === "tool_end" ||
         event.type === "assistant_message" ||
-        event.type === "llm_start"
+        event.type === "llm_start" ||
+        event.type === "reasoning_delta"
       ) {
         host.hooks.emit({ ...event, subagentId });
       }

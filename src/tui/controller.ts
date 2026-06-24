@@ -405,17 +405,30 @@ export function createSessionController(meta: SessionMeta): SessionController {
           update({ streamingText: state.streamingText + event.text });
           break;
         case "llm_start": {
-          const segId = randomUUID();
-          update({
-            streamingReasoningSegments: [
-              ...state.streamingReasoningSegments,
-              { id: segId, text: "" },
-            ],
-            currentBlocks: [
-              ...state.currentBlocks,
-              { type: "reasoning" as const, id: segId, text: "" },
-            ],
-          });
+          const lastBlock = state.currentBlocks[state.currentBlocks.length - 1];
+          if (lastBlock?.type === "reasoning") {
+            update({
+              streamingReasoningSegments: state.streamingReasoningSegments.map(
+                (s) => (s.id === lastBlock.id ? { ...s, text: s.text + "\n" } : s),
+              ),
+              currentBlocks: state.currentBlocks.map((b) =>
+                b.type === "reasoning" && b.id === lastBlock.id ? { ...b, text: b.text + "\n" } : b,
+              ),
+            });
+            break;
+          } else {
+            const segId = randomUUID();
+            update({
+              streamingReasoningSegments: [
+                ...state.streamingReasoningSegments,
+                { id: segId, text: "" },
+              ],
+              currentBlocks: [
+                ...state.currentBlocks,
+                { type: "reasoning" as const, id: segId, text: "" },
+              ],
+            });
+          }
           break;
         }
         case "reasoning_delta": {

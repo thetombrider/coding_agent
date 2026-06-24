@@ -223,11 +223,17 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
   const text = () => props.text;
   const toolExpand = useToolExpand();
   const hasText = () => text().length > 0;
-  const [expanded, setExpanded] = createSignal(false);
+  const [localExpanded, setLocalExpanded] = createSignal(toolExpand?.isExpanded(props.id) ?? false);
+
+  const expanded = () => localExpanded();
+  const setExpanded = (value: boolean) => {
+    setLocalExpanded(value);
+    toolExpand?.setExpanded(props.id, value);
+  };
 
   const toggleExpanded = () => {
     if (!hasText()) return;
-    setExpanded((value) => !value);
+    setExpanded(!expanded());
   };
 
   onMount(() => {
