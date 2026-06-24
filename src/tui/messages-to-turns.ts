@@ -1,5 +1,5 @@
 import type { Message } from "../types.js";
-import type { ToolEntry, Turn } from "./controller.js";
+import type { ToolEntry, Turn, TurnBlock } from "./controller.js";
 
 function textFromMessage(msg: Message): string {
   return msg.content
@@ -14,10 +14,11 @@ interface TurnBuilder {
   reasoningText: string;
   tools: ToolEntry[];
   toolById: Map<string, ToolEntry>;
+  blocks: TurnBlock[];
 }
 
 function startTurn(userText: string): TurnBuilder {
-  return { userText, assistantText: "", reasoningText: "", tools: [], toolById: new Map() };
+  return { userText, assistantText: "", reasoningText: "", tools: [], toolById: new Map(), blocks: [] };
 }
 
 function finishTurn(builder: TurnBuilder): Turn {
@@ -26,6 +27,7 @@ function finishTurn(builder: TurnBuilder): Turn {
     assistantText: builder.assistantText,
     reasoningText: builder.reasoningText || undefined,
     tools: builder.tools,
+    blocks: builder.blocks,
   };
 }
 
@@ -50,12 +52,18 @@ export function messagesToTurns(messages: Message[]): Turn[] {
     if (!current) continue;
 
     if (msg.role === "assistant") {
+      let pendingReasoning = "";
       for (const block of msg.content) {
         if (block.type === "reasoning") {
-          current.reasoningText += block.text;
+          pendingReasoning += block.text;
         } else if (block.type === "text") {
           current.assistantText += block.text;
         } else if (block.type === "toolCall" && !current.toolById.has(block.id)) {
+          if (pendingReasoning) {
+            current.reasoningText += pendingReasoning;
+            current.blocks.push({ type: "reasoning", id: `replay-${current.blocks.length}`, text: pendingReasoning });
+            pendingReasoning = "";
+          }
           const entry: ToolEntry = {
             id: block.id,
             name: block.name,
@@ -64,7 +72,12 @@ export function messagesToTurns(messages: Message[]): Turn[] {
           };
           current.tools.push(entry);
           current.toolById.set(block.id, entry);
+          current.blocks.push({ type: "tool", entry });
         }
+      }
+      if (pendingReasoning) {
+        current.reasoningText += pendingReasoning;
+        current.blocks.push({ type: "reasoning", id: `replay-${current.blocks.length}`, text: pendingReasoning });
       }
       continue;
     }

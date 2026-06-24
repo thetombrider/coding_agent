@@ -419,7 +419,9 @@ export function TurnView(props: {
 }) {
   const turn = () => props.turn;
   const hasTools = () => turn().tools.length > 0;
-  const showReasoning = () => !!turn().reasoningText || props.reasoningStreaming;
+  const hasBlocks = () => turn().blocks.length > 0;
+  const showLegacyReasoning = () =>
+    !hasBlocks() && (!!turn().reasoningText || props.reasoningStreaming);
 
   return (
     <box flexDirection="column" marginBottom={1}>
@@ -434,18 +436,40 @@ export function TurnView(props: {
           <text selectable {...surfaceSelection(theme.bg, theme.user)} fg={theme.user} attributes={BOLD} flexGrow={1} wrapMode="word">{turn().userText}</text>
         </box>
       </Show>
-      <Show when={showReasoning()}>
+      <Show when={showLegacyReasoning()}>
         <ReasoningBlock
           id={props.reasoningId ?? "reasoning"}
           text={turn().reasoningText ?? ""}
           streaming={props.reasoningStreaming}
         />
       </Show>
-      <For each={turn().tools}>
-        {(entry) => <ToolBlock entry={entry} expandKeyPrefix={props.turnKey} />}
-      </For>
+      <Show when={hasBlocks()}>
+        <For each={turn().blocks}>
+          {(block) => {
+            if (block.type === "reasoning") {
+              const lastBlock = turn().blocks[turn().blocks.length - 1];
+              const isLast = lastBlock?.type === "reasoning" && lastBlock.id === block.id;
+              return (
+                <ReasoningBlock
+                  id={`${props.turnKey}/${block.id}`}
+                  text={block.text}
+                  streaming={props.reasoningStreaming && isLast && !turn().assistantText}
+                />
+              );
+            }
+            return (
+              <ToolBlock entry={block.entry} expandKeyPrefix={`${props.turnKey}/${block.entry.id}`} />
+            );
+          }}
+        </For>
+      </Show>
+      <Show when={!hasBlocks()}>
+        <For each={turn().tools}>
+          {(entry) => <ToolBlock entry={entry} expandKeyPrefix={props.turnKey} />}
+        </For>
+      </Show>
       <Show when={turn().assistantText}>
-        <box flexDirection="column" marginTop={hasTools() ? 1 : 0}>
+        <box flexDirection="column" marginTop={hasTools() || hasBlocks() ? 1 : 0}>
           <Markdown content={turn().assistantText} />
         </box>
       </Show>

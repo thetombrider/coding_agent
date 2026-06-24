@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentEvent } from "../agent/events.js";
 import type { SessionCostSnapshot } from "../telemetry/events.js";
 import type { SandboxKind } from "../workspace/types.js";
@@ -37,11 +38,16 @@ export interface PendingQuestion {
   options: string[];
 }
 
+export type TurnBlock =
+  | { type: "reasoning"; id: string; text: string }
+  | { type: "tool"; entry: ToolEntry };
+
 export interface Turn {
   userText: string;
   assistantText: string;
   reasoningText?: string;
   tools: ToolEntry[];
+  blocks: TurnBlock[];
 }
 
 export interface SessionMeta {
@@ -70,6 +76,10 @@ export interface SessionState {
   streamingText: string;
   streamingReasoning: string;
   currentTools: ToolEntry[];
+  /** Ordered reasoning segments, each tied to an LLM call boundary. */
+  streamingReasoningSegments: Array<{ id: string; text: string }>;
+  /** Interleaved reasoning + tool blocks in display order. */
+  currentBlocks: TurnBlock[];
   todos: TodoItem[];
   phase: SessionPhase;
   pendingApproval: PendingApproval | null;
@@ -214,6 +224,8 @@ export function createSessionController(meta: SessionMeta): SessionController {
     streamingText: "",
     streamingReasoning: "",
     currentTools: [],
+    streamingReasoningSegments: [],
+    currentBlocks: [],
     todos: [],
     phase: "input",
     pendingApproval: null,
@@ -282,6 +294,8 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingText: "",
         streamingReasoning: "",
         currentTools: [],
+        streamingReasoningSegments: [],
+        currentBlocks: [],
         phase: "running",
         statusHint: RUNNING_HINT,
       });
@@ -289,20 +303,26 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
     finalizeTurn() {
       if (!state.currentUserText) return;
+      const allReasoning = state.streamingReasoningSegments
+        .map((s) => s.text)
+        .join("");
       update({
         completedTurns: [
           ...state.completedTurns,
           {
             userText: state.currentUserText,
             assistantText: state.streamingText,
-            reasoningText: state.streamingReasoning || undefined,
+            reasoningText: allReasoning || undefined,
             tools: state.currentTools,
+            blocks: state.currentBlocks,
           },
         ],
         currentUserText: "",
         streamingText: "",
         streamingReasoning: "",
         currentTools: [],
+        streamingReasoningSegments: [],
+        currentBlocks: [],
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_HINT,
@@ -316,6 +336,8 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingText: "",
         streamingReasoning: "",
         currentTools: [],
+        streamingReasoningSegments: [],
+        currentBlocks: [],
         todos: [],
         phase: "input",
         pendingQuestion: null,
@@ -330,6 +352,8 @@ export function createSessionController(meta: SessionMeta): SessionController {
         streamingText: "",
         streamingReasoning: "",
         currentTools: [],
+        streamingReasoningSegments: [],
+        currentBlocks: [],
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_HINT,
@@ -380,9 +404,48 @@ export function createSessionController(meta: SessionMeta): SessionController {
         case "text_delta":
           update({ streamingText: state.streamingText + event.text });
           break;
-        case "reasoning_delta":
-          update({ streamingReasoning: state.streamingReasoning + event.text });
+        case "llm_start": {
+          const segId = randomUUID();
+          update({
+            streamingReasoningSegments: [
+              ...state.streamingReasoningSegments,
+              { id: segId, text: "" },
+            ],
+            currentBlocks: [
+              ...state.currentBlocks,
+              { type: "reasoning" as const, id: segId, text: "" },
+            ],
+          });
           break;
+        }
+        case "reasoning_delta": {
+          const segs = state.streamingReasoningSegments;
+          if (segs.length === 0) {
+            const segId = randomUUID();
+            update({
+              streamingReasoningSegments: [{ id: segId, text: event.text }],
+              streamingReasoning: state.streamingReasoning + event.text,
+              currentBlocks: [
+                ...state.currentBlocks,
+                { type: "reasoning" as const, id: segId, text: event.text },
+              ],
+            });
+          } else {
+            const updated = [...segs];
+            const last = updated[updated.length - 1]!;
+            updated[updated.length - 1] = { ...last, text: last.text + event.text };
+            update({
+              streamingReasoningSegments: updated,
+              streamingReasoning: state.streamingReasoning + event.text,
+              currentBlocks: state.currentBlocks.map((b) =>
+                b.type === "reasoning" && b.id === last.id
+                  ? { ...b, text: b.text + event.text }
+                  : b,
+              ),
+            });
+          }
+          break;
+        }
         case "assistant_message":
           break;
         case "approval_required":
@@ -393,13 +456,6 @@ export function createSessionController(meta: SessionMeta): SessionController {
           });
           break;
         case "tool_start": {
-          // A pending question/approval is modal. askuser (and the approval
-          // gate) block while their sibling tools in the same parallel batch
-          // keep running and emit their own tool_start — which must NOT reset
-          // the phase or dismiss the prompt. Otherwise the UI desyncs: the
-          // QuestionBar/ApprovalBar stays up but `phase` flips to "running",
-          // so arrow/Enter handling stops and Ctrl+C can't cancel the
-          // still-awaiting prompt. Record the tool, but leave the modal intact.
           const modalPending = state.pendingQuestion !== null || state.pendingApproval !== null;
           if (event.subagentId) {
             const agent = findSubagentAgent(state.currentTools, event.subagentId);
@@ -425,7 +481,20 @@ export function createSessionController(meta: SessionMeta): SessionController {
           });
           const previewTodos =
             event.name === "todowrite" ? todosFromToolArgs(event.args) : undefined;
-          const patch: Partial<SessionState> = {};
+          const patch: Partial<SessionState> = {
+            currentBlocks: [
+              ...state.currentBlocks,
+              {
+                type: "tool" as const,
+                entry: {
+                  id: event.id,
+                  name: event.name,
+                  args: event.args,
+                  status: "running" as const,
+                },
+              },
+            ],
+          };
           if (!modalPending) {
             patch.pendingApproval = null;
             patch.phase = "running";
@@ -454,6 +523,19 @@ export function createSessionController(meta: SessionMeta): SessionController {
             args: state.currentTools.find((t) => t.id === event.id)?.args ?? {},
             status: event.isError ? "error" : "done",
             output: event.output,
+          });
+          update({
+            currentBlocks: state.currentBlocks.map((b) => {
+              if (b.type !== "tool" || b.entry.id !== event.id) return b;
+              return {
+                ...b,
+                entry: {
+                  ...b.entry,
+                  status: event.isError ? "error" as const : "done" as const,
+                  output: event.output,
+                },
+              };
+            }),
           });
           break;
         case "todo_update":

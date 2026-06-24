@@ -127,6 +127,7 @@ function currentTurn(state: SessionState): Turn | null {
     assistantText: state.streamingText,
     reasoningText: state.streamingReasoning || undefined,
     tools: state.currentTools,
+    blocks: state.currentBlocks,
   };
 }
 

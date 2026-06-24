@@ -14,6 +14,8 @@ const baseState = (): SessionState => ({
   streamingText: "",
   streamingReasoning: "",
   currentTools: [],
+  streamingReasoningSegments: [],
+  currentBlocks: [],
   phase: "input",
   pendingApproval: null,
   pendingQuestion: null,
@@ -29,6 +31,7 @@ describe("plaintext", () => {
       reasoningText: "internal steps",
       assistantText: "done",
       tools: [],
+      blocks: [],
     });
     expect(text).toContain("thinking:\ninternal steps");
     expect(text).toContain("done");
@@ -38,6 +41,7 @@ describe("plaintext", () => {
     const text = turnToPlainText({
       userText: "read package.json",
       assistantText: "It has two deps.",
+      blocks: [],
       tools: [
         {
           id: "1",
@@ -56,10 +60,11 @@ describe("plaintext", () => {
   it("serializes the visible conversation", () => {
     const state = baseState();
     state.completedTurns = [
-      { userText: "hi", assistantText: "hello", tools: [] },
+      { userText: "hi", assistantText: "hello", tools: [], blocks: [] },
       {
         userText: "run ls",
         assistantText: "done",
+        blocks: [],
         tools: [{ id: "2", name: "bash", args: { command: "ls" }, status: "done", output: "src" }],
       },
     ];
@@ -75,11 +80,13 @@ describe("plaintext", () => {
       {
         userText: "one",
         assistantText: "first reply",
+        blocks: [],
         tools: [{ id: "1", name: "read", args: {}, status: "done", output: "old" }],
       },
       {
         userText: "two",
         assistantText: "latest reply",
+        blocks: [],
         tools: [{ id: "2", name: "bash", args: { command: "pwd" }, status: "done", output: "/tmp" }],
       },
     ];
@@ -89,12 +96,12 @@ describe("plaintext", () => {
 
     const toolOnly = baseState();
     toolOnly.completedTurns = [
-      { userText: "go", assistantText: "", tools: [{ id: "3", name: "bash", args: {}, status: "done", output: "ok" }] },
+      { userText: "go", assistantText: "", tools: [{ id: "3", name: "bash", args: {}, status: "done", output: "ok" }], blocks: [] },
     ];
     expect(pickFocusedCopyText(toolOnly)).toBe(toolEntryToPlainText(toolOnly.completedTurns[0]!.tools[0]!));
 
     const assistantOnly = baseState();
-    assistantOnly.completedTurns = [{ userText: "hi", assistantText: "only text", tools: [] }];
+    assistantOnly.completedTurns = [{ userText: "hi", assistantText: "only text", tools: [], blocks: [] }];
     expect(pickFocusedCopyText(assistantOnly)).toBe("only text");
   });
 });
