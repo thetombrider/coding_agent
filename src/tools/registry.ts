@@ -7,6 +7,7 @@ import { fileOpTool } from "./file-op.js";
 import { findTool } from "./find.js";
 import { grepTool } from "./grep.js";
 import { lsTool } from "./ls.js";
+import { searchSymbolsTool } from "./search-symbols.js";
 import { readTool } from "./read.js";
 import { taskTool } from "./task.js";
 import { todowriteTool } from "./todowrite.js";
@@ -24,6 +25,7 @@ const ALL_TOOLS: AnyTool[] = [
   findTool,
   lsTool,
   fetchTool,
+  searchSymbolsTool,
   fileOpTool,
   delegateReadTool,
   todowriteTool,

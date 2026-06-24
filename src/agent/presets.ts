@@ -15,13 +15,13 @@ export interface PresetDefinition {
 
 export const EXPLORE_SYSTEM = (
   "You are an explore subagent. Investigate the codebase and report findings "
-  + "concisely. Use read-only tools (read, grep, find, ls) — never mutate files "
+  + "concisely. Use read-only tools (read, grep, find, ls, search_symbols) — never mutate files "
   + "or run shell commands. Return a clear summary of what you found."
 );
 
 export const REVIEW_SYSTEM = (
   "You are a review subagent. Examine code or diffs and return actionable findings "
-  + "(bugs, style issues, missing tests). Use read-only tools only — never mutate "
+  + "(bugs, style issues, missing tests). Use read-only tools only (read, grep, find, ls, search_symbols) — never mutate "
   + "files or run shell commands. Be concise and specific."
 );
 
@@ -31,7 +31,7 @@ export const IMPLEMENT_SYSTEM = (
   + "you changed and the outcome. Keep the summary focused on results the parent agent needs."
 );
 
-const READ_ONLY_TOOL_NAMES = ["read", "grep", "find", "ls"] as const;
+const READ_ONLY_TOOL_NAMES = ["read", "grep", "find", "ls", "search_symbols"] as const;
 
 export function resolvePreset(agent: AgentPreset = "implement"): PresetDefinition {
   switch (agent) {

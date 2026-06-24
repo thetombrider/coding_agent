@@ -7,14 +7,14 @@ describe("agent presets", () => {
     const preset = resolvePreset("explore");
     expect(preset.mutating).toBe(false);
     expect(preset.defaultIsolation).toBe("shared");
-    expect(preset.tools.map((t) => t.name)).toEqual(["read", "grep", "find", "ls"]);
+    expect(preset.tools.map((t) => t.name)).toEqual(["read", "grep", "find", "ls", "search_symbols"]);
   });
 
   it("review preset is read-only with shared default isolation", () => {
     const preset = resolvePreset("review");
     expect(preset.mutating).toBe(false);
     expect(preset.defaultIsolation).toBe("shared");
-    expect(preset.tools.map((t) => t.name)).toEqual(["read", "grep", "find", "ls"]);
+    expect(preset.tools.map((t) => t.name)).toEqual(["read", "grep", "find", "ls", "search_symbols"]);
   });
 
   it("implement preset is mutating with shared default and excludes task/todowrite", () => {
