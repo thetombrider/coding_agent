@@ -43,4 +43,17 @@ describe("SymbolIndex", () => {
     expect(index.getDefinitions("foo")).toEqual([]);
     expect(index.fileCount).toBe(0);
   });
+
+  it("bulk-loads files and rebuilds the call graph once", () => {
+    const index = new SymbolIndex();
+    const helper = fn("src/a.ts", "helper", 1);
+    const main = fn("src/b.ts", "main", 10);
+    const refs: Reference[] = [{ fromId: main.id, to: "helper", file: "src/b.ts", line: 12, type: "call" }];
+    index.loadFiles([
+      { file: "src/a.ts", symbols: [helper], references: [] },
+      { file: "src/b.ts", symbols: [main], references: refs },
+    ]);
+    expect(index.getCallers("helper").map((s) => s.name)).toEqual(["main"]);
+    expect(index.fileCount).toBe(2);
+  });
 });

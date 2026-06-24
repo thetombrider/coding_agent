@@ -21,18 +21,39 @@ export class SymbolIndex {
   }
 
   replaceFile(file: string, symbols: Symbol[], references: Reference[]): void {
-    this.removeFile(file);
-    this.byFile.set(file, symbols);
-    for (const sym of symbols) {
-      const list = this.byName.get(sym.name) ?? [];
-      list.push(sym);
-      this.byName.set(sym.name, list);
+    this.removeFileWithoutRebuild(file);
+    this.addFileWithoutRebuild(file, symbols, references);
+    this.rebuildCallGraph();
+  }
+
+  loadFiles(entries: Array<{ file: string; symbols: Symbol[]; references: Reference[] }>): void {
+    for (const entry of entries) {
+      this.removeFileWithoutRebuild(entry.file);
+      this.addFileWithoutRebuild(entry.file, entry.symbols, entry.references);
     }
-    for (const ref of references) this.references.push(ref);
     this.rebuildCallGraph();
   }
 
   removeFile(file: string): void {
+    if (!this.byFile.has(file)) return;
+    this.removeFileWithoutRebuild(file);
+    this.rebuildCallGraph();
+  }
+
+  getFileData(file: string): { symbols: Symbol[]; references: Reference[] } | null {
+    const symbols = this.byFile.get(file);
+    if (!symbols) return null;
+    return {
+      symbols: [...symbols],
+      references: this.references.filter((ref) => ref.file === file),
+    };
+  }
+
+  indexedFiles(): string[] {
+    return [...this.byFile.keys()];
+  }
+
+  private removeFileWithoutRebuild(file: string): void {
     const old = this.byFile.get(file);
     if (!old) return;
 
@@ -52,7 +73,16 @@ export class SymbolIndex {
     }
     this.references.length = 0;
     this.references.push(...remainingRefs);
-    this.rebuildCallGraph();
+  }
+
+  private addFileWithoutRebuild(file: string, symbols: Symbol[], references: Reference[]): void {
+    this.byFile.set(file, symbols);
+    for (const sym of symbols) {
+      const list = this.byName.get(sym.name) ?? [];
+      list.push(sym);
+      this.byName.set(sym.name, list);
+    }
+    for (const ref of references) this.references.push(ref);
   }
 
   getDefinitions(name: string): Symbol[] {
