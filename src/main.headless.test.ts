@@ -37,7 +37,7 @@ describe.runIf(bunAvailable())("orin --headless --faux", () => {
       cwd: work,
       encoding: "utf8",
       timeout: 60000,
-      env: { ...process.env, HOME: home, OPENROUTER_API_KEY: "dummy" },
+      env: { ...process.env, HOME: home },
     });
 
     expect(result.status).toBe(0);
@@ -52,7 +52,7 @@ describe.runIf(bunAvailable())("orin --headless --faux", () => {
       cwd: work,
       encoding: "utf8",
       timeout: 60000,
-      env: { ...process.env, HOME: home, OPENROUTER_API_KEY: "dummy" },
+      env: { ...process.env, HOME: home },
     });
 
     expect(result.status).toBe(1);

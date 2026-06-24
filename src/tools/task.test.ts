@@ -9,10 +9,12 @@ import { join } from "node:path";
 let configHome: string;
 let prevHome: string | undefined;
 
-beforeEach(() => {
+beforeEach(async () => {
   prevHome = process.env.HOME;
   configHome = mkdtempSync(join(tmpdir(), "orin-task-test-"));
   process.env.HOME = configHome;
+  const { __testClearCache } = await import("../config/config.js");
+  __testClearCache();
 });
 
 afterEach(() => {
@@ -136,7 +138,6 @@ describe("runSubagentTask", () => {
   });
 
   it("implement defaults to shared and persists edits to the local tree (no E2B)", async () => {
-    vi.stubEnv("E2B_API_KEY", "");
     const dir = mkdtempSync(join(tmpdir(), "orin-shared-"));
     try {
       const provider = createStatefulFauxProvider([
@@ -158,7 +159,6 @@ describe("runSubagentTask", () => {
       expect(readFileSync(join(dir, "out.txt"), "utf8")).toBe("persisted");
     } finally {
       rmSync(dir, { recursive: true, force: true });
-      vi.unstubAllEnvs();
     }
   });
 
@@ -203,9 +203,8 @@ describe("runSubagentTask", () => {
   });
 
   it("escalates to the config isolation floor when the model requests less", async () => {
-    // Floor = worktree via env override; an implement task with no isolation arg
-    // (would default to shared) must be clamped up to worktree.
-    vi.stubEnv("ORIN_SUBAGENT_ISOLATION", "worktree");
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ subagent: { isolation: "worktree" } });
     const dir = mkdtempSync(join(tmpdir(), "orin-wt-floor-"));
     const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
     try {
@@ -233,7 +232,6 @@ describe("runSubagentTask", () => {
       // Ran on a branch, not the host tree.
       expect(existsSync(join(dir, "child.txt"))).toBe(false);
     } finally {
-      vi.unstubAllEnvs();
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -266,7 +264,8 @@ describe("runSubagentTask", () => {
   });
 
   it("runs implement subagent in a sandbox and disposes the workspace", async () => {
-    vi.stubEnv("E2B_API_KEY", "test-key");
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ sandbox: { e2b: { apiKey: "test-key" } } });
     const dispose = vi.fn(async () => {});
     const exec = vi.fn(async () => ({ exitCode: 0 }));
     const sandbox = {
@@ -298,11 +297,9 @@ describe("runSubagentTask", () => {
     expect(result.output).toContain("Subagent (implement) finished");
     expect(result.output).toContain("README");
     expect(dispose).toHaveBeenCalledOnce();
-    vi.unstubAllEnvs();
   });
 
   it("rejects sandbox isolation without an E2B API key", async () => {
-    vi.stubEnv("E2B_API_KEY", "");
     const provider = createStatefulFauxProvider([{ text: ["unused"] }]);
     const ctx = baseCtx({ loopHost: loopHost(provider) });
 
@@ -318,8 +315,7 @@ describe("runSubagentTask", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain("E2B_API_KEY is not set");
-    vi.unstubAllEnvs();
+    expect(result.output).toContain("E2B is not configured");
   });
 
   it("blocks recursion beyond max depth", async () => {

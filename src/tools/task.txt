@@ -11,7 +11,7 @@ Isolation (optional, defaults per preset):
 - worktree: runs in a git worktree on a fresh branch; edits persist to that branch
   (isolated from your tree) and the summary reports the branch + diff stat. Use this
   for risky/large changes you want to review on a branch before merging.
-- sandbox: ephemeral E2B cloud clone; edits are discarded on exit (requires E2B_API_KEY).
+- sandbox: ephemeral E2B cloud clone; edits are discarded on exit (requires sandbox.e2b.apiKey in ~/.orin/config.json).
   For untrusted code only — its changes do not flow back.
 The user configures a minimum isolation floor; you may request a more-isolated mode
 than the default but a weaker request is raised to the floor.

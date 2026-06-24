@@ -566,24 +566,16 @@ describe("resolveOtelUserId", () => {
     prevHome = process.env.HOME;
     home = mkdtempSync(join(tmpdir(), "orin-otel-user-"));
     process.env.HOME = home;
-    delete process.env.OTEL_USER_ID;
     vi.resetModules();
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    delete process.env.OTEL_USER_ID;
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("prefers OTEL_USER_ID env over config", async () => {
-    process.env.OTEL_USER_ID = "env-user";
-    const { resolveOtelUserId } = await import("./config.js");
-    expect(resolveOtelUserId(enabledCfg)).toBe("env-user");
-  });
-
-  it("reads userId from config when env is absent", async () => {
+  it("reads userId from config", async () => {
     const { saveConfig } = await import("../../config/config.js");
     saveConfig({ telemetry: { otel: { userId: "cfg-user" } } });
     const { resolveOtelUserId } = await import("./config.js");

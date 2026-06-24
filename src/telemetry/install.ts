@@ -11,14 +11,12 @@ const now = () => new Date().toISOString();
 
 /** Whether the JSONL/stdout sinks are allowed. The session sink ignores this. */
 export function telemetryEnabled(): boolean {
-  const optOut = process.env.ORIN_NO_TELEMETRY?.trim().toLowerCase();
-  if (optOut === "1" || optOut === "true") return false;
   return loadConfig().telemetry.enabled !== false;
 }
 
 /**
  * Build the standard local sink list. The JSONL sink (and stdout when
- * `ORIN_TELEMETRY_STDOUT=1`) are suppressed by the telemetry opt-out, but an
+ * `telemetry.stdout` is true) are suppressed by the telemetry opt-out, but an
  * injected session-log writer always gets a sink so the TUI/session record is
  * unaffected by the opt-out.
  */
@@ -28,7 +26,7 @@ export function createDefaultSinks(opts: {
   const sinks: MetricSink[] = [];
   if (telemetryEnabled()) {
     sinks.push(jsonlSink(loadConfig().telemetry.metricsFile));
-    if (process.env.ORIN_TELEMETRY_STDOUT?.trim() === "1") sinks.push(stdoutSink());
+    if (loadConfig().telemetry.stdout) sinks.push(stdoutSink());
   }
   if (opts.sessionWrite) sinks.push(sessionLogSink(opts.sessionWrite));
   return sinks;

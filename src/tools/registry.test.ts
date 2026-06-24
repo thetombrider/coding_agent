@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { getChildTools, getCoreTools } from "./registry.js";
 
 describe("tool registry", () => {
@@ -10,13 +10,7 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "askuser")).toBe(true);
   });
 
-  it("includes task in core tools without an E2B key (shared/worktree run locally)", () => {
-    vi.stubEnv("E2B_API_KEY", "");
-    expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
-  });
-
-  it("includes task in core tools when E2B is configured", () => {
-    vi.stubEnv("E2B_API_KEY", "test-key");
+  it("includes task in core tools", () => {
     expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
   });
 

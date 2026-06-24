@@ -1,12 +1,15 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
 import type { ModelPricing } from "../config/config.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import type { AssistantMessage } from "../provider/types.js";
 import { testAgentContext } from "../test-helpers.js";
 import type { MetricEvent } from "./events.js";
 import { SessionCostAccumulator } from "./accumulator.js";
-import { createDefaultSinks, installTelemetry, telemetryEnabled } from "./install.js";
+import { installTelemetry } from "./install.js";
 import type { MetricSink } from "./sinks.js";
 
 const ctx = testAgentContext("/tmp");
@@ -41,11 +44,6 @@ function assistantMessage(usage: AssistantMessage["usage"], subagentId?: string)
 }
 
 describe("installTelemetry", () => {
-  afterEach(() => {
-    delete process.env.ORIN_NO_TELEMETRY;
-    delete process.env.ORIN_TELEMETRY_STDOUT;
-  });
-
   it("emits a turn metric with cost + tokens on assistant_message", async () => {
     const hooks = createHookRegistry();
     const sink = collectingSink();
@@ -268,38 +266,60 @@ describe("installTelemetry", () => {
 });
 
 describe("telemetry opt-out", () => {
+  let home: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    prevHome = process.env.HOME;
+    home = mkdtempSync(join(tmpdir(), "orin-telemetry-test-"));
+    process.env.HOME = home;
+    vi.resetModules();
+  });
+
   afterEach(() => {
-    delete process.env.ORIN_NO_TELEMETRY;
-    delete process.env.ORIN_TELEMETRY_STDOUT;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
   });
 
-  it("telemetryEnabled honours ORIN_NO_TELEMETRY", () => {
-    process.env.ORIN_NO_TELEMETRY = "1";
+  it("telemetryEnabled honours telemetry.enabled in config", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ telemetry: { enabled: false } });
+    vi.resetModules();
+    const { telemetryEnabled } = await import("./install.js");
     expect(telemetryEnabled()).toBe(false);
-    delete process.env.ORIN_NO_TELEMETRY;
-    expect(telemetryEnabled()).toBe(true);
+
+    saveConfig({ telemetry: { enabled: true } });
+    vi.resetModules();
+    const { telemetryEnabled: enabledAgain } = await import("./install.js");
+    expect(enabledAgain()).toBe(true);
   });
 
-  it("keeps the session sink but drops JSONL/stdout when opted out", () => {
-    process.env.ORIN_NO_TELEMETRY = "1";
-    process.env.ORIN_TELEMETRY_STDOUT = "1";
+  it("keeps the session sink but drops JSONL/stdout when opted out", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ telemetry: { enabled: false, stdout: true } });
+    vi.resetModules();
+    const { createDefaultSinks: sinks } = await import("./install.js");
     const writes: MetricEvent[] = [];
-    const sinks = createDefaultSinks({ sessionWrite: (e) => writes.push(e) });
-    expect(sinks).toHaveLength(1);
+    const list = sinks({ sessionWrite: (e) => writes.push(e) });
+    expect(list).toHaveLength(1);
 
     const event: MetricEvent = { type: "session", sessionId: "s1", ts: "t", summary: {
       sessionId: "s1", costUsd: null, pricingMissing: false, turns: 0,
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
       modelMix: {}, sourceMix: {}, durationMs: 0, reason: "complete",
     } };
-    sinks[0].emit(event);
+    list[0].emit(event);
     expect(writes).toEqual([event]);
   });
 
-  it("includes JSONL and stdout sinks when enabled", () => {
-    process.env.ORIN_TELEMETRY_STDOUT = "1";
-    const sinks = createDefaultSinks({ sessionWrite: () => {} });
+  it("includes JSONL and stdout sinks when enabled", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ telemetry: { enabled: true, stdout: true } });
+    vi.resetModules();
+    const { createDefaultSinks } = await import("./install.js");
+    const list = createDefaultSinks({ sessionWrite: () => {} });
     // jsonl + stdout + session
-    expect(sinks.length).toBe(3);
+    expect(list.length).toBe(3);
   });
 });

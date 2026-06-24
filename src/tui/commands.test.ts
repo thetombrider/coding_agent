@@ -48,9 +48,9 @@ const provCtx: CommandContext = {
     id === "openrouter"
       ? [{ key: "apiKey", label: "OpenRouter API key", secret: true }]
       : id === "regolo"
-        ? [{ key: "apiKey", label: "Regolo AI API key", secret: true, envVar: "REGOLO_API_KEY" }]
+        ? [{ key: "apiKey", label: "Regolo AI API key", secret: true }]
         : id === "anthropic"
-          ? [{ key: "apiKey", label: "Anthropic API key", secret: true, envVar: "ANTHROPIC_API_KEY" }]
+          ? [{ key: "apiKey", label: "Anthropic API key", secret: true }]
           : [],
 };
 

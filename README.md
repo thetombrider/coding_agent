@@ -115,25 +115,25 @@ Type `/` inside the TUI to open the command palette:
 
 ## Configuration
 
-Settings resolve from **defaults → `~/.orin/config.json` → environment variables**
-(env vars win, so CI works without editing the file). Copy
-[`.env.example`](./.env.example) to `.env`, or edit the config file directly. Your
-config, sessions, keys, and checkpoints all live under `~/.orin/` and survive
-upgrades.
+All settings live in **`~/.orin/config.json`**, merged on top of built-in defaults.
+Use `/providers configure`, `/settings`, and `/model` in the TUI to change values
+at runtime — they persist to the config file. Your config, sessions, keys, and
+checkpoints all live under `~/.orin/` and survive upgrades.
 
-| Setting | Env var | Notes |
+| Setting | Config key | Notes |
 | --- | --- | --- |
-| OpenRouter API key | `OPENROUTER_API_KEY` | Default backend. Also `provider.openrouter.apiKey`. |
-| Anthropic API key | `ANTHROPIC_API_KEY` | Native Messages API (`/providers anthropic`). |
-| Regolo API key | `REGOLO_API_KEY` | EU-hosted, OpenAI-compatible (`/providers regolo`). |
-| Main model | `ORIN_MODEL` | Default agent model (default `anthropic/claude-sonnet-4.6`). |
-| Cheap model | `ORIN_CHEAP_MODEL` | Used by `delegate_read` and compaction (default `deepseek/deepseek-v4-flash`). |
-| Approval mode | `ORIN_APPROVAL_MODE` | `normal` \| `auto-accept` \| `plan`. |
-| Subagent isolation | `ORIN_SUBAGENT_ISOLATION` | `shared` \| `worktree` \| `sandbox` floor for `task` subagents. |
-| E2B API key | `E2B_API_KEY` | Optional — for `sandbox` isolation or whole-session E2B. |
+| OpenRouter API key | `provider.openrouter.apiKey` | Default backend. Set with `/providers configure openrouter`. |
+| Anthropic API key | `provider.anthropic.apiKey` | Native Messages API (`/providers anthropic`). |
+| Regolo API key | `provider.regolo.apiKey` | EU-hosted, OpenAI-compatible (`/providers regolo`). |
+| Active provider | `provider.active` | e.g. `openrouter`, `anthropic`, `regolo`. |
+| Main model | `models.main` | Default agent model (default `anthropic/claude-sonnet-4.6`). |
+| Cheap model | `models.cheap` | Used by `delegate_read` and compaction (default `deepseek/deepseek-v4-flash`). |
+| Approval mode | `approval.mode` | `normal` \| `auto-accept` \| `plan`. |
+| Subagent isolation | `subagent.isolation` | `shared` \| `worktree` \| `sandbox` floor for `task` subagents. |
+| E2B API key | `sandbox.e2b.apiKey` | Optional — for `sandbox` isolation or whole-session E2B. |
 
 Orin also records **cost and token metrics** locally (`~/.orin/metrics.jsonl`) by
-default — set `ORIN_NO_TELEMETRY=1` to opt out. It can export OpenTelemetry traces
+default — set `telemetry.enabled: false` to opt out. It can export OpenTelemetry traces
 to Langfuse, Grafana Tempo, Jaeger, and other OTLP backends too.
 
 <details>
@@ -145,11 +145,11 @@ Per-call cost and token metrics (turn cost, tool durations, a session summary)
 append as JSON lines to `~/.orin/metrics.jsonl` and mirror into the session log.
 On by default, never leaves your machine.
 
-| Setting | Env var | Notes |
+| Setting | Config key | Notes |
 | --- | --- | --- |
-| Disable local metrics | `ORIN_NO_TELEMETRY=1` | Suppresses the JSONL/stdout sinks. Also `telemetry.enabled: false`. |
-| Echo metrics to stdout | `ORIN_TELEMETRY_STDOUT=1` | Prints each metric event (debugging). |
-| Metrics file path | — | `telemetry.metricsFile` (default `~/.orin/metrics.jsonl`). |
+| Disable local metrics | `telemetry.enabled` | Set to `false` to suppress the JSONL/stdout sinks. |
+| Echo metrics to stdout | `telemetry.stdout` | Set to `true` to print each metric event (debugging). |
+| Metrics file path | `telemetry.metricsFile` | Default `~/.orin/metrics.jsonl`. |
 
 #### OTLP trace export
 
@@ -160,28 +160,34 @@ OTLP/HTTP backend**. Each Q&A turn is exported as its own trace; turns from one
 Orin session share a `session.id` so backends like Langfuse group them together.
 
 It is **off by default** and the OpenTelemetry SDK is **lazy-loaded only when an
-endpoint is configured** — no startup or bundle cost when off. `ORIN_NO_TELEMETRY`
+endpoint is configured** — no startup or bundle cost when off. Local metrics opt-out
 does *not* affect OTLP export; it has its own switch.
 
-| Setting | Env var | Notes |
+| Setting | Config key | Notes |
 | --- | --- | --- |
-| Traces endpoint | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL; `/v1/traces` is appended if missing. Setting it auto-enables export. |
-| Traces endpoint (exact) | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used verbatim. |
-| Headers | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2` — e.g. an `Authorization` token. |
-| Protocol | `OTEL_EXPORTER_OTLP_PROTOCOL` | Default `http/protobuf`. |
-| Service name | `OTEL_SERVICE_NAME` | Resource `service.name` (default `orin`). |
-| Sample ratio | `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | e.g. `traceidratio` + `0.25`. |
-| Capture content | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Opt-in prompt/response capture. **Off by default** — see the privacy note below. |
+| Traces endpoint | `telemetry.otel.endpoint` | Base URL or full `/v1/traces` URL; `/v1/traces` is appended to bare base URLs. Setting an endpoint auto-enables export. |
+| Headers | `telemetry.otel.headers` | e.g. `{ "Authorization": "Bearer <token>" }`. |
+| Protocol | `telemetry.otel.protocol` | Default `http/protobuf`. |
+| Service name | `telemetry.otel.serviceName` | Resource `service.name` (default `orin`). |
+| Sample ratio | `telemetry.otel.sampleRatio` | `0`–`1` (default `1.0`). |
+| Capture content | `telemetry.otel.captureContent` | Opt-in prompt/response capture. **Off by default** — see the privacy note below. |
 
-Example — export to Langfuse via env vars:
+Example — export to Langfuse via `~/.orin/config.json`:
 
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT="https://cloud.langfuse.com/api/public/otel"
-export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 pk:sk>"
-orin "summarise src/agent/loop.ts"
+```jsonc
+{
+  "telemetry": {
+    "otel": {
+      "endpoint": "https://cloud.langfuse.com/api/public/otel",
+      "headers": { "Authorization": "Basic <base64 pk:sk>" },
+      "serviceName": "orin",
+      "sampleRatio": 1.0
+    }
+  }
+}
 ```
 
-Or under `telemetry.otel` in `~/.orin/config.json`:
+For a local collector:
 
 ```jsonc
 {
@@ -208,8 +214,7 @@ traces list is scannable.
 
 **Content privacy.** Prompt/response and tool **content** is **not** captured by
 default. Opt in with `captureContent: true` under `telemetry.otel` in
-`~/.orin/config.json`, the `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`
-env var, or from the TUI via `/settings telemetry on` (also toggleable in the
+`~/.orin/config.json`, or from the TUI via `/settings telemetry on` (also toggleable in the
 `/settings` menu). With it **off**, only metadata leaves the process — token counts, cost,
 model/tool/agent names, IDs, and the short trace-name preview above; no message
 bodies, tool arguments, or tool results. With it **on**, spans gain `input.value` /

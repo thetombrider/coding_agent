@@ -2,18 +2,15 @@ import { loadConfig } from "../config/config.js";
 import type { Workspace, WorkspaceExecOptions } from "./types.js";
 
 export function getE2BApiKey(): string | undefined {
-  return (
-    process.env.E2B_API_KEY?.trim()
-    || loadConfig().sandbox?.e2b?.apiKey?.trim()
-    || undefined
-  );
+  return loadConfig().sandbox?.e2b?.apiKey?.trim() || undefined;
 }
 
 export async function createE2BWorkspace(): Promise<Workspace> {
   const apiKey = getE2BApiKey();
   if (!apiKey) {
     throw new Error(
-      "E2B_API_KEY is not set. Add it to your environment or ~/.orin/config.json under sandbox.e2b.apiKey",
+      "E2B is not configured. Add sandbox.e2b.apiKey to ~/.orin/config.json "
+      + "or set it in the TUI with /settings",
     );
   }
 

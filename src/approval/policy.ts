@@ -32,10 +32,6 @@ export function nextApprovalMode(mode: ApprovalMode): ApprovalMode {
 }
 
 export function parseApprovalMode(): ApprovalMode {
-  const raw = process.env.ORIN_APPROVAL_MODE?.trim().toLowerCase();
-  if (raw === "auto-accept" || raw === "auto") return "auto-accept";
-  if (raw === "plan") return "plan";
-  if (raw === "normal") return "normal";
   return loadConfig().approval.mode;
 }
 

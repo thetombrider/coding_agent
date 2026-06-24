@@ -30,22 +30,17 @@ function makeFakeProvider(overrides: Partial<Provider> = {}): Provider {
 describe("provider registry", () => {
   let home: string;
   let prevHome: string | undefined;
-  let prevKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
-    prevKey = process.env.OPENROUTER_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-registry-test-"));
     process.env.HOME = home;
-    delete process.env.OPENROUTER_API_KEY;
     vi.resetModules();
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
-    else process.env.OPENROUTER_API_KEY = prevKey;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -74,8 +69,7 @@ describe("provider registry", () => {
 
   it("repairs an unconfigured active provider to the first configured backend", async () => {
     const { saveConfig, loadConfig } = await import("../config/config.js");
-    saveConfig({ provider: { active: "anthropic" } });
-    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    saveConfig({ provider: { active: "anthropic", openrouter: { apiKey: "sk-or-test" } } });
     const { repairActiveProviderIfNeeded } = await import("./registry.js");
     expect(repairActiveProviderIfNeeded().id).toBe("openrouter");
     expect(loadConfig().provider.active).toBe("openrouter");
@@ -99,18 +93,22 @@ describe("provider registry", () => {
     const fake = summaries.find((p) => p.id === "fake");
     const openrouter = summaries.find((p) => p.id === "openrouter");
     expect(fake).toMatchObject({ active: true, configured: true, authStrategy: "api-key" });
-    // No OPENROUTER_API_KEY in env/config → OpenRouter is registered but not configured.
+    // No key in config → OpenRouter is registered but not configured.
     expect(openrouter).toMatchObject({ active: false, configured: false });
   });
 
-  it("reports OpenRouter configured when the env key is set", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-test";
+  it("reports OpenRouter configured when the config key is set", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ provider: { openrouter: { apiKey: "sk-or-test" } } });
+    vi.resetModules();
     const { getProvider } = await import("./registry.js");
     expect(getProvider("openrouter")?.isConfigured()).toBe(true);
   });
 
-  it("reports Regolo configured when the env key is set", async () => {
-    process.env.REGOLO_API_KEY = "sk-regolo-test";
+  it("reports Regolo configured when the config key is set", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ provider: { regolo: { apiKey: "sk-regolo-test" } } });
+    vi.resetModules();
     const { getProvider } = await import("./registry.js");
     expect(getProvider("regolo")?.isConfigured()).toBe(true);
   });
