@@ -1,18 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   isToolBlocked,
   matchesAutoApprovedCommand,
   needsInteractiveApproval,
-  parseApprovalMode,
   shouldAutoAccept,
 } from "./policy.js";
 
 describe("approval policy", () => {
-  it("parses approval mode from env", () => {
-    const prev = process.env.ORIN_APPROVAL_MODE;
-    process.env.ORIN_APPROVAL_MODE = "plan";
+  let home: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    prevHome = process.env.HOME;
+    home = mkdtempSync(join(tmpdir(), "orin-approval-test-"));
+    process.env.HOME = home;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("parses approval mode from config", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ approval: { mode: "plan" } });
+    vi.resetModules();
+    const { parseApprovalMode } = await import("./policy.js");
     expect(parseApprovalMode()).toBe("plan");
-    process.env.ORIN_APPROVAL_MODE = prev;
   });
 
   it("blocks write tools in plan mode", () => {

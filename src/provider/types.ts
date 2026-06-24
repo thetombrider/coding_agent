@@ -65,7 +65,7 @@ export interface ProviderDefaultModels {
   cheap: string;
 }
 
-/** How a provider authenticates (API key from env or config). */
+/** How a provider authenticates (API key from config). */
 export type AuthStrategy = "api-key";
 
 /** A user-editable config field persisted under `provider.<id>.<key>`. */
@@ -74,8 +74,6 @@ export interface ProviderConfigField {
   label: string;
   /** Mask input in the TUI when true (API keys, tokens). */
   secret?: boolean;
-  /** Env var that overrides this field when set (shown in configure hints). */
-  envVar?: string;
 }
 
 /**
@@ -97,7 +95,7 @@ export interface Provider {
    * persist to `~/.orin/config.json`.
    */
   readonly configFields?: readonly ProviderConfigField[];
-  /** True when credentials are available (env var or config file). */
+  /** True when credentials are available in config. */
   isConfigured(): boolean;
   /** Map our internal model id to the provider-native id. */
   normalizeModelId(modelId: string): string;

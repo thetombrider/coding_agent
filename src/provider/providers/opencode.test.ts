@@ -7,22 +7,17 @@ import { opencodeGoProvider, opencodeZenProvider } from "./opencode.js";
 describe("opencode providers", () => {
   let home: string;
   let prevHome: string | undefined;
-  let prevKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
-    prevKey = process.env.OPENCODE_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-opencode-test-"));
     process.env.HOME = home;
-    delete process.env.OPENCODE_API_KEY;
     vi.resetModules();
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevKey === undefined) delete process.env.OPENCODE_API_KEY;
-    else process.env.OPENCODE_API_KEY = prevKey;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -31,10 +26,13 @@ describe("opencode providers", () => {
     expect(opencodeZenProvider.isConfigured()).toBe(false);
   });
 
-  it("both providers report configured when OPENCODE_API_KEY is set", () => {
-    process.env.OPENCODE_API_KEY = "sk-opencode-test";
-    expect(opencodeGoProvider.isConfigured()).toBe(true);
-    expect(opencodeZenProvider.isConfigured()).toBe(true);
+  it("both providers report configured when the config key is set", async () => {
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { opencode: { apiKey: "sk-opencode-test" } } });
+    vi.resetModules();
+    const { opencodeGoProvider: go, opencodeZenProvider: zen } = await import("./opencode.js");
+    expect(go.isConfigured()).toBe(true);
+    expect(zen.isConfigured()).toBe(true);
   });
 
   describe("opencode-go", () => {
@@ -43,30 +41,35 @@ describe("opencode providers", () => {
       expect(opencodeGoProvider.displayName).toBe("Opencode Go");
     });
 
-    it("exposes OPENCODE_API_KEY config field", () => {
+    it("exposes api key config field", () => {
       expect(opencodeGoProvider.configFields).toEqual([
         {
           key: "apiKey",
           label: "Opencode API key",
           secret: true,
-          envVar: "OPENCODE_API_KEY",
         },
       ]);
     });
 
-    it("returns a language model handle for OpenAI-compat models", () => {
-      process.env.OPENCODE_API_KEY = "sk-opencode-test";
+    it("returns a language model handle for OpenAI-compat models", async () => {
+      const { saveConfig } = await import("../../config/config.js");
+      saveConfig({ provider: { opencode: { apiKey: "sk-opencode-test" } } });
+      vi.resetModules();
+      const { opencodeGoProvider: provider } = await import("./opencode.js");
       for (const modelId of ["kimi-k2.7", "glm-5.2", "deepseek-v4-flash", "mimo-v2.5-pro"]) {
-        const model = opencodeGoProvider.languageModel(modelId);
+        const model = provider.languageModel(modelId);
         expect(model, `${modelId} should be defined`).toBeDefined();
         expect(typeof model).toBe("object");
       }
     });
 
-    it("returns a language model handle for Anthropic-compat models", () => {
-      process.env.OPENCODE_API_KEY = "sk-opencode-test";
+    it("returns a language model handle for Anthropic-compat models", async () => {
+      const { saveConfig } = await import("../../config/config.js");
+      saveConfig({ provider: { opencode: { apiKey: "sk-opencode-test" } } });
+      vi.resetModules();
+      const { opencodeGoProvider: provider } = await import("./opencode.js");
       for (const modelId of ["minimax-m3", "qwen3.7-max", "minimax-m2.5", "qwen3.6-plus"]) {
-        const model = opencodeGoProvider.languageModel(modelId);
+        const model = provider.languageModel(modelId);
         expect(model, `${modelId} should be defined`).toBeDefined();
         expect(typeof model).toBe("object");
       }
@@ -94,20 +97,22 @@ describe("opencode providers", () => {
       expect(opencodeZenProvider.displayName).toBe("Opencode Zen");
     });
 
-    it("exposes OPENCODE_API_KEY config field", () => {
+    it("exposes api key config field", () => {
       expect(opencodeZenProvider.configFields).toEqual([
         {
           key: "apiKey",
           label: "Opencode Zen API key",
           secret: true,
-          envVar: "OPENCODE_API_KEY",
         },
       ]);
     });
 
-    it("returns a language model handle when configured", () => {
-      process.env.OPENCODE_API_KEY = "sk-opencode-test";
-      const model = opencodeZenProvider.languageModel("kimi-k2");
+    it("returns a language model handle when configured", async () => {
+      const { saveConfig } = await import("../../config/config.js");
+      saveConfig({ provider: { opencode: { apiKey: "sk-opencode-test" } } });
+      vi.resetModules();
+      const { opencodeZenProvider: provider } = await import("./opencode.js");
+      const model = provider.languageModel("kimi-k2");
       expect(model).toBeDefined();
       expect(typeof model).toBe("object");
     });

@@ -383,8 +383,7 @@ export function App(props: {
   const configFieldHint = (prompt: ConfigPromptState): string => {
     const field = prompt.fields[prompt.fieldIndex];
     if (!field) return "";
-    const env = field.envVar ? ` (or set ${field.envVar})` : "";
-    return `Configure ${prompt.displayName}: enter ${field.label}${env} · Esc to cancel`;
+    return `Configure ${prompt.displayName}: enter ${field.label} · Esc to cancel`;
   };
 
   const beginConfigPrompt = (opts: {
@@ -402,9 +401,7 @@ export function App(props: {
       activateOnComplete: opts.activateOnComplete,
     });
     props.controller.setStatusHint(
-      `Configure ${opts.displayName}: enter ${opts.fields[0]?.label ?? "value"}`
-      + (opts.fields[0]?.envVar ? ` (or set ${opts.fields[0].envVar})` : "")
-      + " · Esc to cancel",
+      `Configure ${opts.displayName}: enter ${opts.fields[0]?.label ?? "value"} · Esc to cancel`,
     );
   };
 

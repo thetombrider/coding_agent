@@ -1,5 +1,3 @@
-import "dotenv/config";
-
 import { createHookRegistry } from "./hooks/registry.js";
 import { installCoreHooks } from "./hooks/install.js";
 import type { ApprovalGateRef } from "./hooks/approval-gate.js";

@@ -31,9 +31,7 @@ describe("loadModelConfig", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("uses fallbacks when env is unset", async () => {
-    delete process.env.ORIN_MODEL;
-    delete process.env.ORIN_CHEAP_MODEL;
+  it("uses fallbacks when config is unset", async () => {
     const { loadModelConfig } = await import("./models.js");
     expect(loadModelConfig()).toEqual({
       main: "anthropic/claude-sonnet-4.6",
@@ -41,9 +39,14 @@ describe("loadModelConfig", () => {
     });
   });
 
-  it("reads ORIN_MODEL and ORIN_CHEAP_MODEL from env", async () => {
-    process.env.ORIN_MODEL = "openai/gpt-4o";
-    process.env.ORIN_CHEAP_MODEL = "meta-llama/llama-3.1-8b-instruct";
+  it("reads main and cheap models from config", async () => {
+    const { saveConfig } = await import("./config.js");
+    saveConfig({
+      models: {
+        main: "openai/gpt-4o",
+        cheap: "meta-llama/llama-3.1-8b-instruct",
+      },
+    });
     const { loadModelConfig } = await import("./models.js");
     expect(loadModelConfig()).toEqual({
       main: "openai/gpt-4o",
@@ -79,8 +82,6 @@ describe("resolvePresetModel", () => {
     home = mkdtempSync(join(tmpdir(), "orin-roles-test-"));
     osState.home = home;
     process.env = { ...env, HOME: home };
-    delete process.env.ORIN_MODEL;
-    delete process.env.ORIN_CHEAP_MODEL;
     vi.resetModules();
   });
 

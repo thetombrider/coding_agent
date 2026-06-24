@@ -17,19 +17,16 @@ export {
 
 // ── Credentials ───────────────────────────────────────────────────────────────
 
-/** Anthropic API key from env or config; undefined when not configured. */
+/** Anthropic API key from config; undefined when not configured. */
 export function getAnthropicApiKey(): string | undefined {
-  return (
-    process.env.ANTHROPIC_API_KEY?.trim() ||
-    loadConfig().provider.anthropic?.apiKey?.trim()
-  );
+  return loadConfig().provider.anthropic?.apiKey?.trim();
 }
 
 export function getAnthropic() {
   const apiKey = getAnthropicApiKey();
   if (!apiKey) {
     throw new Error(
-      "Anthropic is not configured — set ANTHROPIC_API_KEY (env or ~/.orin/config.json) "
+      "Anthropic is not configured — set provider.anthropic.apiKey in ~/.orin/config.json "
       + "or run /providers configure anthropic",
     );
   }
@@ -240,7 +237,6 @@ const metadata: ModelMetadataProvider = {
 export const anthropicProvider = createAnthropicCompatibleProvider({
   id: "anthropic",
   displayName: "Anthropic",
-  envVar: "ANTHROPIC_API_KEY",
   configSection: "anthropic",
   idPrefix: "anthropic:",
   modelAliases: ANTHROPIC_MODEL_ALIASES,

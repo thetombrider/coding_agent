@@ -74,7 +74,7 @@ export function jsonlSink(filePath?: string): MetricSink {
   };
 }
 
-/** Print metric events as JSON lines to stdout. Gated by the caller (`ORIN_TELEMETRY_STDOUT`). */
+/** Print metric events as JSON lines to stdout. Gated by the caller (`telemetry.stdout`). */
 export function stdoutSink(): MetricSink {
   return {
     emit(event) {

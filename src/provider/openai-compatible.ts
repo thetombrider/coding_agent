@@ -9,7 +9,6 @@ import type { ModelMetadataProvider, Provider, ProviderDefaultModels } from "./t
 export interface OpenAiCompatibleProviderConfig {
   id: string;
   displayName: string;
-  envVar: string;
   configSection: keyof Pick<Config["provider"], "regolo" | "openai" | "opencode">;
   baseURL?: string;
   /** Strip this prefix from model ids (e.g. `regolo:`). */
@@ -78,9 +77,7 @@ export async function fetchWithTimeout(
   }
 }
 
-function getApiKey(envVar: string, configSection: OpenAiCompatibleProviderConfig["configSection"]): string | undefined {
-  const fromEnv = process.env[envVar]?.trim();
-  if (fromEnv) return fromEnv;
+function getApiKey(configSection: OpenAiCompatibleProviderConfig["configSection"]): string | undefined {
   const section = loadConfig().provider[configSection];
   const apiKey = section && typeof section === "object" && "apiKey" in section
     ? (section as { apiKey?: string }).apiKey?.trim()
@@ -119,7 +116,7 @@ export async function loadOpenAiCompatibleModelsCatalog(
     return catalogCache;
   }
 
-  const key = apiKey ?? getApiKey(cfg.envVar, cfg.configSection);
+  const key = apiKey ?? getApiKey(cfg.configSection);
   const response = await fetchWithTimeout(fetchImpl, url, requestInit(key));
   if (!response.ok) {
     throw new Error(`${cfg.displayName} models API failed: ${response.status} ${response.statusText}`);
@@ -178,13 +175,16 @@ export async function lookupOpenAiCompatibleContextWindow(
  */
 export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConfig): Provider {
   function resolveApiKey(): string | undefined {
-    return getApiKey(cfg.envVar, cfg.configSection);
+    return getApiKey(cfg.configSection);
   }
 
   function getClient() {
     const apiKey = resolveApiKey();
     if (!apiKey) {
-      throw new Error(`${cfg.envVar} is not set (env var or ~/.orin/config.json)`);
+      throw new Error(
+        `${cfg.displayName} is not configured — set provider.${cfg.id}.apiKey in ~/.orin/config.json `
+        + `or run /providers configure ${cfg.id}`,
+      );
     }
     return createOpenAI({
       apiKey,
@@ -221,7 +221,6 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
         key: "apiKey",
         label: `${cfg.displayName} API key`,
         secret: true,
-        envVar: cfg.envVar,
       },
     ],
     isConfigured() {

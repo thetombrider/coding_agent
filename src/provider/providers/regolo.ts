@@ -15,7 +15,6 @@ export const REGOLO_PICKER_MODELS = [
 export const regoloProvider = createOpenAiCompatibleProvider({
   id: "regolo",
   displayName: "Regolo AI",
-  envVar: "REGOLO_API_KEY",
   configSection: "regolo",
   baseURL: "https://api.regolo.ai/v1",
   idPrefix: "regolo:",

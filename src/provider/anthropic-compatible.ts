@@ -18,7 +18,6 @@ import type { ModelMetadataProvider, Provider, ProviderDefaultModels } from "./t
 export interface AnthropicCompatibleProviderConfig {
   id: string;
   displayName: string;
-  envVar: string;
   configSection: keyof Pick<Config["provider"], "anthropic" | "opencode">;
   /** Custom Messages-API base URL; omit for the native Anthropic API. */
   baseURL?: string;
@@ -64,11 +63,8 @@ export function normalizeAnthropicModelId(
 }
 
 function getApiKey(
-  envVar: string,
   configSection: AnthropicCompatibleProviderConfig["configSection"],
 ): string | undefined {
-  const fromEnv = process.env[envVar]?.trim();
-  if (fromEnv) return fromEnv;
   const section = loadConfig().provider[configSection];
   const apiKey = section && typeof section === "object" && "apiKey" in section
     ? (section as { apiKey?: string }).apiKey?.trim()
@@ -85,7 +81,7 @@ export function createAnthropicCompatibleProvider(cfg: AnthropicCompatibleProvid
   const supportsCaching = cfg.supportsPromptCaching ?? (() => true);
 
   function resolveApiKey(): string | undefined {
-    return getApiKey(cfg.envVar, cfg.configSection);
+    return getApiKey(cfg.configSection);
   }
 
   function normalize(modelId: string): string {
@@ -95,7 +91,10 @@ export function createAnthropicCompatibleProvider(cfg: AnthropicCompatibleProvid
   function getClient() {
     const apiKey = resolveApiKey();
     if (!apiKey) {
-      throw new Error(`${cfg.envVar} is not set (env var or ~/.orin/config.json)`);
+      throw new Error(
+        `${cfg.displayName} is not configured — set provider.${cfg.id}.apiKey in ~/.orin/config.json `
+        + `or run /providers configure ${cfg.id}`,
+      );
     }
     return createAnthropic({
       apiKey,
@@ -116,7 +115,6 @@ export function createAnthropicCompatibleProvider(cfg: AnthropicCompatibleProvid
         key: "apiKey",
         label: cfg.apiKeyLabel ?? `${cfg.displayName} API key`,
         secret: true,
-        envVar: cfg.envVar,
       },
     ],
     isConfigured() {

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { ModelMessage } from "ai";
 import {
   anthropicProvider,
-  getAnthropicApiKey,
   markAnthropicCacheBreakpoints,
   resetAnthropicModelsCache,
   resolveAnthropicModelId,
@@ -14,14 +13,11 @@ import {
 describe("anthropic provider", () => {
   let home: string;
   let prevHome: string | undefined;
-  let prevKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
-    prevKey = process.env.ANTHROPIC_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-anthropic-test-"));
     process.env.HOME = home;
-    delete process.env.ANTHROPIC_API_KEY;
     vi.resetModules();
     resetAnthropicModelsCache();
   });
@@ -29,8 +25,6 @@ describe("anthropic provider", () => {
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevKey === undefined) delete process.env.ANTHROPIC_API_KEY;
-    else process.env.ANTHROPIC_API_KEY = prevKey;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -38,9 +32,12 @@ describe("anthropic provider", () => {
     expect(anthropicProvider.isConfigured()).toBe(false);
   });
 
-  it("reports configured when the API key env var is set", () => {
-    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
-    expect(anthropicProvider.isConfigured()).toBe(true);
+  it("reports configured when the API key is in config", async () => {
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { anthropic: { apiKey: "sk-ant-test" } } });
+    vi.resetModules();
+    const { anthropicProvider: provider, getAnthropicApiKey } = await import("./anthropic.js");
+    expect(provider.isConfigured()).toBe(true);
     expect(getAnthropicApiKey()).toBe("sk-ant-test");
   });
 
@@ -65,12 +62,19 @@ describe("anthropic provider", () => {
 
   it("exposes api-key auth strategy and config fields", () => {
     expect(anthropicProvider.authStrategy).toBe("api-key");
-    expect(anthropicProvider.configFields?.[0]?.envVar).toBe("ANTHROPIC_API_KEY");
+    expect(anthropicProvider.configFields?.[0]).toMatchObject({
+      key: "apiKey",
+      label: "Anthropic API key",
+      secret: true,
+    });
   });
 
-  it("returns a language model handle when configured via API key", () => {
-    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
-    const model = anthropicProvider.languageModel("claude-sonnet-4-6");
+  it("returns a language model handle when configured via config", async () => {
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { anthropic: { apiKey: "sk-ant-test" } } });
+    vi.resetModules();
+    const { anthropicProvider: provider } = await import("./anthropic.js");
+    const model = provider.languageModel("claude-sonnet-4-6");
     expect(model).toBeDefined();
   });
 
@@ -81,6 +85,9 @@ describe("anthropic provider", () => {
   });
 
   it("resolves context window from catalog with config fallback", async () => {
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { anthropic: { apiKey: "sk-ant-test" } } });
+    vi.resetModules();
     const { lookupAnthropicContextWindow } = await import("./anthropic.js");
     const mockFetch = vi.fn(async (url: string) => {
       if (url.includes("/v1/models")) {
@@ -94,7 +101,6 @@ describe("anthropic provider", () => {
       return new Response("not found", { status: 404 });
     });
 
-    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
     const window = await lookupAnthropicContextWindow(
       "anthropic/claude-sonnet-4.6",
       mockFetch as typeof fetch,

@@ -109,49 +109,23 @@ describe("ensureConfigFile", () => {
 describe("API key onboarding", () => {
   let home: string;
   let prevHome: string | undefined;
-  let prevKey: string | undefined;
-  let prevRegoloKey: string | undefined;
-  let prevAnthropicKey: string | undefined;
-  let prevE2BKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
-    prevKey = process.env.OPENROUTER_API_KEY;
-    prevRegoloKey = process.env.REGOLO_API_KEY;
-    prevAnthropicKey = process.env.ANTHROPIC_API_KEY;
-    prevE2BKey = process.env.E2B_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-config-key-"));
     process.env.HOME = home;
-    delete process.env.OPENROUTER_API_KEY;
-    delete process.env.REGOLO_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.E2B_API_KEY;
     vi.resetModules();
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
-    else process.env.OPENROUTER_API_KEY = prevKey;
-    if (prevRegoloKey === undefined) delete process.env.REGOLO_API_KEY;
-    else process.env.REGOLO_API_KEY = prevRegoloKey;
-    if (prevAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
-    else process.env.ANTHROPIC_API_KEY = prevAnthropicKey;
-    if (prevE2BKey === undefined) delete process.env.E2B_API_KEY;
-    else process.env.E2B_API_KEY = prevE2BKey;
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("reports no key when neither env nor config provide one", async () => {
+  it("reports no key when config does not provide one", async () => {
     const { hasOpenRouterApiKey } = await import("./config.js");
     expect(hasOpenRouterApiKey()).toBe(false);
-  });
-
-  it("detects a key from the env var", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-env";
-    const { hasOpenRouterApiKey } = await import("./config.js");
-    expect(hasOpenRouterApiKey()).toBe(true);
   });
 
   it("persists a key to config.json and reads it back from any directory", async () => {
@@ -165,30 +139,20 @@ describe("API key onboarding", () => {
     expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-saved");
   });
 
-  it("detects an Anthropic key from the env var", async () => {
-    process.env.ANTHROPIC_API_KEY = "sk-ant-env";
-    const { hasAnthropicApiKey } = await import("./config.js");
+  it("persists an Anthropic key to config.json", async () => {
+    const { saveConfig, hasAnthropicApiKey, loadConfig } = await import("./config.js");
+    saveConfig({ provider: { anthropic: { apiKey: "sk-ant-saved" } } });
+
     expect(hasAnthropicApiKey()).toBe(true);
+    expect(loadConfig().provider.anthropic?.apiKey).toBe("sk-ant-saved");
   });
 
-  it("env var overrides Anthropic config file api key", async () => {
-    const { saveConfig, loadConfig } = await import("./config.js");
-    saveConfig({ provider: { anthropic: { apiKey: "sk-config" } } });
-    process.env.ANTHROPIC_API_KEY = "sk-env";
-    expect(loadConfig().provider.anthropic?.apiKey).toBe("sk-env");
-  });
+  it("persists a Regolo key to config.json", async () => {
+    const { saveConfig, hasRegoloApiKey, loadConfig } = await import("./config.js");
+    saveConfig({ provider: { regolo: { apiKey: "sk-regolo" } } });
 
-  it("detects a Regolo key from the env var", async () => {
-    process.env.REGOLO_API_KEY = "sk-regolo";
-    const { hasRegoloApiKey } = await import("./config.js");
     expect(hasRegoloApiKey()).toBe(true);
-  });
-
-  it("env var overrides Regolo config file api key", async () => {
-    const { saveConfig, loadConfig } = await import("./config.js");
-    saveConfig({ provider: { regolo: { apiKey: "sk-config" } } });
-    process.env.REGOLO_API_KEY = "sk-env";
-    expect(loadConfig().provider.regolo?.apiKey).toBe("sk-env");
+    expect(loadConfig().provider.regolo?.apiKey).toBe("sk-regolo");
   });
 
   it("saveProviderConfig writes provider-specific fields", async () => {
@@ -201,15 +165,9 @@ describe("API key onboarding", () => {
     expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-trimmed");
   });
 
-  it("reports no E2B key when neither env nor config provide one", async () => {
+  it("reports no E2B key when config does not provide one", async () => {
     const { hasE2BApiKey } = await import("./config.js");
     expect(hasE2BApiKey()).toBe(false);
-  });
-
-  it("detects an E2B key from the env var", async () => {
-    process.env.E2B_API_KEY = "e2b-test";
-    const { hasE2BApiKey } = await import("./config.js");
-    expect(hasE2BApiKey()).toBe(true);
   });
 
   it("persists an E2B key to config.json", async () => {

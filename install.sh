@@ -53,7 +53,7 @@ echo
 echo "Configure API keys in the TUI after starting:"
 echo "  /providers configure openrouter   LLM provider (required for real agent use)"
 echo "  /settings e2b                     E2B key for the task tool (optional)"
-echo "Keys are saved to ~/.orin/config.json (or set OPENROUTER_API_KEY / E2B_API_KEY)."
+echo "Keys are saved to ~/.orin/config.json."
 echo
 echo "Offline demo (no API key):"
 echo "  orin --faux"

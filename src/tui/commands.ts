@@ -191,8 +191,7 @@ function resolveProviderTarget(
 function configureFieldHint(fields: readonly ProviderConfigField[]): string {
   const field = fields[0];
   if (!field) return "nothing to configure";
-  const env = field.envVar ? ` (or set ${field.envVar})` : "";
-  return `enter ${field.label}${env}`;
+  return `enter ${field.label}`;
 }
 
 function handleProviderConfigure(arg: string, ctx: CommandContext): CommandResult {
