@@ -17,6 +17,26 @@ describe("parseInline", () => {
       { kind: "code", value: "code" },
     ]);
   });
+
+  it("parses inline math with LaTeX commands", () => {
+    const parts = parseInline("$\\rightarrow$");
+    expect(parts).toEqual([{ kind: "math", value: "→" }]);
+  });
+
+  it("parses inline math with Greek letters", () => {
+    const parts = parseInline("$\\alpha + \\beta$");
+    expect(parts).toEqual([{ kind: "math", value: "α + β" }]);
+  });
+
+  it("parses inline math mixed with text", () => {
+    const parts = parseInline("f(x) = $x^2$ and $\\sqrt{x}$");
+    expect(parts).toEqual([
+      { kind: "text", value: "f(x) = " },
+      { kind: "math", value: "x²" },
+      { kind: "text", value: " and " },
+      { kind: "math", value: "√x" },
+    ]);
+  });
 });
 
 describe("parseBlocks", () => {
