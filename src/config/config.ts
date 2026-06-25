@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { IsolationMode } from "../agent/isolation.js";
+import type { SessionIsolationMode } from "../agent/session-isolation.js";
 
 export interface ModelPricing {
   inputPerM: number;
@@ -69,6 +70,10 @@ export interface Config {
      * call but never weaken below this. Read-only presets are unaffected.
      */
     isolation: IsolationMode;
+  };
+  session: {
+    /** Whole-session parent-loop isolation. Default `shared`. */
+    isolation: SessionIsolationMode;
   };
   system: {
     prompt: string;
@@ -147,6 +152,7 @@ const DEFAULT_CONFIG: Config = {
   },
   approval: { mode: "normal", autoApprovedCommands: [] },
   subagent: { isolation: "shared" },
+  session: { isolation: "shared" },
   system: { prompt: "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely.\n\nCode reading strategy: grep to locate symbols (get the line number), then read with offset+limit to see only that section. Use grep context=N for surrounding lines instead of reading the whole file. Never re-read a file already in context. Use delegate_read when you need to understand multiple files at once." },
   telemetry: {
     enabled: true,

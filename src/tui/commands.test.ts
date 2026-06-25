@@ -348,6 +348,14 @@ describe("processCommand", () => {
       expect(r.type).toBe("error");
     });
 
+    it("sets session isolation", () => {
+      const r = processCommand("/settings session-isolation worktree", {
+        ...ctx,
+        currentSessionIsolation: "shared",
+      });
+      expect(r).toMatchObject({ type: "set-session-isolation", isolation: "worktree" });
+    });
+
     it("shows the telemetry capture state with no argument", () => {
       const r = processCommand("/settings telemetry", { ...ctx, currentCaptureContent: false });
       expect(r.type).toBe("info");

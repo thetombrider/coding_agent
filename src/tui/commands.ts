@@ -11,6 +11,12 @@ import {
   ISOLATION_MODES,
   type IsolationMode,
 } from "../agent/isolation.js";
+import {
+  coerceSessionIsolation,
+  SESSION_ISOLATION_LABELS,
+  SESSION_ISOLATION_MODES,
+  type SessionIsolationMode,
+} from "../agent/session-isolation.js";
 import { hasE2BApiKey, hasExaApiKey } from "../config/config.js";
 import type { ModelPricing } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
@@ -23,6 +29,8 @@ export interface CommandContext {
   currentMode: ApprovalMode;
   /** Configured subagent isolation floor (`subagent.isolation`). */
   currentIsolation?: IsolationMode;
+  /** Configured session isolation (`session.isolation`). */
+  currentSessionIsolation?: SessionIsolationMode;
   /** Configured OTLP content-capture opt-in (`telemetry.otel.captureContent`). */
   currentCaptureContent?: boolean;
   knownModels: readonly string[];
@@ -45,6 +53,7 @@ export type CommandResult =
   | { type: "set-model"; model: string; message: string }
   | { type: "set-mode"; mode: ApprovalMode; message: string }
   | { type: "set-isolation"; isolation: IsolationMode; message: string }
+  | { type: "set-session-isolation"; isolation: SessionIsolationMode; message: string }
   | { type: "set-telemetry-capture"; enabled: boolean; message: string }
   | { type: "set-provider"; provider: string; model?: string; message: string }
   | {
@@ -73,6 +82,7 @@ const HELP_LINES = [
   "/providers configure [id]     set API keys / provider settings in ~/.orin/config.json",
   "/settings                     open settings (E2B key, isolation, telemetry, task models)",
   "/settings isolation [mode]    set subagent isolation floor (shared|worktree|sandbox)",
+  "/settings session-isolation [mode]  set session isolation (shared|worktree)",
   "/settings telemetry [on|off]  opt in/out of prompt+response capture on OTLP spans",
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/settings exa                 configure Exa API key (for web_search tool)",
@@ -278,6 +288,18 @@ function isolationInfo(ctx: CommandContext): string {
   );
 }
 
+function sessionIsolationInfo(ctx: CommandContext): string {
+  const current = ctx.currentSessionIsolation ?? "shared";
+  const options = SESSION_ISOLATION_MODES.map(
+    (m) => `  ${m === current ? "›" : " "} ${SESSION_ISOLATION_LABELS[m]}`,
+  );
+  return (
+    `session isolation: ${current} (parent loop — takes effect on /new or next launch)\n`
+    + `${options.join("\n")}\n`
+    + "/settings session-isolation <shared|worktree> to change"
+  );
+}
+
 function handleIsolation(value: string | undefined, ctx: CommandContext): CommandResult {
   if (!value) {
     return { type: "info", message: isolationInfo(ctx) };
@@ -293,6 +315,27 @@ function handleIsolation(value: string | undefined, ctx: CommandContext): Comman
     return { type: "info", message: `subagent isolation already ${mode}` };
   }
   return { type: "set-isolation", isolation: mode, message: `subagent isolation → ${mode}` };
+}
+
+function handleSessionIsolation(value: string | undefined, ctx: CommandContext): CommandResult {
+  if (!value) {
+    return { type: "info", message: sessionIsolationInfo(ctx) };
+  }
+  const mode = coerceSessionIsolation(value);
+  if (!mode) {
+    return {
+      type: "error",
+      message: `unknown session isolation "${value}" — use shared or worktree`,
+    };
+  }
+  if (mode === (ctx.currentSessionIsolation ?? "shared")) {
+    return { type: "info", message: `session isolation already ${mode}` };
+  }
+  return {
+    type: "set-session-isolation",
+    isolation: mode,
+    message: `session isolation → ${mode} (takes effect on /new or next launch)`,
+  };
 }
 
 function telemetryInfo(ctx: CommandContext): string {
@@ -340,6 +383,10 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
     return handleIsolation(parts[1], ctx);
   }
 
+  if (sub === "session-isolation" || sub === "session") {
+    return handleSessionIsolation(parts[1], ctx);
+  }
+
   if (sub === "telemetry" || sub === "capture") {
     return handleTelemetry(parts[1], ctx);
   }
@@ -380,7 +427,7 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
 
   return {
     type: "error",
-    message: `unknown setting "${sub}" — try /settings isolation, /settings telemetry, /settings e2b, or /settings exa`,
+    message: `unknown setting "${sub}" — try /settings isolation, /settings session-isolation, /settings telemetry, /settings e2b, or /settings exa`,
   };
 }
 
@@ -408,6 +455,7 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "set-model":
     case "set-mode":
     case "set-isolation":
+    case "set-session-isolation":
     case "set-telemetry-capture":
     case "set-provider":
     case "configure-provider":

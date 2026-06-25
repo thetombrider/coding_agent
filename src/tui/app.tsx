@@ -25,6 +25,11 @@ import { sanitizePromptInput, selectionCopyHint } from "./terminal-env.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { ISOLATION_MODES, ISOLATION_LABELS, type IsolationMode } from "../agent/isolation.js";
+import {
+  SESSION_ISOLATION_MODES,
+  SESSION_ISOLATION_LABELS,
+  type SessionIsolationMode,
+} from "../agent/session-isolation.js";
 import type { AgentPreset } from "../agent/presets.js";
 import { pickerModelsForProvider } from "../config/models.js";
 import { hasE2BApiKey, hasExaApiKey, loadConfig } from "../config/config.js";
@@ -65,6 +70,7 @@ type PaletteState =
   | { phase: "providers"; index: number; providers: ProviderSummary[] }
   | { phase: "settings"; index: number }
   | { phase: "settings-isolation"; index: number }
+  | { phase: "settings-session-isolation"; index: number }
   | { phase: "settings-role"; index: number; role: AgentPreset }
   | SessionsPaletteState;
 
@@ -79,6 +85,7 @@ type SettingsItem =
   | { kind: "e2b" }
   | { kind: "exa" }
   | { kind: "isolation" }
+  | { kind: "session-isolation" }
   | { kind: "telemetry-capture" }
   | { kind: "role"; role: AgentPreset; label: string };
 
@@ -86,6 +93,7 @@ const SETTINGS_ITEMS: readonly SettingsItem[] = [
   { kind: "e2b" },
   { kind: "exa" },
   { kind: "isolation" },
+  { kind: "session-isolation" },
   { kind: "telemetry-capture" },
   ...SETTINGS_ROLES.map((r) => ({ kind: "role" as const, role: r.role, label: r.label })),
 ];
@@ -141,6 +149,7 @@ export function App(props: {
   onSetModel: (model: string) => void;
   onSetMode: (mode: ApprovalMode) => void;
   onSetIsolation: (isolation: IsolationMode) => void;
+  onSetSessionIsolation: (isolation: SessionIsolationMode) => void;
   onSetTelemetryCapture: (enabled: boolean) => void;
   onSetRoleModel: (role: AgentPreset, model: string, providerId: string) => void;
   onSetProvider: (provider: string, model?: string) => void;
@@ -354,6 +363,7 @@ export function App(props: {
       currentModel: meta.model,
       currentMode: coerceApprovalMode(meta.approval) ?? "normal",
       currentIsolation: loadConfig().subagent.isolation,
+      currentSessionIsolation: loadConfig().session?.isolation ?? "shared",
       currentCaptureContent: loadConfig().telemetry.otel.captureContent,
       knownModels: pickerModels(),
       currentProvider: meta.provider ?? activeProviderId(),
@@ -562,6 +572,10 @@ export function App(props: {
         props.onSetIsolation(result.isolation);
         props.controller.setStatusHint(result.message);
         return;
+      case "set-session-isolation":
+        props.onSetSessionIsolation(result.isolation);
+        props.controller.setStatusHint(result.message);
+        return;
       case "set-telemetry-capture":
         props.onSetTelemetryCapture(result.enabled);
         props.controller.setStatusHint(result.message);
@@ -735,6 +749,11 @@ export function App(props: {
         setPalette({ phase: "settings-isolation", index: Math.max(0, currentIdx) });
         return;
       }
+      if (item.kind === "session-isolation") {
+        const currentIdx = SESSION_ISOLATION_MODES.indexOf(loadConfig().session?.isolation ?? "shared");
+        setPalette({ phase: "settings-session-isolation", index: Math.max(0, currentIdx) });
+        return;
+      }
       if (item.kind === "telemetry-capture") {
         // Boolean opt-in — flip in place and re-render the menu (new palette
         // object) so the row reflects the persisted value immediately.
@@ -754,7 +773,16 @@ export function App(props: {
       const mode = ISOLATION_MODES[p.index];
       if (mode) {
         props.onSetIsolation(mode);
-        setPalette({ phase: "settings", index: 1 });
+        setPalette({ phase: "settings", index: 2 });
+      }
+      return;
+    }
+
+    if (p.phase === "settings-session-isolation") {
+      const mode = SESSION_ISOLATION_MODES[p.index];
+      if (mode) {
+        props.onSetSessionIsolation(mode);
+        setPalette({ phase: "settings", index: 3 });
       }
       return;
     }
@@ -1047,7 +1075,9 @@ export function App(props: {
                       ? Math.max(0, SETTINGS_ITEMS.length - 1)
                       : p.phase === "settings-isolation"
                         ? Math.max(0, ISOLATION_MODES.length - 1)
-                        : p.phase === "settings-role"
+                        : p.phase === "settings-session-isolation"
+                          ? Math.max(0, SESSION_ISOLATION_MODES.length - 1)
+                          : p.phase === "settings-role"
                           ? Math.max(0, roleModelList().length - 1)
                           : APPROVAL_MODES.length - 1;
         setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
@@ -1059,7 +1089,7 @@ export function App(props: {
           return;
         }
         // Settings submenus step back to the settings menu, not the command list.
-        if (p.phase === "settings-isolation" || p.phase === "settings-role") {
+        if (p.phase === "settings-isolation" || p.phase === "settings-session-isolation" || p.phase === "settings-role") {
           setPalette({ phase: "settings", index: 0 });
           return;
         }
@@ -1136,6 +1166,8 @@ export function App(props: {
           model={state().meta.model}
           approval={state().meta.approval}
           cwd={state().meta.cwd}
+          branch={state().meta.branch}
+          sessionIsolation={state().meta.sessionIsolation}
           provider={state().meta.provider}
           sandbox={state().meta.sandbox}
           costUsd={state().meta.costUsd}
@@ -1429,7 +1461,9 @@ export function App(props: {
                           ? "Exa API key"
                           : item.kind === "isolation"
                             ? "Subagent isolation"
-                            : item.kind === "telemetry-capture"
+                            : item.kind === "session-isolation"
+                              ? "Session isolation"
+                              : item.kind === "telemetry-capture"
                               ? "Telemetry content capture"
                               : item.label;
                     const value = () =>
@@ -1439,7 +1473,9 @@ export function App(props: {
                           ? (hasExaApiKey() ? "configured" : "not configured")
                           : item.kind === "isolation"
                             ? cfg().subagent.isolation
-                            : item.kind === "telemetry-capture"
+                            : item.kind === "session-isolation"
+                              ? (cfg().session?.isolation ?? "shared")
+                              : item.kind === "telemetry-capture"
                               ? (cfg().telemetry.otel.captureContent ? "on" : "off")
                               : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
                     return (
@@ -1448,6 +1484,26 @@ export function App(props: {
                           {selected() ? "▶ " : "  "}{label()}
                         </text>
                         <text fg={theme.secondary}>  {value()}</text>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+
+              <Show when={p().phase === "settings-session-isolation"}>
+                <For each={SESSION_ISOLATION_MODES}>
+                  {(mode, i) => {
+                    const selected = () =>
+                      (p() as { phase: "settings-session-isolation"; index: number }).index === i();
+                    const isCurrent = () => mode === (loadConfig().session?.isolation ?? "shared");
+                    return (
+                      <box flexDirection="row">
+                        <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                          {selected() ? "▶ " : "  "}{SESSION_ISOLATION_LABELS[mode]}
+                        </text>
+                        <Show when={isCurrent()}>
+                          <text fg={theme.secondary}>  (current)</text>
+                        </Show>
                       </box>
                     );
                   }}

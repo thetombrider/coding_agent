@@ -2,6 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { IsolationMode } from "../agent/isolation.js";
+import type { SessionIsolationMode } from "../agent/session-isolation.js";
 import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
@@ -15,7 +16,8 @@ import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "..
 import { createCheckpointManager } from "../checkpoint/manager.js";
 import { isMutatingTool } from "../checkpoint/tracker.js";
 import { removeCheckpointRepo, scheduleCheckpointCleanup } from "../checkpoint/retention.js";
-import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayCheckpoints, replayLog, sessionPath, deleteSession } from "../session/log.js";
+import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayCheckpoints, replayLog, replaySessionMeta, sessionPath, deleteSession } from "../session/log.js";
+import type { SessionMetaRecord } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
 import { SessionCostAccumulator } from "../telemetry/accumulator.js";
 import { createDefaultSinks, installTelemetry } from "../telemetry/install.js";
@@ -27,6 +29,7 @@ import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
+import { bootstrapSessionWorktree, type SessionWorktreeBinding } from "../workspace/session-worktree.js";
 import { App } from "./app.js";
 import { installCrashDiagnostics } from "./crash.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
@@ -61,6 +64,12 @@ export interface TuiSessionConfig {
   initialMessage?: string;
   sessionId: string;
   hooks: HookRegistryImpl;
+  /** Repo root where Orin was launched (host tree). */
+  hostCwd: string;
+  /** Resolved whole-session isolation for the parent loop. */
+  sessionIsolation: SessionIsolationMode;
+  /** Prior session_meta when resuming or reusing an empty worktree session. */
+  sessionMeta?: SessionMetaRecord;
 }
 
 export async function runTuiSession(config: TuiSessionConfig): Promise<AgentContext> {
@@ -76,6 +85,37 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   await config.hooks.fireHook("session_start", { cwd: config.ctx.cwd }, config.ctx);
 
   let activeSessionId = config.sessionId;
+  let sessionWorktree: SessionWorktreeBinding | undefined;
+
+  const applyWorktreeBinding = (binding: SessionWorktreeBinding) => {
+    sessionWorktree = binding;
+    config.ctx.cwd = binding.handle.cwd;
+    if (config.ctx.loopHost) {
+      config.ctx.loopHost.hostCwd = binding.hostCwd;
+      config.ctx.loopHost.sessionBranch = binding.branch;
+      config.ctx.loopHost.sessionIsolation = "worktree";
+    }
+    controller.updateMeta({
+      cwd: binding.handle.cwd,
+      hostCwd: binding.hostCwd,
+      branch: binding.branch,
+      sessionIsolation: "worktree",
+    });
+  };
+
+  const bindSessionWorktree = (sessionId: string, meta?: SessionMetaRecord) => {
+    if (config.sessionIsolation !== "worktree") return;
+    const result = bootstrapSessionWorktree(config.hostCwd, sessionId, meta);
+    if ("error" in result) {
+      controller.setStatusHint(`worktree bootstrap failed: ${result.error} — running in shared mode`);
+      config.sessionIsolation = "shared";
+      config.ctx.cwd = config.hostCwd;
+      return;
+    }
+    applyWorktreeBinding(result.binding);
+  };
+
+  bindSessionWorktree(activeSessionId, config.sessionMeta);
 
   // Crash breadcrumbs: log JS-level faults to ~/.orin/crash.log and detect a
   // prior session that died without a clean exit (e.g. a native renderer abort
@@ -93,6 +133,10 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       sessionId: activeSessionId,
       cwd: config.ctx.cwd,
       model: config.meta.model,
+      hostCwd: config.hostCwd,
+      branch: sessionWorktree?.branch,
+      worktreeDir: sessionWorktree?.worktreeDir,
+      isolation: config.sessionIsolation,
     });
   };
   writeMeta();
@@ -146,12 +190,33 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
   const onResume = (resumeSessionId: string) => {
     void log.close();
-    const messages = replayLog(sessionPath(resumeSessionId));
+    const path = sessionPath(resumeSessionId);
+    const messages = replayLog(path);
+    const meta = replaySessionMeta(path);
     config.ctx.messages = messages;
     config.ctx.todos = rebuildTodosFromMessages(messages);
     activeSessionId = resumeSessionId;
     log = openLog(sessionPath(activeSessionId));
     if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
+    if (meta?.isolation === "worktree") {
+      config.sessionIsolation = "worktree";
+      bindSessionWorktree(activeSessionId, meta);
+    } else {
+      sessionWorktree = undefined;
+      config.ctx.cwd = config.hostCwd;
+      config.sessionIsolation = "shared";
+      if (config.ctx.loopHost) {
+        config.ctx.loopHost.hostCwd = undefined;
+        config.ctx.loopHost.sessionBranch = undefined;
+        config.ctx.loopHost.sessionIsolation = "shared";
+      }
+      controller.updateMeta({
+        cwd: config.hostCwd,
+        hostCwd: config.hostCwd,
+        branch: undefined,
+        sessionIsolation: "shared",
+      });
+    }
     // Seed the resumed session's checkpoints so /restore can target them.
     checkpoints.bind(activeSessionId, replayCheckpoints(sessionPath(activeSessionId)));
     // Rebuild the cost accumulator from the resumed log so the header total is
@@ -191,6 +256,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     activeSessionId = generateSessionId();
     log = openLog(sessionPath(activeSessionId));
     if (config.ctx.loopHost) config.ctx.loopHost.sessionId = activeSessionId;
+    sessionWorktree = undefined;
+    if (config.sessionIsolation === "worktree") {
+      bindSessionWorktree(activeSessionId);
+    } else {
+      config.ctx.cwd = config.hostCwd;
+    }
     writeMeta();
     // Fresh session: empty checkpoint list, then baseline the current tree.
     checkpoints.bind(activeSessionId, []);
@@ -251,6 +322,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     hooks: config.hooks,
     approval: approvalRef,
     recordLlmCall: recordSideLlmCall,
+    hostCwd: sessionWorktree?.hostCwd,
+    sessionBranch: sessionWorktree?.branch,
+    sessionIsolation: config.sessionIsolation,
   };
 
   // Seed the header's context-fill denominator for the starting model.
@@ -295,6 +369,13 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   const setSubagentIsolation = (isolation: IsolationMode) => {
     saveConfig({ subagent: { isolation } });
     controller.setStatusHint(`subagent isolation → ${isolation}`);
+  };
+
+  const setSessionIsolation = (isolation: SessionIsolationMode) => {
+    saveConfig({ session: { isolation } });
+    controller.setStatusHint(
+      `session isolation → ${isolation} (takes effect on /new or next launch)`,
+    );
   };
 
   // Opt-in OTLP content capture (telemetry 7a). The OTel exporter reads
@@ -515,6 +596,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetModel: setModel,
           onSetMode: setApprovalMode,
           onSetIsolation: setSubagentIsolation,
+          onSetSessionIsolation: setSessionIsolation,
           onSetTelemetryCapture: setTelemetryCapture,
           onSetRoleModel: setRoleModel,
           onSetProvider: setProvider,

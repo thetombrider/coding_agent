@@ -29,14 +29,14 @@ import { createFauxProvider, createStatefulFauxProvider } from "../provider/faux
 import type { StreamAssistantFn } from "../provider/types.js";
 import { getChildTools, getCoreTools } from "./registry.js";
 import { runSubagentTask, taskTool } from "./task.js";
-import type { AgentContext } from "../types.js";
+import type { AgentContext, LoopHost } from "../types.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { runLoop } from "../agent/loop.js";
 import { installTelemetry } from "../telemetry/install.js";
 import type { MetricSink } from "../telemetry/sinks.js";
 import type { SessionCostSummary } from "../telemetry/events.js";
 
-function loopHost(provider: ReturnType<typeof createStatefulFauxProvider>, tools = getCoreTools()) {
+function loopHost(provider: ReturnType<typeof createStatefulFauxProvider>, tools = getCoreTools()): LoopHost {
   const hooks = createHookRegistry();
   const approval: ApprovalGateRef = {
     mode: "auto-accept",
@@ -202,6 +202,45 @@ describe("runSubagentTask", () => {
     }
   });
 
+  it("uses the session worktree when the parent already runs in worktree mode", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orin-parent-wt-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+
+      const { bootstrapSessionWorktree } = await import("../workspace/session-worktree.js");
+      const wt = bootstrapSessionWorktree(dir, "parent1234");
+      if (!("binding" in wt)) throw new Error("expected session worktree");
+
+      const provider = createStatefulFauxProvider([
+        { toolCalls: [{ id: "w1", name: "write", arguments: { path: "child.txt", content: "in session branch" } }] },
+        { text: ["Done"] },
+      ]);
+      const host = loopHost(provider, getChildTools());
+      host.sessionIsolation = "worktree";
+      host.hostCwd = dir;
+      const ctx = baseCtx({ cwd: wt.binding.handle.cwd, loopHost: host });
+
+      const result = await runSubagentTask(
+        { description: "edit", prompt: "add child.txt", agent: "implement", isolation: "worktree" },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(existsSync(join(wt.binding.handle.cwd, "child.txt"))).toBe(true);
+      expect(existsSync(join(dir, "child.txt"))).toBe(false);
+      expect(g("branch", "--list", "orin/subagent-*").trim()).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("escalates to the config isolation floor when the model requests less", async () => {
     const { saveConfig } = await import("../config/config.js");
     saveConfig({ subagent: { isolation: "worktree" } });
@@ -241,7 +280,14 @@ describe("runSubagentTask", () => {
     const harvest = vi.fn(() => ({ branch: "orin/subagent-deadbeef", error: "commit blocked" }));
     const fakeWorktree = {
       createWorktree: () => ({
-        handle: { workspace: createLocalWorkspace(), cwd: process.cwd(), branch: "orin/subagent-deadbeef", harvest, remove },
+        handle: {
+          workspace: createLocalWorkspace(),
+          cwd: process.cwd(),
+          branch: "orin/subagent-deadbeef",
+          hostCwd: process.cwd(),
+          harvest,
+          remove,
+        },
       }),
     };
 

@@ -37,7 +37,10 @@ describe("createWorktree", () => {
 
   it("creates a worktree on a fresh branch off HEAD", () => {
     initRepo(host);
-    const result = createWorktree(host, "abcdef1234");
+    const result = createWorktree(host, "abcdef1234", {
+      branchPrefix: "orin/subagent",
+      commitLabel: "subagent",
+    });
     expect("handle" in result).toBe(true);
     if (!("handle" in result)) return;
 

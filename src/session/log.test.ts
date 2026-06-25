@@ -526,7 +526,7 @@ describe("resolveStartupSessionId", () => {
     });
     await log.close();
 
-    expect(resolveStartupSessionId("/projects/foo", sessionsPath)).toBe("empty123");
+    expect(resolveStartupSessionId("/projects/foo", { scanDir: sessionsPath })).toBe("empty123");
   });
 
   it("allocates a new id when the latest session already has turns", async () => {
@@ -542,7 +542,7 @@ describe("resolveStartupSessionId", () => {
     log.write({ type: "user_message", ts: "2026-01-01T00:01:00.000Z", content: [] });
     await log.close();
 
-    const id = resolveStartupSessionId("/projects/foo", sessionsPath);
+    const id = resolveStartupSessionId("/projects/foo", { scanDir: sessionsPath });
     expect(id).not.toBe("active123");
     expect(id).toMatch(/^[a-z0-9]+$/);
   });
@@ -559,11 +559,31 @@ describe("resolveStartupSessionId", () => {
     });
     await log.close();
 
-    const id = resolveStartupSessionId("/projects/foo", sessionsPath);
+    const id = resolveStartupSessionId("/projects/foo", { scanDir: sessionsPath });
     expect(id).not.toBe("othercwd");
   });
 
   it("allocates a new id when there are no sessions", () => {
-    expect(resolveStartupSessionId("/projects/foo", join(tmpDir, "sessions"))).toMatch(/^[a-z0-9]+$/);
+    expect(resolveStartupSessionId("/projects/foo", { scanDir: join(tmpDir, "sessions") })).toMatch(/^[a-z0-9]+$/);
+  });
+
+  it("reuses the newest zero-turn worktree session for the same host cwd", async () => {
+    const sessionsPath = join(tmpDir, "sessions");
+    const log = openLog(join(sessionsPath, "wtempty.jsonl"));
+    log.write({
+      type: "session_meta",
+      ts: "2026-01-01T00:00:00.000Z",
+      sessionId: "wtempty",
+      cwd: "/tmp/wt/tree",
+      hostCwd: "/projects/foo",
+      branch: "orin/session-wtempty",
+      isolation: "worktree",
+      model: "m",
+    });
+    await log.close();
+
+    expect(
+      resolveStartupSessionId("/projects/foo", { isolation: "worktree", scanDir: sessionsPath }),
+    ).toBe("wtempty");
   });
 });

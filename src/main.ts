@@ -10,7 +10,9 @@ import { defaultCheapModel, defaultMainModel, loadModelConfig } from "./config/m
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { resolveActiveProvider, repairActiveProviderIfNeeded, activeProviderId } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
-import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, resolveStartupSessionId, sessionPath } from "./session/log.js";
+import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, replaySessionMeta, resolveStartupSessionId, sessionPath } from "./session/log.js";
+import { resolveSessionIsolation } from "./workspace/session-worktree.js";
+import type { SessionIsolationMode } from "./agent/session-isolation.js";
 import { rebuildTodosFromMessages } from "./todos/store.js";
 import { getCoreTools } from "./tools/registry.js";
 import { createDefaultSinks, installTelemetry } from "./telemetry/install.js";
@@ -32,7 +34,7 @@ function createSessionHooks(): ReturnType<typeof createHookRegistry> {
 
 async function main(): Promise<void> {
   ensureConfigFile();
-  const { prompt, useFaux, headless, listSessions: listSessionsFlag, chat, resumeId, autoAcceptCli, approvalMode } =
+  const { prompt, useFaux, headless, listSessions: listSessionsFlag, chat, resumeId, worktree, autoAcceptCli, approvalMode } =
     parseCliArgs(process.argv.slice(2));
 
   if (listSessionsFlag) {
@@ -45,7 +47,7 @@ async function main(): Promise<void> {
       console.error("Usage: orin --headless <prompt>");
       process.exit(1);
     }
-    await runHeadless({ prompt, useFaux, approvalMode, autoAcceptCli });
+    await runHeadless({ prompt, useFaux, approvalMode, autoAcceptCli, worktree });
     return;
   }
 
@@ -54,7 +56,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  await runInteractive({ initialMessage: prompt || undefined, useFaux, approvalMode, autoAcceptCli, resumeId });
+  await runInteractive({ initialMessage: prompt || undefined, useFaux, approvalMode, autoAcceptCli, resumeId, worktree });
 }
 
 function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model: string } {
@@ -117,17 +119,21 @@ async function runInteractive(opts: {
   approvalMode: ReturnType<typeof parseApprovalMode>;
   autoAcceptCli: boolean;
   resumeId?: string;
+  worktree: boolean;
 }): Promise<void> {
   const { provider, model, providerConfigured } = resolveInteractiveProvider(opts.useFaux);
   const models = loadModelConfig();
-  const localCwd = process.cwd();
+  const hostCwd = process.cwd();
+  const sessionIsolation = resolveSessionIsolation(loadConfig().session?.isolation, opts.worktree);
 
   let messages: AgentContext["messages"] = [];
   let sessionId: string;
+  let sessionMeta = undefined;
 
   if (opts.resumeId) {
     const path = sessionPath(opts.resumeId);
     messages = replayLog(path);
+    sessionMeta = replaySessionMeta(path);
     const turns = messages.filter((m) => m.role === "user").length;
     const lastTs = getLastEventTimestamp(path);
     const ago = lastTs ? formatRelativeTime(lastTs) : "unknown";
@@ -136,12 +142,18 @@ async function runInteractive(opts: {
     );
     sessionId = opts.resumeId;
   } else {
-    sessionId = resolveStartupSessionId(localCwd);
+    sessionId = resolveStartupSessionId(hostCwd, { isolation: sessionIsolation });
+    if (sessionIsolation === "worktree") {
+      sessionMeta = replaySessionMeta(sessionPath(sessionId));
+    }
   }
+
+  const effectiveIsolation: SessionIsolationMode =
+    sessionMeta?.isolation ?? sessionIsolation;
 
   const sandboxPref = loadConfig().sandbox?.active;
   const workspace = createLocalWorkspace();
-  const ctx: AgentContext = { cwd: localCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
+  const ctx: AgentContext = { cwd: hostCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
   attachSymbolService(ctx, createSymbolService());
   const hooks = createSessionHooks();
 
@@ -150,17 +162,22 @@ async function runInteractive(opts: {
     provider,
     tools: getCoreTools(),
     model,
-    system: sessionSystem(localCwd),
+    system: sessionSystem(hostCwd),
     approvalMode: opts.approvalMode,
     autoAcceptCli: opts.autoAcceptCli,
     initialMessage: opts.initialMessage,
     sessionId,
     hooks,
+    hostCwd,
+    sessionIsolation: effectiveIsolation,
+    sessionMeta,
     meta: {
       model: opts.useFaux ? "faux" : models.main,
       provider: opts.useFaux ? "faux" : resolveActiveProvider().id,
       approval: opts.approvalMode,
-      cwd: localCwd,
+      cwd: hostCwd,
+      hostCwd,
+      sessionIsolation: effectiveIsolation,
       sandbox: sandboxPref === "e2b" && hasE2BApiKey() ? "e2b" : "local",
       faux: opts.useFaux,
       providerConfigured: opts.useFaux || providerConfigured,
@@ -220,8 +237,27 @@ async function runHeadless(opts: {
   useFaux: boolean;
   approvalMode: ReturnType<typeof parseApprovalMode>;
   autoAcceptCli: boolean;
+  worktree: boolean;
 }): Promise<void> {
-  const cwd = process.cwd();
+  const hostCwd = process.cwd();
+  const sessionIsolation = resolveSessionIsolation(loadConfig().session?.isolation, opts.worktree);
+  let cwd = hostCwd;
+  let sessionBranch: string | undefined;
+  let worktreeHandle: import("./workspace/worktree.js").WorktreeHandle | undefined;
+
+  if (sessionIsolation === "worktree") {
+    const sessionId = generateSessionId();
+    const { bootstrapSessionWorktree } = await import("./workspace/session-worktree.js");
+    const wt = bootstrapSessionWorktree(hostCwd, sessionId);
+    if ("error" in wt) {
+      console.error(wt.error);
+      process.exit(1);
+    }
+    cwd = wt.binding.handle.cwd;
+    sessionBranch = wt.binding.branch;
+    worktreeHandle = wt.binding.handle;
+  }
+
   const ctx: AgentContext = {
     cwd,
     messages: [{ role: "user", content: [{ type: "text", text: opts.prompt }] }],
@@ -256,6 +292,9 @@ async function runHeadless(opts: {
     hooks,
     approval: approvalRef,
     recordLlmCall: telemetry.recordLlmCall,
+    hostCwd: sessionIsolation === "worktree" ? hostCwd : undefined,
+    sessionBranch,
+    sessionIsolation,
   };
 
   hooks.observe((event) => {
@@ -268,17 +307,25 @@ async function runHeadless(opts: {
     }
   });
 
-  await hooks.fireHook("session_start", { cwd }, ctx);
+  await hooks.fireHook("session_start", { cwd: hostCwd }, ctx);
   try {
     await runLoop(ctx, hooks, {
       provider,
       tools: getCoreTools(),
       model,
-      system: sessionSystem(cwd),
+      system: sessionSystem(hostCwd),
       sessionId,
     });
   } finally {
     await hooks.fireHook("session_end", { reason: "complete" }, ctx);
+    if (worktreeHandle) {
+      worktreeHandle.harvest();
+      try {
+        worktreeHandle.remove();
+      } catch {
+        // best-effort
+      }
+    }
     await ctx.workspace.dispose();
   }
 

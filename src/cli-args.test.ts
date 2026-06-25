@@ -60,6 +60,11 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--chat", "hi"], base).chat).toBe(true);
   });
 
+  it("detects --worktree", () => {
+    expect(parseCliArgs(["--worktree"], base).worktree).toBe(true);
+    expect(parseCliArgs([], base).worktree).toBe(false);
+  });
+
   it("parses --resume and -r session ids", () => {
     expect(parseCliArgs(["--resume", "sess-1"], base).resumeId).toBe("sess-1");
     expect(parseCliArgs(["-r", "sess-2"], base).resumeId).toBe("sess-2");
