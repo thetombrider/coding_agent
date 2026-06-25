@@ -13,7 +13,8 @@ export type InlinePart =
   | { kind: "text"; value: string }
   | { kind: "bold"; value: string }
   | { kind: "italic"; value: string }
-  | { kind: "code"; value: string };
+  | { kind: "code"; value: string }
+  | { kind: "math"; value: string };
 
 export function parseBlocks(source: string): Block[] {
   const blocks: Block[] = [];
@@ -345,6 +346,115 @@ export function wrapInlineParts(parts: InlinePart[], width: number): InlinePart[
   return lines;
 }
 
+const LATEX_TO_UNICODE: Record<string, string> = {
+  "\\rightarrow": "→",
+  "\\to": "→",
+  "\\leftarrow": "←",
+  "\\Rightarrow": "⇒",
+  "\\Leftarrow": "⇐",
+  "\\leftrightarrow": "↔",
+  "\\Leftrightarrow": "⇔",
+  "\\uparrow": "↑",
+  "\\downarrow": "↓",
+  "\\alpha": "α",
+  "\\beta": "β",
+  "\\gamma": "γ",
+  "\\delta": "δ",
+  "\\epsilon": "ε",
+  "\\zeta": "ζ",
+  "\\eta": "η",
+  "\\theta": "θ",
+  "\\iota": "ι",
+  "\\kappa": "κ",
+  "\\lambda": "λ",
+  "\\mu": "μ",
+  "\\nu": "ν",
+  "\\xi": "ξ",
+  "\\pi": "π",
+  "\\rho": "ρ",
+  "\\sigma": "σ",
+  "\\tau": "τ",
+  "\\upsilon": "υ",
+  "\\phi": "φ",
+  "\\chi": "χ",
+  "\\psi": "ψ",
+  "\\omega": "ω",
+  "\\Gamma": "Γ",
+  "\\Delta": "Δ",
+  "\\Theta": "Θ",
+  "\\Lambda": "Λ",
+  "\\Xi": "Ξ",
+  "\\Pi": "Π",
+  "\\Sigma": "Σ",
+  "\\Phi": "Φ",
+  "\\Psi": "Ψ",
+  "\\Omega": "Ω",
+  "\\infty": "∞",
+  "\\pm": "±",
+  "\\times": "×",
+  "\\div": "÷",
+  "\\cdot": "·",
+  "\\leq": "≤",
+  "\\geq": "≥",
+  "\\neq": "≠",
+  "\\approx": "≈",
+  "\\equiv": "≡",
+  "\\forall": "∀",
+  "\\exists": "∃",
+  "\\in": "∈",
+  "\\notin": "∉",
+  "\\subset": "⊂",
+  "\\supset": "⊃",
+  "\\cup": "∪",
+  "\\cap": "∩",
+  "\\emptyset": "∅",
+  "\\sum": "∑",
+  "\\prod": "∏",
+  "\\int": "∫",
+  "\\partial": "∂",
+  "\\nabla": "∇",
+  "\\sqrt": "√",
+  "\\langle": "⟨",
+  "\\rangle": "⟩",
+  "\\lfloor": "⌊",
+  "\\rfloor": "⌋",
+  "\\lceil": "⌈",
+  "\\rceil": "⌉",
+};
+
+function latexToUnicode(latex: string): string {
+  let result = latex;
+  const sortedKeys = Object.keys(LATEX_TO_UNICODE).sort((a, b) => b.length - a.length);
+  for (const cmd of sortedKeys) {
+    result = result.replaceAll(cmd, LATEX_TO_UNICODE[cmd]!);
+  }
+  result = result.replace(/\^{([^}]+)}/g, (_, exp) => {
+    const superscripts: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", "n": "ⁿ", "i": "ⁱ" };
+    return [...exp].map(c => superscripts[c] ?? c).join("");
+  });
+  result = result.replace(/\^(\w)/g, (_, c) => {
+    const superscripts: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", "n": "ⁿ", "i": "ⁱ" };
+    return superscripts[c] ?? c;
+  });
+  result = result.replace(/_{([^}]+)}/g, (_, exp) => {
+    const subscripts: Record<string, string> = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎" };
+    return [...exp].map(c => subscripts[c] ?? c).join("");
+  });
+  result = result.replace(/_(\w)/g, (_, c) => {
+    const subscripts: Record<string, string> = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎" };
+    return subscripts[c] ?? c;
+  });
+  result = result.replace(/\\text\{([^}]*)\}/g, "$1");
+  result = result.replace(/\\mathrm\{([^}]*)\}/g, "$1");
+  result = result.replace(/\\left([(\[|])/g, "$1");
+  result = result.replace(/\\right([)\]|])/g, "$1");
+  result = result.replace(/\\,/g, " ");
+  result = result.replace(/\\;/g, " ");
+  result = result.replace(/\\/g, "");
+  result = result.replace(/[{}]/g, "");
+  return result.trim();
+}
+
 export function parseInline(source: string): InlinePart[] {
   const parts: InlinePart[] = [];
   let rest = source;
@@ -354,6 +464,13 @@ export function parseInline(source: string): InlinePart[] {
     if (code) {
       parts.push({ kind: "code", value: code[1]! });
       rest = rest.slice(code[0].length);
+      continue;
+    }
+
+    const math = rest.match(/^\$([^$]+)\$/);
+    if (math) {
+      parts.push({ kind: "math", value: latexToUnicode(math[1]!) });
+      rest = rest.slice(math[0].length);
       continue;
     }
 
@@ -371,7 +488,7 @@ export function parseInline(source: string): InlinePart[] {
       continue;
     }
 
-    const next = rest.search(/(`|\*\*|__|\*|_)/);
+    const next = rest.search(/(`|\$|\*\*|__|\*|_)/);
     if (next === -1) {
       parts.push({ kind: "text", value: rest });
       break;

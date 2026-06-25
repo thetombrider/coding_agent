@@ -3,10 +3,12 @@ import { bashTool } from "./bash.js";
 import { delegateReadTool } from "./delegate-read.js";
 import { editTool } from "./edit.js";
 import { fetchTool } from "./fetch.js";
+import { webSearchTool } from "./web-search.js";
 import { fileOpTool } from "./file-op.js";
 import { findTool } from "./find.js";
 import { grepTool } from "./grep.js";
 import { lsTool } from "./ls.js";
+import { searchSymbolsTool } from "./search-symbols.js";
 import { readTool } from "./read.js";
 import { skillListTool, skillUseTool, skillWriteTool } from "./skill.js";
 import { taskTool } from "./task.js";
@@ -25,6 +27,8 @@ const ALL_TOOLS: AnyTool[] = [
   findTool,
   lsTool,
   fetchTool,
+  webSearchTool,
+  searchSymbolsTool,
   fileOpTool,
   delegateReadTool,
   todowriteTool,
@@ -39,8 +43,8 @@ const ALL_TOOLS: AnyTool[] = [
  * Tools excluded from subagent child loops — the parent owns the plan, the
  * mutating file ops, and the user dialogue (no recursion in v1), so subagents
  * don't plan (`todowrite`), spawn further subagents (`task`), batch file
- * mutations (`file_op`), or interrupt the user (`askuser`). `fetch` is
- * read-only, so it stays.
+ * mutations (`file_op`), or interrupt the user (`askuser`). `fetch` and
+ * `web_search` are read-only, so they stay.
  */
 const CHILD_EXCLUDED = new Set(["todowrite", "task", "file_op", "askuser", "skill_write"]);
 

@@ -83,12 +83,9 @@ A couple of caveats worth knowing:
 
 - A few tests (`delegate/delegate-read.test.ts`, `agent/compaction.test.ts`)
   build the model argument through the provider registry even though they inject
-  a mock generator, so they need a non-empty `OPENROUTER_API_KEY` to run. Any
-  value works — no real key needed:
-
-  ```bash
-  OPENROUTER_API_KEY=dummy bun run test
-  ```
+  a mock generator. Tests isolate config via a temp `HOME`; if you see
+  "OpenRouter is not configured", seed `provider.openrouter.apiKey` in that
+  test's config rather than using environment variables.
 
 - `tui/approval-bar.test.tsx` is excluded from the default Vitest run (see
   `vitest.config.ts`).

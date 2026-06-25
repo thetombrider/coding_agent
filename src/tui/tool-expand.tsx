@@ -15,6 +15,8 @@ export interface ToolExpandContextValue {
   toggleHovered: () => void;
   getHoveredOutput: () => string | undefined;
   getHoveredExpandedOutput: () => string | undefined;
+  isExpanded: (id: string) => boolean;
+  setExpanded: (id: string, expanded: boolean) => void;
 }
 
 const ToolExpandContext = createContext<ToolExpandContextValue>();
@@ -22,6 +24,7 @@ const ToolExpandContext = createContext<ToolExpandContextValue>();
 export function createToolExpandState(): ToolExpandContextValue {
   const toggles = new Map<string, () => void>();
   const targets = new Map<string, ToolTarget>();
+  const expandedStates = new Map<string, boolean>();
   let hoveredId: string | null = null;
 
   return {
@@ -53,6 +56,12 @@ export function createToolExpandState(): ToolExpandContextValue {
       const target = targets.get(hoveredId);
       if (!target?.isExpanded()) return undefined;
       return target.getOutput();
+    },
+    isExpanded(id) {
+      return expandedStates.get(id) ?? false;
+    },
+    setExpanded(id, expanded) {
+      expandedStates.set(id, expanded);
     },
   };
 }

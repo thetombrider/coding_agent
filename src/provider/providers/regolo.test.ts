@@ -7,22 +7,17 @@ import { regoloProvider } from "./regolo.js";
 describe("regolo provider", () => {
   let home: string;
   let prevHome: string | undefined;
-  let prevKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
-    prevKey = process.env.REGOLO_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-regolo-test-"));
     process.env.HOME = home;
-    delete process.env.REGOLO_API_KEY;
     vi.resetModules();
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevKey === undefined) delete process.env.REGOLO_API_KEY;
-    else process.env.REGOLO_API_KEY = prevKey;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -30,9 +25,12 @@ describe("regolo provider", () => {
     expect(regoloProvider.isConfigured()).toBe(false);
   });
 
-  it("reports configured when the env key is set", () => {
-    process.env.REGOLO_API_KEY = "sk-regolo";
-    expect(regoloProvider.isConfigured()).toBe(true);
+  it("reports configured when the config key is set", async () => {
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { regolo: { apiKey: "sk-regolo" } } });
+    vi.resetModules();
+    const { regoloProvider: provider } = await import("./regolo.js");
+    expect(provider.isConfigured()).toBe(true);
   });
 
   it("exposes api-key config fields", () => {
@@ -41,14 +39,16 @@ describe("regolo provider", () => {
         key: "apiKey",
         label: "Regolo AI API key",
         secret: true,
-        envVar: "REGOLO_API_KEY",
       },
     ]);
   });
 
-  it("returns a language model handle when configured", () => {
-    process.env.REGOLO_API_KEY = "sk-regolo";
-    const model = regoloProvider.languageModel("Llama-3.3-70B-Instruct");
+  it("returns a language model handle when configured", async () => {
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { regolo: { apiKey: "sk-regolo" } } });
+    vi.resetModules();
+    const { regoloProvider: provider } = await import("./regolo.js");
+    const model = provider.languageModel("Llama-3.3-70B-Instruct");
     expect(model).toBeDefined();
     expect(typeof model).toBe("object");
   });

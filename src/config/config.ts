@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { coerceIsolation, type IsolationMode } from "../agent/isolation.js";
+import type { IsolationMode } from "../agent/isolation.js";
 
 export interface ModelPricing {
   inputPerM: number;
@@ -10,7 +10,7 @@ export interface ModelPricing {
   cacheWritePerM?: number;
 }
 
-/** OTLP trace exporter settings. Resolved against env vars by `resolveOtelConfig()`. */
+/** OTLP trace exporter settings. Resolved by `resolveOtelConfig()`. */
 export interface OtelConfig {
   /** When false, the OTel subtree is never loaded. Auto-enabled if an endpoint is present. */
   enabled: boolean;
@@ -75,6 +75,8 @@ export interface Config {
   };
   telemetry: {
     enabled: boolean;
+    /** Echo each metric event to stdout (debugging). */
+    stdout: boolean;
     metricsFile: string;
     /** OTLP trace export (issue 5/8). Off unless an endpoint is configured. */
     otel: OtelConfig;
@@ -86,6 +88,9 @@ export interface Config {
   todo?: {
     /** Write `.orin/todo.md` on each todowrite call for human-editable, committable plans. */
     export?: boolean;
+  };
+  tools?: {
+    exa?: { apiKey?: string };
   };
 }
 
@@ -145,6 +150,7 @@ const DEFAULT_CONFIG: Config = {
   system: { prompt: "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely.\n\nCode reading strategy: grep to locate symbols (get the line number), then read with offset+limit to see only that section. Use grep context=N for surrounding lines instead of reading the whole file. Never re-read a file already in context. Use delegate_read when you need to understand multiple files at once." },
   telemetry: {
     enabled: true,
+    stdout: false,
     metricsFile: "~/.orin/metrics.jsonl",
     otel: {
       enabled: false,
@@ -324,38 +330,10 @@ function buildConfig(): Config {
     merged.provider.active,
   );
 
-  if (process.env.ORIN_MODEL?.trim()) merged.models.main = process.env.ORIN_MODEL.trim();
-  if (process.env.ORIN_CHEAP_MODEL?.trim()) merged.models.cheap = process.env.ORIN_CHEAP_MODEL.trim();
-  if (process.env.OPENROUTER_API_KEY?.trim()) {
-    merged.provider.openrouter = { ...merged.provider.openrouter, apiKey: process.env.OPENROUTER_API_KEY.trim() };
-  }
-  if (process.env.REGOLO_API_KEY?.trim()) {
-    merged.provider.regolo = { ...merged.provider.regolo, apiKey: process.env.REGOLO_API_KEY.trim() };
-  }
-  if (process.env.OPENCODE_API_KEY?.trim()) {
-    merged.provider.opencode = { ...merged.provider.opencode, apiKey: process.env.OPENCODE_API_KEY.trim() };
-  }
-  if (process.env.ANTHROPIC_API_KEY?.trim()) {
-    merged.provider.anthropic = { ...merged.provider.anthropic, apiKey: process.env.ANTHROPIC_API_KEY.trim() };
-  }
-  if (process.env.E2B_API_KEY?.trim()) {
-    merged.sandbox = { ...merged.sandbox, e2b: { ...merged.sandbox?.e2b, apiKey: process.env.E2B_API_KEY.trim() } };
-  }
-  const rawMode = process.env.ORIN_APPROVAL_MODE?.trim().toLowerCase();
-  if (rawMode === "auto-accept" || rawMode === "auto") merged.approval.mode = "auto-accept";
-  else if (rawMode === "plan") merged.approval.mode = "plan";
-  else if (rawMode === "normal") merged.approval.mode = "normal";
-
-  const rawIsolation = process.env.ORIN_SUBAGENT_ISOLATION?.trim();
-  if (rawIsolation) {
-    const isolation = coerceIsolation(rawIsolation);
-    if (isolation) merged.subagent.isolation = isolation;
-  }
-
   return merged;
 }
 
-/** Load config: file merged with defaults, then env var overrides applied on top. Cached for performance. */
+/** Load config: defaults merged with `~/.orin/config.json`. Cached for performance. */
 export function loadConfig(): Config {
   if (cachedConfig === undefined) {
     cachedConfig = buildConfig();
@@ -374,31 +352,40 @@ export function __testClearCache(): void {
   cachedConfig = undefined;
 }
 
-/** True when an OpenRouter API key is available from the env var or config file. */
+/** True when an OpenRouter API key is set in config. */
 export function hasOpenRouterApiKey(): boolean {
-  return Boolean(process.env.OPENROUTER_API_KEY?.trim() || loadConfig().provider.openrouter?.apiKey);
+  return Boolean(loadConfig().provider.openrouter?.apiKey?.trim());
 }
 
-/** True when a Regolo API key is available from the env var or config file. */
+/** True when a Regolo API key is set in config. */
 export function hasRegoloApiKey(): boolean {
-  return Boolean(process.env.REGOLO_API_KEY?.trim() || loadConfig().provider.regolo?.apiKey);
+  return Boolean(loadConfig().provider.regolo?.apiKey?.trim());
 }
 
-/** True when an Anthropic API key is available from the env var or config file. */
+/** True when an Anthropic API key is set in config. */
 export function hasAnthropicApiKey(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY?.trim() || loadConfig().provider.anthropic?.apiKey);
+  return Boolean(loadConfig().provider.anthropic?.apiKey?.trim());
 }
 
-/** True when an Opencode API key is available from the env var or config file. */
+/** True when an Opencode API key is set in config. */
 export function hasOpencodeApiKey(): boolean {
-  return Boolean(process.env.OPENCODE_API_KEY?.trim() || loadConfig().provider.opencode?.apiKey);
+  return Boolean(loadConfig().provider.opencode?.apiKey?.trim());
 }
 
-/** True when an E2B API key is available from the env var or config file. */
+/** True when an E2B API key is set in config. */
 export function hasE2BApiKey(): boolean {
-  const fromEnv = process.env.E2B_API_KEY?.trim();
-  const fromConfig = loadConfig().sandbox?.e2b?.apiKey?.trim();
-  return Boolean(fromEnv || fromConfig);
+  return Boolean(loadConfig().sandbox?.e2b?.apiKey?.trim());
+}
+
+/** Exa API key from config; undefined when not configured. */
+export function getExaApiKey(): string | undefined {
+  const key = loadConfig().tools?.exa?.apiKey?.trim();
+  return key || undefined;
+}
+
+/** True when an Exa API key is set in config. */
+export function hasExaApiKey(): boolean {
+  return Boolean(getExaApiKey());
 }
 
 /** Persist an E2B API key under `sandbox.e2b.apiKey` in config.json. */
@@ -406,6 +393,14 @@ export function saveE2BApiKey(apiKey: string): void {
   const trimmed = apiKey.trim();
   if (!trimmed) return;
   saveConfig({ sandbox: { e2b: { apiKey: trimmed } } });
+  cachedConfig = undefined;
+}
+
+/** Persist an Exa API key under `tools.exa.apiKey` in config.json. */
+export function saveExaApiKey(apiKey: string): void {
+  const trimmed = apiKey.trim();
+  if (!trimmed) return;
+  saveConfig({ tools: { exa: { apiKey: trimmed } } });
   cachedConfig = undefined;
 }
 

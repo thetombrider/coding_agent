@@ -1,0 +1,13 @@
+Structured symbol lookup over the codebase — find function/class definitions, references, and callers using a Tree-sitter index.
+
+Use this instead of grep when you need structural navigation:
+- `mode=definitions` — jump to where a symbol is defined
+- `mode=references` — find all usages of a name
+- `mode=callers` — find functions/methods that call a target
+- `mode=search` — prefix/substring search over symbol names
+
+Output lines are `file:startLine:endLine kind name` — use read with offset/limit on the line number.
+
+grep is still better for regex/string search. search_symbols is better for named code structures.
+
+If the index is still warming up, the tool indexes the requested scope on demand.

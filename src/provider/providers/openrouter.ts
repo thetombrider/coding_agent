@@ -18,18 +18,18 @@ import type { ModelMetadataProvider, Provider } from "../types.js";
 
 // ── Client & credentials ─────────────────────────────────────────────────────
 
-/** OpenRouter API key from env or config; undefined when not configured. */
+/** OpenRouter API key from config; undefined when not configured. */
 export function getOpenRouterApiKey(): string | undefined {
-  return (
-    process.env.OPENROUTER_API_KEY?.trim() ||
-    loadConfig().provider.openrouter?.apiKey?.trim()
-  );
+  return loadConfig().provider.openrouter?.apiKey?.trim();
 }
 
 export function getOpenRouter() {
   const apiKey = getOpenRouterApiKey();
   if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY is not set (env var or ~/.orin/config.json)");
+    throw new Error(
+      "OpenRouter is not configured — set provider.openrouter.apiKey in ~/.orin/config.json "
+      + "or run /providers configure openrouter",
+    );
   }
   return createOpenRouter({ apiKey });
 }
@@ -421,7 +421,7 @@ export const openRouterProvider: Provider = {
   displayName: "OpenRouter",
   authStrategy: "api-key",
   configFields: [
-    { key: "apiKey", label: "OpenRouter API key", secret: true, envVar: "OPENROUTER_API_KEY" },
+    { key: "apiKey", label: "OpenRouter API key", secret: true },
   ],
   isConfigured() {
     return Boolean(getOpenRouterApiKey());

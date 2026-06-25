@@ -19,7 +19,6 @@ const SAMPLE_CATALOG = {
 const testCfg = {
   id: "regolo",
   displayName: "Regolo AI",
-  envVar: "REGOLO_API_KEY",
   configSection: "regolo" as const,
   baseURL: "https://api.regolo.ai/v1",
   idPrefix: "regolo:",
@@ -48,14 +47,11 @@ function mockFetch(handlers: Record<string, { ok?: boolean; status?: number; bod
 describe("openai-compatible", () => {
   let home: string;
   let prevHome: string | undefined;
-  let prevKey: string | undefined;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
-    prevKey = process.env.REGOLO_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-openai-compat-test-"));
     process.env.HOME = home;
-    delete process.env.REGOLO_API_KEY;
     resetOpenAiCompatibleModelsCache();
     vi.resetModules();
   });
@@ -63,22 +59,11 @@ describe("openai-compatible", () => {
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevKey === undefined) delete process.env.REGOLO_API_KEY;
-    else process.env.REGOLO_API_KEY = prevKey;
     rmSync(home, { recursive: true, force: true });
     resetOpenAiCompatibleModelsCache();
   });
 
-  it("resolves credentials from env before config", async () => {
-    const { saveConfig } = await import("../config/config.js");
-    saveConfig({ provider: { regolo: { apiKey: "sk-config" } } });
-    process.env.REGOLO_API_KEY = "sk-env";
-
-    const provider = createOpenAiCompatibleProvider(testCfg);
-    expect(provider.isConfigured()).toBe(true);
-  });
-
-  it("reads credentials from config when env is unset", async () => {
+  it("reads credentials from config", async () => {
     const { saveConfig } = await import("../config/config.js");
     saveConfig({ provider: { regolo: { apiKey: "sk-config" } } });
 

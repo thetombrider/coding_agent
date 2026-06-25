@@ -57,6 +57,8 @@ describe("picker-models", () => {
         lastUsed: { regolo: { main: "qwen3-coder-next" } },
       },
     });
+    vi.resetModules();
+    const { resolveModelOnProviderSwitch } = await import("./picker-models.js");
     const result = resolveModelOnProviderSwitch(
       "openrouter",
       "regolo",

@@ -41,11 +41,14 @@
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "@opentui/core": "^0.4.1",
     "@opentui/solid": "^0.4.1",
+    "@vscode/ripgrep": "^1.18.0",
     "ai": "^6.0.205",
     "diff": "^9.0.0",
-    "dotenv": "^17.4.2",
     "e2b": "^2.30.0",
     "solid-js": "^1.9.12",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "web-tree-sitter": "^0.26.9",
     "zod": "^4.4.3"
   }
 }

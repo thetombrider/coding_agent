@@ -33,6 +33,8 @@ function inlineChunks(text: string): TextChunk[] {
         return fg(theme.fg)(italic(part.value));
       case "code":
         return bg(theme.codeBg)(fg(theme.codeFg)(bold(` ${part.value} `)));
+      case "math":
+        return fg(theme.fg)(italic(part.value));
       default:
         return fg(theme.fg)(part.value);
     }
@@ -68,6 +70,8 @@ function cellChunks(parts: InlinePart[], header: boolean): TextChunk[] {
         return fg(theme.fg)(italic(part.value));
       case "code":
         return bg(theme.codeBg)(fg(theme.codeFg)(bold(part.value)));
+      case "math":
+        return fg(theme.fg)(italic(part.value));
       default:
         return fg(theme.fg)(part.value);
     }

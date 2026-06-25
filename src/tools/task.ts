@@ -37,7 +37,7 @@ const schema = z.object({
     .describe(
       "Workspace isolation. shared (default): edits the local working tree and "
       + "persists. worktree: runs in a git worktree on a fresh branch (isolated, "
-      + "persists to that branch). sandbox: ephemeral E2B clone (requires E2B_API_KEY).",
+      + "persists to that branch). sandbox: ephemeral E2B clone (requires sandbox.e2b.apiKey in config).",
     ),
 });
 
@@ -68,8 +68,8 @@ function resolveIsolation(
   if (want === "sandbox" && !hasE2BApiKey()) {
     return {
       error:
-        "E2B_API_KEY is not set. Sandbox isolation requires an E2B API key "
-        + "(environment variable or sandbox.e2b.apiKey in ~/.orin/config.json).",
+        "E2B is not configured. Sandbox isolation requires sandbox.e2b.apiKey in ~/.orin/config.json "
+        + "(set it with /settings).",
     };
   }
 
@@ -171,7 +171,8 @@ export async function runSubagentTask(
         event.type === "tool_start" ||
         event.type === "tool_end" ||
         event.type === "assistant_message" ||
-        event.type === "llm_start"
+        event.type === "llm_start" ||
+        event.type === "reasoning_delta"
       ) {
         host.hooks.emit({ ...event, subagentId });
       }

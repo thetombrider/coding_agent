@@ -6,7 +6,7 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig, saveProviderConfig, saveE2BApiKey, saveRoleModel } from "../config/config.js";
+import { saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveRoleModel } from "../config/config.js";
 import type { AgentPreset } from "../agent/presets.js";
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider, resolveActiveProvider } from "../provider/registry.js";
@@ -375,6 +375,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     controller.setStatusHint("E2B configured — task tool enabled");
   };
 
+  const configureExa = (apiKey: string) => {
+    saveExaApiKey(apiKey);
+    refreshTools();
+    controller.setStatusHint("Exa configured — web_search tool enabled");
+  };
+
   const bootstrapE2BSandbox = async () => {
     controller.setStatusHint("Starting E2B sandbox…");
     try {
@@ -514,6 +520,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
           onConfigureE2b: configureE2b,
+          onConfigureExa: configureExa,
           onClear: () => {
             config.ctx.messages = [];
             config.ctx.todos = [];

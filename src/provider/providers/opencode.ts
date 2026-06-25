@@ -10,8 +10,8 @@
  * Opencode Zen (`opencode-zen`): pay-as-you-go curated model gateway; fully
  *   OpenAI-compatible /chat/completions for all models.
  *
- * Both use a single OPENCODE_API_KEY (env var or provider.opencode.apiKey in
- * ~/.orin/config.json).
+ * Both use a single API key stored in provider.opencode.apiKey in
+ * ~/.orin/config.json.
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -28,10 +28,7 @@ import type { ModelMetadataProvider, Provider, ProviderConfigField } from "../ty
 // ── Shared credentials ────────────────────────────────────────────────────────
 
 function getOpencodeApiKey(): string | undefined {
-  return (
-    process.env.OPENCODE_API_KEY?.trim() ||
-    loadConfig().provider.opencode?.apiKey?.trim()
-  );
+  return loadConfig().provider.opencode?.apiKey?.trim();
 }
 
 // ── Opencode Go ───────────────────────────────────────────────────────────────
@@ -93,7 +90,6 @@ export const OPENCODE_GO_PICKER_MODELS = [
 const GO_META_CFG: OpenAiCompatibleProviderConfig = {
   id: "opencode-go",
   displayName: "Opencode Go",
-  envVar: "OPENCODE_API_KEY",
   configSection: "opencode",
   baseURL: OPENCODE_GO_BASE_URL,
   pickerModels: [],
@@ -119,7 +115,6 @@ const OPENCODE_GO_CONFIG_FIELDS: readonly ProviderConfigField[] = [
     key: "apiKey",
     label: "Opencode API key",
     secret: true,
-    envVar: "OPENCODE_API_KEY",
   },
 ];
 
@@ -140,7 +135,10 @@ export const opencodeGoProvider: Provider = {
   languageModel(modelId): LanguageModel {
     const apiKey = getOpencodeApiKey();
     if (!apiKey) {
-      throw new Error("OPENCODE_API_KEY is not set (env var or ~/.orin/config.json)");
+      throw new Error(
+        "Opencode is not configured — set provider.opencode.apiKey in ~/.orin/config.json "
+        + "or run /providers configure opencode-go",
+      );
     }
     if (OPENCODE_GO_ANTHROPIC_MODELS.has(modelId)) {
       return createAnthropic({ apiKey, baseURL: OPENCODE_GO_BASE_URL }).languageModel(modelId);
@@ -173,7 +171,6 @@ export const OPENCODE_ZEN_PICKER_MODELS = [
 export const opencodeZenProvider = createOpenAiCompatibleProvider({
   id: "opencode-zen",
   displayName: "Opencode Zen",
-  envVar: "OPENCODE_API_KEY",
   configSection: "opencode",
   baseURL: "https://opencode.ai/zen/v1",
   pickerModels: OPENCODE_ZEN_PICKER_MODELS,

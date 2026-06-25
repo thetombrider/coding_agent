@@ -3,6 +3,7 @@ import type { HookRegistryImpl } from "./hooks/registry.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { LlmCallRecorder, MetricEvent } from "./telemetry/events.js";
 import type { TodoItem } from "./todos/types.js";
+import type { SymbolService } from "./symbols/service.js";
 import type { Workspace } from "./workspace/types.js";
 
 export type Role = "system" | "user" | "assistant" | "tool";
@@ -51,6 +52,8 @@ export interface AgentContext {
   loopHost?: LoopHost;
   /** Prompt the interactive user a question mid-loop (set by the TUI session). */
   askUser?: AskUserFn;
+  /** Tree-sitter symbol index for structured codebase lookup. */
+  symbols?: SymbolService;
 }
 
 export type SessionEvent =

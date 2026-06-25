@@ -14,7 +14,7 @@ const RANK: Record<IsolationMode, number> = { shared: 0, worktree: 1, sandbox: 2
 export const ISOLATION_LABELS: Record<IsolationMode, string> = {
   shared: "shared — edits the local working tree (changes persist)",
   worktree: "worktree — runs on an isolated git branch (changes persist)",
-  sandbox: "sandbox — ephemeral E2B clone (changes discarded; needs E2B_API_KEY)",
+  sandbox: "sandbox — ephemeral E2B clone (changes discarded; needs sandbox.e2b.apiKey in config)",
 };
 
 /** The more-isolated of two modes. */

@@ -180,8 +180,8 @@ describe("createSessionController", () => {
     controller.beginTurn("live turn");
 
     const turns = [
-      { userText: "hello", assistantText: "hi there", tools: [] },
-      { userText: "how are you?", assistantText: "fine", tools: [] },
+      { userText: "hello", assistantText: "hi there", tools: [], blocks: [] },
+      { userText: "how are you?", assistantText: "fine", tools: [], blocks: [] },
     ];
     controller.loadHistory(turns);
 
