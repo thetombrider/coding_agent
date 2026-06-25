@@ -1,4 +1,5 @@
 import { createCliRenderer } from "@opentui/core";
+import { existsSync } from "node:fs";
 import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { IsolationMode } from "../agent/isolation.js";
@@ -29,7 +30,7 @@ import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
-import { bootstrapSessionWorktree, type SessionWorktreeBinding } from "../workspace/session-worktree.js";
+import { bootstrapSessionWorktree, removeSessionWorktree, type SessionWorktreeBinding } from "../workspace/session-worktree.js";
 import { App } from "./app.js";
 import { installCrashDiagnostics } from "./crash.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
@@ -249,6 +250,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         message: "Cannot delete the active session — use /new to archive it first.",
       };
     }
+    const path = sessionPath(sessionId);
+    const meta = replaySessionMeta(path);
+    if (!existsSync(path)) {
+      return { ok: false, message: `Session ${sessionId} not found.` };
+    }
+    removeSessionWorktree(sessionId, meta);
     if (!deleteSession(sessionId)) {
       return { ok: false, message: `Session ${sessionId} not found.` };
     }

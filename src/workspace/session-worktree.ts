@@ -1,9 +1,15 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import type { SessionIsolationMode } from "../agent/session-isolation.js";
 import type { SessionMetaRecord } from "../session/log.js";
 import { createWorktree, type WorktreeHandle } from "./worktree.js";
+
+function git(cwd: string, args: string[]): { status: number; stderr: string } {
+  const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  return { status: r.status ?? 1, stderr: (r.stderr ?? "").trim() };
+}
 
 export interface SessionWorktreeBinding {
   hostCwd: string;
@@ -13,7 +19,11 @@ export interface SessionWorktreeBinding {
 }
 
 export function sessionWorktreeDir(sessionId: string): string {
-  return join(homedir(), ".orin", "worktrees", sessionId, "tree");
+  return join(sessionWorktreeRoot(sessionId), "tree");
+}
+
+export function sessionWorktreeRoot(sessionId: string): string {
+  return join(homedir(), ".orin", "worktrees", sessionId);
 }
 
 export function sessionBranchName(sessionId: string): string {
@@ -59,4 +69,36 @@ export function resolveSessionIsolation(
 ): SessionIsolationMode {
   if (cliWorktree) return "worktree";
   return configMode ?? "shared";
+}
+
+/**
+ * Tear down a session's git worktree and local storage. Reads `hostCwd` /
+ * `worktreeDir` from session meta when present. The session branch is retained
+ * (same as subagent worktrees) so work can still be inspected or merged. No-op
+ * when nothing exists.
+ */
+export function removeSessionWorktree(
+  sessionId: string,
+  meta?: Pick<SessionMetaRecord, "hostCwd" | "worktreeDir" | "branch" | "isolation">,
+): boolean {
+  const worktreeDir = meta?.worktreeDir ?? sessionWorktreeDir(sessionId);
+  const sessionRoot = dirname(worktreeDir);
+  const hostCwd = meta?.hostCwd;
+
+  const hadWorktree =
+    meta?.isolation === "worktree"
+    || existsSync(worktreeDir)
+    || existsSync(sessionRoot);
+
+  if (!hadWorktree) return false;
+
+  if (hostCwd && existsSync(worktreeDir)) {
+    git(hostCwd, ["worktree", "remove", "--force", worktreeDir]);
+  }
+
+  if (existsSync(sessionRoot)) {
+    rmSync(sessionRoot, { recursive: true, force: true });
+  }
+
+  return true;
 }

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { bootstrapSessionWorktree, sessionBranchName, sessionWorktreeDir } from "./session-worktree.js";
+import { bootstrapSessionWorktree, removeSessionWorktree, sessionBranchName, sessionWorktreeDir } from "./session-worktree.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -66,5 +66,45 @@ describe("bootstrapSessionWorktree", () => {
     expect("binding" in second).toBe(true);
     if (!("binding" in second)) return;
     expect(readFileSync(join(second.binding.handle.cwd, "kept.txt"), "utf8")).toBe("keep me\n");
+  });
+});
+
+describe("removeSessionWorktree", () => {
+  let host: string;
+  const sessionId = "abcd1234efgh";
+  const worktreeDir = sessionWorktreeDir(sessionId);
+
+  beforeEach(() => {
+    host = mkdtempSync(join(tmpdir(), "orin-session-host-"));
+    rmSync(join(worktreeDir, ".."), { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    rmSync(host, { recursive: true, force: true });
+    rmSync(join(worktreeDir, ".."), { recursive: true, force: true });
+  });
+
+  it("removes the worktree dir and git registration but keeps the branch", () => {
+    initRepo(host);
+    const boot = bootstrapSessionWorktree(host, sessionId);
+    if (!("binding" in boot)) throw new Error("expected binding");
+    const branch = boot.binding.branch;
+
+    expect(
+      removeSessionWorktree(sessionId, {
+        hostCwd: host,
+        worktreeDir,
+        branch,
+        isolation: "worktree",
+      }),
+    ).toBe(true);
+
+    expect(existsSync(worktreeDir)).toBe(false);
+    expect(git(host, "worktree", "list").includes(worktreeDir)).toBe(false);
+    expect(git(host, "branch", "--list", branch).trim()).toBe(branch);
+  });
+
+  it("returns false when there is nothing to remove", () => {
+    expect(removeSessionWorktree("missing-session")).toBe(false);
   });
 });
