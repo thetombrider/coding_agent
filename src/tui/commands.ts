@@ -294,7 +294,7 @@ function sessionIsolationInfo(ctx: CommandContext): string {
     (m) => `  ${m === current ? "›" : " "} ${SESSION_ISOLATION_LABELS[m]}`,
   );
   return (
-    `session isolation: ${current} (parent loop — takes effect on /new or next launch)\n`
+    `session isolation: ${current} (parent loop — applies immediately)\n`
     + `${options.join("\n")}\n`
     + "/settings session-isolation <shared|worktree> to change"
   );
@@ -334,7 +334,7 @@ function handleSessionIsolation(value: string | undefined, ctx: CommandContext):
   return {
     type: "set-session-isolation",
     isolation: mode,
-    message: `session isolation → ${mode} (takes effect on /new or next launch)`,
+    message: `session isolation → ${mode}`,
   };
 }
 
