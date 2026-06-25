@@ -1,8 +1,9 @@
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import * as os from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discoverSkills } from "./discovery.js";
 
 function writeSkill(dir: string, name: string, description: string): void {
@@ -43,5 +44,34 @@ describe("discoverSkills", () => {
 
     const skills = discoverSkills(nested);
     expect(skills.find((s) => s.name === "shared")?.description).toBe("nested orin");
+  });
+
+  it("loads user-global ~/.claude/skills when cwd is inside a git repo", () => {
+    const fakeHome = realpathSync(mkdtempSync(join(tmpdir(), "orin-skills-home-")));
+    writeSkill(join(fakeHome, ".claude", "skills"), "global-claude", "from home");
+
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
+    try {
+      const skills = discoverSkills(root);
+      expect(skills.find((s) => s.name === "global-claude")?.description).toBe("from home");
+    } finally {
+      homedirSpy.mockRestore();
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers project-local .claude over user-global ~/.claude/skills", () => {
+    const fakeHome = realpathSync(mkdtempSync(join(tmpdir(), "orin-skills-home-")));
+    writeSkill(join(fakeHome, ".claude", "skills"), "deploy", "global deploy");
+    writeSkill(join(root, ".claude", "skills"), "deploy", "project deploy");
+
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
+    try {
+      const skills = discoverSkills(root);
+      expect(skills.find((s) => s.name === "deploy")?.description).toBe("project deploy");
+    } finally {
+      homedirSpy.mockRestore();
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
   });
 });

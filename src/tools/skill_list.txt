@@ -7,6 +7,6 @@ Use this tool at the start of a task to check whether a relevant skill exists be
 Skills are discovered in priority order (first match for a given name wins):
   1. .orin/skills/ from cwd up to the repo root (nearest cwd wins within this tier)
   2. .claude/skills/ from cwd up to the repo root (cross-agent compatibility)
-  3. ~/.orin/skills/ (user-global fallback)
+  3. ~/.orin/skills/, ~/.claude/skills/, ~/.agents/skills/ (user-global fallbacks)
 
 When the same skill name exists in multiple locations, the highest-priority location above is returned.
