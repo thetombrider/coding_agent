@@ -138,8 +138,8 @@ export async function runSubagentTask(
       if (seedMessage.startsWith("No git origin") || seedMessage.startsWith("git clone failed")) {
         return { output: seedMessage, isError: true };
       }
-    } else if (isolationResult.mode === "worktree") {
-      const result = makeWorktree(ctx.cwd, subagentId);
+    } else if (isolationResult.mode === "worktree" && host.sessionIsolation !== "worktree") {
+      const result = makeWorktree(host.hostCwd ?? ctx.cwd, subagentId);
       if ("error" in result) {
         return { output: result.error, isError: true };
       }

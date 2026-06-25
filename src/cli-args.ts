@@ -20,6 +20,8 @@ export interface ParsedCliArgs {
   listSessions: boolean;
   chat: boolean;
   resumeId?: string;
+  /** Run the session in a git worktree on an isolated branch. */
+  worktree: boolean;
   autoAcceptCli: boolean;
   approvalMode: ApprovalMode;
 }
@@ -51,6 +53,7 @@ export function parseCliArgs(
     listSessions: flags.has("--list-sessions") || flags.has("-l"),
     chat: flags.has("--chat"),
     resumeId: flagValue(argv, "--resume", "-r"),
+    worktree: flags.has("--worktree"),
     autoAcceptCli,
     approvalMode,
   };

@@ -1,3 +1,4 @@
+import type { SessionIsolationMode } from "./agent/session-isolation.js";
 import type { ApprovalGateRef } from "./hooks/approval-gate.js";
 import type { HookRegistryImpl } from "./hooks/registry.js";
 import type { StreamAssistantFn } from "./provider/types.js";
@@ -30,6 +31,12 @@ export interface LoopHost {
   approval: ApprovalGateRef;
   /** Records side-path LLM calls (compaction, delegate_read) for telemetry. */
   recordLlmCall?: LlmCallRecorder;
+  /** Host repo root when the session runs in a worktree (absent in shared mode). */
+  hostCwd?: string;
+  /** Session branch when `sessionIsolation` is `worktree`. */
+  sessionBranch?: string;
+  /** Whole-session workspace isolation for the parent loop. */
+  sessionIsolation?: SessionIsolationMode;
 }
 
 /**
@@ -60,7 +67,17 @@ export type SessionEvent =
   | { type: "user_message";    ts: string; content: ContentBlock[] }
   | { type: "assistant_chunk"; ts: string; content: ContentBlock[] }
   | { type: "tool_result";     ts: string; toolUseId: string; content: ContentBlock[] }
-  | { type: "session_meta";    ts: string; sessionId: string; cwd: string; model: string }
+  | {
+      type: "session_meta";
+      ts: string;
+      sessionId: string;
+      cwd: string;
+      model: string;
+      hostCwd?: string;
+      branch?: string;
+      worktreeDir?: string;
+      isolation?: SessionIsolationMode;
+    }
   | { type: "session_clear";     ts: string }
   | { type: "session_completed"; ts: string }
   | { type: "checkpoint";        ts: string; checkpointId: string; label: string; tool: string }

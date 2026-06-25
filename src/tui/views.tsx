@@ -493,11 +493,16 @@ export function Header(props: {
   tokenTotals?: number;
   contextTokens?: number;
   contextWindow?: number;
+  branch?: string;
+  sessionIsolation?: import("../agent/session-isolation.js").SessionIsolationMode;
   faux?: boolean;
 }) {
   const path = () => {
     const home = process.env.HOME;
-    return home && props.cwd.startsWith(home) ? `~${props.cwd.slice(home.length)}` : props.cwd;
+    const root = props.sessionIsolation === "worktree" && props.branch
+      ? props.branch
+      : props.cwd;
+    return home && root.startsWith(home) ? `~${root.slice(home.length)}` : root;
   };
   const prefix = () => (props.provider ? `${props.provider}  ` : "");
 

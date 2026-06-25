@@ -54,6 +54,12 @@ export interface SessionMeta {
   model: string;
   approval: string;
   cwd: string;
+  /** Host repo root when running in a session worktree. */
+  hostCwd?: string;
+  /** Session branch when `sessionIsolation` is `worktree`. */
+  branch?: string;
+  /** Whole-session parent-loop isolation. */
+  sessionIsolation?: import("../agent/session-isolation.js").SessionIsolationMode;
   provider?: string;
   sandbox?: SandboxKind;
   faux?: boolean;

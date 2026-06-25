@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createLocalWorkspace } from "./local.js";
 import type { Workspace } from "./types.js";
 
@@ -29,6 +29,8 @@ export interface WorktreeHandle {
   workspace: Workspace;
   cwd: string;
   branch: string;
+  /** Host repo root the worktree was created from. */
+  hostCwd: string;
   /**
    * Commit any work left in the worktree onto its branch so it survives worktree
    * removal, and return a `git diff --stat` of the branch versus its base commit.
@@ -43,62 +45,122 @@ export interface WorktreeHandle {
 
 export type CreateWorktreeResult = { handle: WorktreeHandle } | { error: string };
 
-/**
- * Create a git worktree on a fresh branch off the host repo's HEAD. The subagent
- * runs there, so its edits are isolated from the host working tree but persist
- * to a local branch the user can inspect and merge. Branches from HEAD, so
- * uncommitted host changes are not carried in (documented limitation).
- */
-export function createWorktree(hostCwd: string, id: string): CreateWorktreeResult {
-  const head = git(hostCwd, ["rev-parse", "HEAD"]);
-  if (head.status !== 0) {
-    return {
-      error:
-        "Worktree isolation requires a git repository with at least one commit. "
-        + 'Use isolation "shared" (the default) or commit your work first.',
-    };
-  }
-  const baseSha = head.stdout;
-  const shortId = id.slice(0, 8);
-  const branch = `orin/subagent-${shortId}`;
-  const base = mkdtempSync(join(tmpdir(), `orin-wt-${shortId}-`));
-  const dir = join(base, "tree");
+export interface CreateWorktreeOptions {
+  /** Branch name prefix, e.g. `orin/subagent` or `orin/session`. Default: `orin/subagent`. */
+  branchPrefix?: string;
+  /** Commit message subject, e.g. `subagent` or `session`. Default: `subagent`. */
+  commitLabel?: string;
+  /** Use a fixed directory instead of a temp dir under `tmpdir()`. */
+  dir?: string;
+  /** Attach to an existing branch instead of creating a new one. */
+  existingBranch?: string;
+}
 
-  const add = git(hostCwd, ["worktree", "add", "-b", branch, dir, baseSha]);
+function buildHandle(
+  hostCwd: string,
+  dir: string,
+  branch: string,
+  baseSha: string,
+  shortId: string,
+  commitLabel: string,
+  ownsTempBase: boolean,
+): WorktreeHandle {
+  return {
+    workspace: createLocalWorkspace(),
+    cwd: dir,
+    branch,
+    hostCwd,
+    harvest() {
+      git(dir, ["add", "-A"]);
+      const hasChanges = git(dir, ["diff", "--cached", "--quiet"]).status !== 0;
+      let committed = false;
+      if (hasChanges) {
+        const commit = git(dir, [
+          "-c", "user.name=orin",
+          "-c", "user.email=orin@localhost",
+          "commit", "-m", `${commitLabel} ${shortId} changes`,
+        ]);
+        if (commit.status !== 0) {
+          return { branch, error: commit.stderr || commit.stdout || "git commit failed" };
+        }
+        committed = true;
+      }
+      const stat = git(hostCwd, ["diff", "--stat", `${baseSha}..${branch}`]);
+      return { branch, committed, diffStat: stat.stdout };
+    },
+    remove() {
+      git(hostCwd, ["worktree", "remove", "--force", dir]);
+      if (ownsTempBase) {
+        rmSync(dirname(dir), { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+/**
+ * Create or attach a git worktree on a branch off the host repo's HEAD (or an
+ * existing branch). Edits are isolated from the host working tree but persist to
+ * the branch. Branches from HEAD when creating fresh, so uncommitted host changes
+ * are not carried in (documented limitation).
+ */
+export function createWorktree(
+  hostCwd: string,
+  id: string,
+  opts: CreateWorktreeOptions = {},
+): CreateWorktreeResult {
+  const shortId = id.slice(0, 8);
+  const branchPrefix = opts.branchPrefix ?? "orin/subagent";
+  const commitLabel = opts.commitLabel ?? "subagent";
+  const branch = opts.existingBranch ?? `${branchPrefix}-${shortId}`;
+
+  let baseSha = "";
+  if (!opts.existingBranch) {
+    const head = git(hostCwd, ["rev-parse", "HEAD"]);
+    if (head.status !== 0) {
+      return {
+        error:
+          "Worktree isolation requires a git repository with at least one commit. "
+          + 'Use isolation "shared" (the default) or commit your work first.',
+      };
+    }
+    baseSha = head.stdout;
+  } else {
+    const verify = git(hostCwd, ["rev-parse", "--verify", branch]);
+    if (verify.status !== 0) {
+      return { error: `branch ${branch} not found in ${hostCwd}` };
+    }
+    baseSha = verify.stdout;
+  }
+
+  let dir = opts.dir;
+  let ownsTempBase = false;
+  if (!dir) {
+    const base = mkdtempSync(join(tmpdir(), `orin-wt-${shortId}-`));
+    dir = join(base, "tree");
+    ownsTempBase = true;
+  } else {
+    mkdirSync(dirname(dir), { recursive: true });
+  }
+
+  if (existsSync(dir)) {
+    const listed = git(hostCwd, ["worktree", "list", "--porcelain"]);
+    if (listed.stdout.includes(dir)) {
+      return {
+        handle: buildHandle(hostCwd, dir, branch, baseSha, shortId, commitLabel, ownsTempBase),
+      };
+    }
+  }
+
+  const addArgs = opts.existingBranch
+    ? ["worktree", "add", dir, branch]
+    : ["worktree", "add", "-b", branch, dir, baseSha];
+  const add = git(hostCwd, addArgs);
   if (add.status !== 0) {
-    rmSync(base, { recursive: true, force: true });
+    if (ownsTempBase) rmSync(dirname(dir), { recursive: true, force: true });
     return { error: `git worktree add failed: ${add.stderr || add.stdout}` };
   }
 
   return {
-    handle: {
-      workspace: createLocalWorkspace(),
-      cwd: dir,
-      branch,
-      harvest() {
-        git(dir, ["add", "-A"]);
-        // `diff --cached --quiet` exits non-zero when there are staged changes.
-        const hasChanges = git(dir, ["diff", "--cached", "--quiet"]).status !== 0;
-        let committed = false;
-        if (hasChanges) {
-          const commit = git(dir, [
-            "-c", "user.name=orin",
-            "-c", "user.email=orin@localhost",
-            "commit", "-m", `subagent ${shortId} changes`,
-          ]);
-          if (commit.status !== 0) {
-            // Surface the failure so the caller keeps the worktree for recovery.
-            return { branch, error: commit.stderr || commit.stdout || "git commit failed" };
-          }
-          committed = true;
-        }
-        const stat = git(hostCwd, ["diff", "--stat", `${baseSha}..${branch}`]);
-        return { branch, committed, diffStat: stat.stdout };
-      },
-      remove() {
-        git(hostCwd, ["worktree", "remove", "--force", dir]);
-        rmSync(base, { recursive: true, force: true });
-      },
-    },
+    handle: buildHandle(hostCwd, dir, branch, baseSha, shortId, commitLabel, ownsTempBase),
   };
 }

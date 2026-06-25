@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { CheckpointRecord } from "../checkpoint/manager.js";
 import { SessionCostAccumulator } from "../telemetry/accumulator.js";
+import type { SessionIsolationMode } from "../agent/session-isolation.js";
 import type { ContentBlock, Message, SessionEvent } from "../types.js";
 
 export function sessionsDir(): string {
@@ -139,6 +140,40 @@ export function replayCheckpoints(path: string): CheckpointRecord[] {
   return records;
 }
 
+/** Read the first `session_meta` record from a log (for resume / worktree rebind). */
+export function replaySessionMeta(path: string): SessionMetaRecord | undefined {
+  if (!existsSync(path)) return undefined;
+  const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line) as SessionEvent;
+      if (ev.type !== "session_meta") continue;
+      return {
+        sessionId: ev.sessionId,
+        cwd: ev.cwd,
+        model: ev.model,
+        hostCwd: ev.hostCwd,
+        branch: ev.branch,
+        worktreeDir: ev.worktreeDir,
+        isolation: ev.isolation,
+      };
+    } catch {
+      // ignore
+    }
+  }
+  return undefined;
+}
+
+export interface SessionMetaRecord {
+  sessionId: string;
+  cwd: string;
+  model: string;
+  hostCwd?: string;
+  branch?: string;
+  worktreeDir?: string;
+  isolation?: SessionIsolationMode;
+}
+
 export interface SessionSummary {
   sessionId: string;
   cwd: string;
@@ -148,6 +183,9 @@ export interface SessionSummary {
   turns: number;
   /** Summed cost of persisted `turn` metrics; `null` when nothing was priced. */
   costUsd?: number | null;
+  hostCwd?: string;
+  branch?: string;
+  isolation?: SessionIsolationMode;
 }
 
 /**
@@ -211,6 +249,9 @@ export function listSessions(scanDir?: string): SessionSummary[] {
       const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
       let metaCwd = "";
       let metaModel = "";
+      let metaHostCwd = "";
+      let metaBranch = "";
+      let metaIsolation: SessionIsolationMode | undefined;
       let createdAt = "";
       let lastTs = "";
       let turns = 0;
@@ -223,6 +264,9 @@ export function listSessions(scanDir?: string): SessionSummary[] {
           if (ev.type === "session_meta") {
             metaCwd = ev.cwd;
             metaModel = ev.model;
+            metaHostCwd = ev.hostCwd ?? "";
+            metaBranch = ev.branch ?? "";
+            metaIsolation = ev.isolation;
             createdAt = ev.ts;
           } else if (ev.type === "user_message") {
             turns++;
@@ -235,7 +279,18 @@ export function listSessions(scanDir?: string): SessionSummary[] {
       }
 
       if (metaCwd) {
-        summaries.push({ sessionId, cwd: metaCwd, model: metaModel, createdAt, lastTs, turns, costUsd });
+        summaries.push({
+          sessionId,
+          cwd: metaCwd,
+          model: metaModel,
+          createdAt,
+          lastTs,
+          turns,
+          costUsd,
+          hostCwd: metaHostCwd || undefined,
+          branch: metaBranch || undefined,
+          isolation: metaIsolation,
+        });
       }
     } catch {
       // ignore unreadable files
@@ -254,10 +309,23 @@ export function deleteSession(sessionId: string, scanDir?: string): boolean {
   return true;
 }
 
-/** Reuse the newest zero-turn session for `cwd`, or allocate a fresh id. */
-export function resolveStartupSessionId(cwd: string, scanDir?: string): string {
+/** Reuse the newest zero-turn session for `hostCwd`, or allocate a fresh id. */
+export function resolveStartupSessionId(
+  hostCwd: string,
+  opts?: { isolation?: SessionIsolationMode; scanDir?: string },
+): string {
+  const scanDir = opts?.scanDir;
   const latest = listSessions(scanDir)[0];
-  if (latest && latest.turns === 0 && latest.cwd === cwd) {
+  if (!latest || latest.turns !== 0) return generateSessionId();
+
+  if (opts?.isolation === "worktree") {
+    if (latest.isolation === "worktree" && latest.hostCwd === hostCwd) {
+      return latest.sessionId;
+    }
+    return generateSessionId();
+  }
+
+  if (latest.cwd === hostCwd && latest.isolation !== "worktree") {
     return latest.sessionId;
   }
   return generateSessionId();
