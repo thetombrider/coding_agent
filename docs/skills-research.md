@@ -178,11 +178,11 @@ Three tools added to the registry:
 
 | Tool | Approval | Description |
 |------|----------|-------------|
-| `skill_list` | no | Lists available skills (name + desc only — progressive disclosure level 0) |
+| `skill_list` | no | Lists available skills (name + optional version + description — progressive disclosure level 0) |
 | `skill_use` | no | Loads a skill's full instructions + optional supporting file |
 | `skill_write` | **yes** | Creates, updates, or deletes a skill (self-learning mechanism) |
 
-Directory search: `.orin/skills/` (project) → `~/.orin/skills/` (global) → `.claude/skills/` (compat).
+Directory search: project `.orin/skills/` and `.claude/skills/` (cwd-to-root traversal, .orin tier before .claude tier) → `~/.orin/skills/` (global fallback).
 
 Auto-injection: `installSkillInject` hook injects `<available-skills>` into every prompt when skills exist — agent discovers them without calling `skill_list`.
 

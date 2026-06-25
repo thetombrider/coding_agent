@@ -2,6 +2,11 @@ import { discoverSkills } from "../skills/discovery.js";
 import { injectLeadingContext } from "../prompt/inject.js";
 import type { HookRegistry } from "./types.js";
 
+/** Collapse control chars and strip angle brackets so skill metadata cannot break injected blocks. */
+export function sanitizeSkillField(value: string): string {
+  return value.replace(/[\r\n\t]/g, " ").replace(/[<>]/g, "").trim();
+}
+
 /**
  * Inject a compact skill index into every prompt so the agent knows which
  * skills are available without having to call skill_list first.
@@ -13,7 +18,7 @@ export function installSkillInject(hooks: HookRegistry): void {
     if (skills.length === 0) return;
 
     const entries = skills
-      .map((s) => `  • ${s.name}: ${s.description}`)
+      .map((s) => `  · ${sanitizeSkillField(s.name)}: ${sanitizeSkillField(s.description)}`)
       .join("\n");
 
     const block = `<available-skills>\n${entries}\n</available-skills>\n`

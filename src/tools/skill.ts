@@ -1,10 +1,24 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { discoverSkills, globalSkillsDir, resolveSkill } from "../skills/discovery.js";
 import type { AgentContext } from "../types.js";
 import { loadToolDescription } from "../util/load-txt.js";
 import type { Tool } from "./types.js";
+
+function realPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
+
+/** True when `parent` is `child` or an ancestor of it. */
+function isPathInside(parent: string, child: string): boolean {
+  const rel = relative(realPath(parent), realPath(child));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
 
 // ─── skill_list ──────────────────────────────────────────────────────────────
 
@@ -53,18 +67,16 @@ export const skillUseTool: Tool<z.infer<typeof skillUseSchema>> = {
     }
 
     if (file) {
-      // Load a supporting file from the skill directory
-      const safePath = join(skill.dir, file);
-      // Prevent path traversal: resolved path must stay inside skill dir
-      if (!safePath.startsWith(skill.dir + "/") && safePath !== skill.dir) {
+      const candidatePath = resolve(skill.dir, file);
+      if (!isPathInside(skill.dir, candidatePath)) {
         return { output: "Path traversal rejected.", isError: true };
       }
-      if (!existsSync(safePath)) {
+      if (!existsSync(candidatePath)) {
         return { output: `File '${file}' not found in skill '${name}'.`, isError: true };
       }
       let content: string;
       try {
-        content = readFileSync(safePath, "utf8");
+        content = readFileSync(candidatePath, "utf8");
       } catch (err) {
         return { output: `Could not read '${file}': ${String(err)}`, isError: true };
       }
@@ -141,8 +153,17 @@ export const skillWriteTool: Tool<z.infer<typeof skillWriteSchema>> = {
     }
 
     const skillDir = join(baseDir, name);
-    mkdirSync(skillDir, { recursive: true });
     const skillPath = join(skillDir, "SKILL.md");
+    const skillExists = existsSync(skillPath);
+
+    if (action === "create" && skillExists) {
+      return { output: `Skill '${name}' already exists at ${skillPath}. Use action 'update' instead.`, isError: true };
+    }
+    if (action === "update" && !skillExists) {
+      return { output: `Skill '${name}' not found at ${skillPath}. Use action 'create' instead.`, isError: true };
+    }
+
+    mkdirSync(skillDir, { recursive: true });
 
     const verLine = version ? `\nversion: ${version}` : "";
     const content = `---\nname: ${name}\ndescription: ${description.trim()}${verLine}\n---\n\n${instructions.trim()}\n`;

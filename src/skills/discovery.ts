@@ -42,9 +42,9 @@ export function loadSkillContent(filePath: string): SkillContent | undefined {
  * Discover all SKILL.md files from the standard search locations.
  *
  * Search order (first match for a given name wins):
- *   1. <cwd>/.orin/skills/  and ancestors up to repo root
- *   2. <cwd>/.claude/skills/ and ancestors (cross-agent compat)
- *   3. ~/.orin/skills/  (user-global)
+ *   1. All `.orin/skills/` dirs from cwd up to repo root (nearest cwd wins within this tier)
+ *   2. All `.claude/skills/` dirs from cwd up to repo root (cross-agent compat)
+ *   3. ~/.orin/skills/  (user-global fallback)
  */
 export function discoverSkills(cwd: string): SkillMeta[] {
   const seen = new Map<string, SkillMeta>(); // name → first found (highest priority)
@@ -78,19 +78,23 @@ export function discoverSkills(cwd: string): SkillMeta[] {
     }
   }
 
-  // Walk from cwd up to repo root, checking .orin/skills and .claude/skills
-  const stop = findRepoRoot(cwd);
-  let dir = cwd;
-  while (true) {
-    scanDir(join(dir, ".orin", "skills"));
-    scanDir(join(dir, ".claude", "skills"));
-    if (dir === stop) break;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  function walkSkillRoots(...segments: string[]): void {
+    const stop = findRepoRoot(cwd);
+    let dir = cwd;
+    while (true) {
+      scanDir(join(dir, ...segments));
+      if (dir === stop) break;
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
   }
 
-  // User-global fallback
+  // Tier 1: project-local .orin (all ancestor levels before any .claude scan)
+  walkSkillRoots(".orin", "skills");
+  // Tier 2: project-local .claude compat
+  walkSkillRoots(".claude", "skills");
+  // Tier 3: user-global fallback
   scanDir(join(homedir(), ".orin", "skills"));
 
   return [...seen.values()];
