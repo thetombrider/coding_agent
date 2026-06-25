@@ -1,4 +1,5 @@
 import { createCliRenderer } from "@opentui/core";
+import { existsSync } from "node:fs";
 import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { IsolationMode } from "../agent/isolation.js";
@@ -7,7 +8,7 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveRoleModel } from "../config/config.js";
+import { loadConfig, saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveRoleModel } from "../config/config.js";
 import type { AgentPreset } from "../agent/presets.js";
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider, resolveActiveProvider } from "../provider/registry.js";
@@ -29,7 +30,7 @@ import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
-import { bootstrapSessionWorktree, type SessionWorktreeBinding } from "../workspace/session-worktree.js";
+import { bootstrapSessionWorktree, removeSessionWorktree, type SessionWorktreeBinding } from "../workspace/session-worktree.js";
 import { App } from "./app.js";
 import { installCrashDiagnostics } from "./crash.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
@@ -103,6 +104,28 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     });
   };
 
+  const clearWorktreeBinding = () => {
+    sessionWorktree = undefined;
+    config.ctx.cwd = config.hostCwd;
+    if (config.ctx.loopHost) {
+      config.ctx.loopHost.hostCwd = undefined;
+      config.ctx.loopHost.sessionBranch = undefined;
+      config.ctx.loopHost.sessionIsolation = "shared";
+    }
+    controller.updateMeta({
+      cwd: config.hostCwd,
+      hostCwd: config.hostCwd,
+      branch: undefined,
+      sessionIsolation: "shared",
+    });
+  };
+
+  const ensureSubagentSharedForSessionWorktree = () => {
+    if (loadConfig().subagent.isolation !== "shared") {
+      saveConfig({ subagent: { isolation: "shared" } });
+    }
+  };
+
   const bindSessionWorktree = (sessionId: string, meta?: SessionMetaRecord) => {
     if (config.sessionIsolation !== "worktree") return;
     const result = bootstrapSessionWorktree(config.hostCwd, sessionId, meta);
@@ -113,6 +136,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       return;
     }
     applyWorktreeBinding(result.binding);
+    ensureSubagentSharedForSessionWorktree();
   };
 
   bindSessionWorktree(activeSessionId, config.sessionMeta);
@@ -203,19 +227,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       bindSessionWorktree(activeSessionId, meta);
     } else {
       sessionWorktree = undefined;
-      config.ctx.cwd = config.hostCwd;
+      clearWorktreeBinding();
       config.sessionIsolation = "shared";
-      if (config.ctx.loopHost) {
-        config.ctx.loopHost.hostCwd = undefined;
-        config.ctx.loopHost.sessionBranch = undefined;
-        config.ctx.loopHost.sessionIsolation = "shared";
-      }
-      controller.updateMeta({
-        cwd: config.hostCwd,
-        hostCwd: config.hostCwd,
-        branch: undefined,
-        sessionIsolation: "shared",
-      });
     }
     // Seed the resumed session's checkpoints so /restore can target them.
     checkpoints.bind(activeSessionId, replayCheckpoints(sessionPath(activeSessionId)));
@@ -237,6 +250,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         message: "Cannot delete the active session — use /new to archive it first.",
       };
     }
+    const path = sessionPath(sessionId);
+    const meta = replaySessionMeta(path);
+    if (!existsSync(path)) {
+      return { ok: false, message: `Session ${sessionId} not found.` };
+    }
+    removeSessionWorktree(sessionId, meta);
     if (!deleteSession(sessionId)) {
       return { ok: false, message: `Session ${sessionId} not found.` };
     }
@@ -372,10 +391,36 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   };
 
   const setSessionIsolation = (isolation: SessionIsolationMode) => {
-    saveConfig({ session: { isolation } });
-    controller.setStatusHint(
-      `session isolation → ${isolation} (takes effect on /new or next launch)`,
-    );
+    if (isolation === config.sessionIsolation) {
+      controller.setStatusHint(`session isolation already ${isolation}`);
+      return;
+    }
+
+    if (isolation === "worktree" && config.meta.sandbox === "e2b") {
+      controller.setStatusHint("session worktree requires a local workspace (not E2B sandbox)");
+      return;
+    }
+
+    config.sessionIsolation = isolation;
+
+    if (isolation === "worktree") {
+      saveConfig({ session: { isolation: "worktree" }, subagent: { isolation: "shared" } });
+      bindSessionWorktree(activeSessionId, replaySessionMeta(sessionPath(activeSessionId)));
+      if (config.sessionIsolation !== "worktree") {
+        saveConfig({ session: { isolation: "shared" } });
+        return;
+      }
+      writeMeta();
+      controller.setStatusHint(
+        `session isolation → worktree on \`${sessionWorktree?.branch}\` · subagent isolation → shared`,
+      );
+      return;
+    }
+
+    saveConfig({ session: { isolation: "shared" } });
+    clearWorktreeBinding();
+    writeMeta();
+    controller.setStatusHint("session isolation → shared (editing host tree)");
   };
 
   // Opt-in OTLP content capture (telemetry 7a). The OTel exporter reads
