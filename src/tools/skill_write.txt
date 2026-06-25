@@ -1,0 +1,21 @@
+Create, update, or delete a skill — encoding a learned procedure in durable format.
+
+Use this tool to persist knowledge that should be reusable across sessions:
+  • After completing a complex multi-step task, encode the procedure so future sessions skip the discovery work.
+  • After a user corrects your approach, encode the correct method so you don't repeat the mistake.
+  • When the user explicitly asks you to remember how to do something.
+
+Actions:
+  create  — Write a new skill (fails if the name already exists).
+  update  — Replace an existing skill's SKILL.md (use for corrections and improvements).
+  delete  — Remove a skill by name.
+
+The name must be lowercase alphanumeric with hyphens (e.g. 'git-workflow', 'deploy-staging').
+The description should finish the sentence: "Use this skill when you need to…"
+The instructions should be a clear, step-by-step markdown procedure any agent can follow cold.
+
+Scope:
+  global  (default) — saves to ~/.orin/skills/, persists across all projects.
+  project — saves to .orin/skills/ in the repo root, committed with the project.
+
+This tool requires approval because it writes files to disk.
