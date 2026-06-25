@@ -6,7 +6,7 @@ const BOLD = createTextAttributes({ bold: true });
 
 function diffColor(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---")) return theme.diffMeta;
-  if (line.startsWith("@@")) return theme.muted;
+  if (line.startsWith("@@")) return theme.diffMeta;
   if (line.startsWith("+")) return theme.diffAdd;
   if (line.startsWith("-")) return theme.diffDel;
   return theme.diffContext;

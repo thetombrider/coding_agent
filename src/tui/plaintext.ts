@@ -2,7 +2,8 @@ import type { SessionState, ToolEntry, Turn } from "./controller.js";
 import { toolSummary } from "./views.js";
 
 export function toolEntryToPlainText(entry: ToolEntry): string {
-  const header = `${entry.name}${toolSummary(entry.name, entry.args) ? `  ${toolSummary(entry.name, entry.args)}` : ""}`;
+  const summary = toolSummary(entry.name, entry.args, { truncate: false });
+  const header = `${entry.name}${summary ? `  ${summary}` : ""}`;
   const lines = [header];
   if (entry.subagent) {
     lines.push(`subagent (${entry.subagent.agent}): ${entry.subagent.description}`);

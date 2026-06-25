@@ -1,4 +1,4 @@
-import { bg, bold, createTextAttributes, fg, italic, StyledText, type TextChunk } from "@opentui/core";
+import { bold, createTextAttributes, fg, italic, StyledText, type TextChunk } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { For, type JSX, Show } from "solid-js";
 import {
@@ -32,7 +32,7 @@ function inlineChunks(text: string): TextChunk[] {
       case "italic":
         return fg(theme.fg)(italic(part.value));
       case "code":
-        return bg(theme.codeBg)(fg(theme.codeFg)(bold(` ${part.value} `)));
+        return fg(theme.accent)(part.value);
       case "math":
         return fg(theme.fg)(italic(part.value));
       default:
@@ -69,7 +69,7 @@ function cellChunks(parts: InlinePart[], header: boolean): TextChunk[] {
       case "italic":
         return fg(theme.fg)(italic(part.value));
       case "code":
-        return bg(theme.codeBg)(fg(theme.codeFg)(bold(part.value)));
+        return fg(theme.accent)(part.value);
       case "math":
         return fg(theme.fg)(italic(part.value));
       default:

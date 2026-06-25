@@ -178,7 +178,33 @@ export function formatContextWindowLabel(tokens?: number): string {
   return `${compact} ctx`;
 }
 
-export function toolSummary(name: string, args: unknown): string {
+const TOOL_SUMMARY_MAX = 56;
+const READ_SUMMARY_MAX = 60;
+
+/** Summaries longer than this wrap to a second line once the tool completes. */
+export const TOOL_SUMMARY_INLINE_MAX = TOOL_SUMMARY_MAX;
+
+export function shouldWrapToolSummary(summary: string): boolean {
+  return summary.length > TOOL_SUMMARY_INLINE_MAX;
+}
+
+function truncateToolSummary(label: string, max: number): string {
+  return label.length > max ? `${label.slice(0, max - 3)}…` : label;
+}
+
+function truncateReadSummary(label: string, max: number): string {
+  return label.length > max ? `…${label.slice(-(max - 3))}` : label;
+}
+
+export function toolSummary(
+  name: string,
+  args: unknown,
+  opts?: { truncate?: boolean },
+): string {
+  const truncate = opts?.truncate ?? true;
+  const clip = (label: string, max = TOOL_SUMMARY_MAX) =>
+    truncate ? truncateToolSummary(label, max) : label;
+
   if (args && typeof args === "object") {
     const record = args as Record<string, unknown>;
 
@@ -190,36 +216,31 @@ export function toolSummary(name: string, args: unknown): string {
         : offset !== undefined ? ` :${offset}`
         : "";
       const label = record.path + suffix;
-      return label.length > 60 ? `…${label.slice(-(57))}` : label;
+      return truncate ? truncateReadSummary(label, READ_SUMMARY_MAX) : label;
     }
 
     if (name === "grep" && typeof record.pattern === "string") {
       const context = typeof record.context === "number" ? record.context : undefined;
       const suffix = context !== undefined ? ` -C${context}` : "";
-      const label = record.pattern + suffix;
-      return label.length > 56 ? `${label.slice(0, 53)}…` : label;
+      return clip(record.pattern + suffix);
     }
 
     if (typeof record.path === "string") return record.path;
-    if (typeof record.command === "string") {
-      const cmd = record.command;
-      return cmd.length > 56 ? `${cmd.slice(0, 53)}…` : cmd;
-    }
-    if (typeof record.task === "string") {
-      const task = record.task;
-      return task.length > 56 ? `${task.slice(0, 53)}…` : task;
-    }
-    if (typeof record.description === "string") {
-      const description = record.description;
-      return description.length > 56 ? `${description.slice(0, 53)}…` : description;
-    }
+    if (typeof record.command === "string") return clip(record.command);
+    if (typeof record.task === "string") return clip(record.task);
+    if (typeof record.description === "string") return clip(record.description);
     if (typeof record.pattern === "string") return record.pattern;
   }
-  const json = JSON.stringify(args);
-  return json.length > 56 ? `${json.slice(0, 53)}…` : json;
+  return clip(JSON.stringify(args));
 }
 
-function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }) {
+function ReasoningBlock(props: {
+  id: string;
+  text: string;
+  streaming?: boolean;
+  /** Extra gap when this block follows a tool call. */
+  spacedAbove?: boolean;
+}) {
   const text = () => props.text;
   const toolExpand = useToolExpand();
   const hasText = () => text().length > 0;
@@ -237,8 +258,10 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
   };
 
   onMount(() => {
+    toolExpand?.setExpanded(props.id, expanded());
     toolExpand?.registerToggle(props.id, toggleExpanded);
     toolExpand?.registerCopyTarget(props.id, {
+      label: "thinking",
       getOutput: () => text(),
       isExpanded: () => expanded(),
     });
@@ -250,14 +273,15 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
 
   const hint = () => {
     if (props.streaming && !hasText()) return "Thinking…";
-    if (!hasText()) return "";
-    return expanded() ? "" : outputExpandHint(text());
+    if (!hasText() || expanded()) return "";
+    return outputExpandHint(text());
   };
 
   return (
     <box
       flexDirection="column"
       marginLeft={1}
+      marginTop={props.spacedAbove ? 1 : 0}
       marginBottom={1}
       onMouseOver={() => toolExpand?.setHovered(props.id)}
     >
@@ -265,14 +289,11 @@ function ReasoningBlock(props: { id: string; text: string; streaming?: boolean }
         flexDirection="row"
         onMouseDown={() => toggleExpanded()}
       >
-        <text selectable={false} fg={theme.reasoning} attributes={props.streaming ? BOLD : 0}>
+        <text selectable={false} fg={theme.accent} attributes={props.streaming ? BOLD : 0}>
           {props.streaming ? spinnerFrame() : "▸"} thinking
         </text>
         <Show when={hint()}>
           <text selectable={false} fg={theme.muted}>  {hint()}</text>
-        </Show>
-        <Show when={expanded() && hasText()}>
-          <text selectable={false} fg={theme.muted}>  c copy</text>
         </Show>
       </box>
       <Show when={hasText() && expanded()}>
@@ -298,18 +319,24 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
     && entry().status !== "running"
     && !showDiff();
 
-  const [expanded, setExpanded] = createSignal(
+  const [expanded, setLocalExpanded] = createSignal(
     entry().status === "error" && hasPlainOutput(),
   );
+  const setExpanded = (value: boolean) => {
+    setLocalExpanded(value);
+    toolExpand?.setExpanded(expandKey(), value);
+  };
 
   const toggleExpanded = () => {
     if (!hasPlainOutput()) return;
-    setExpanded((value) => !value);
+    setExpanded(!expanded());
   };
 
   onMount(() => {
+    toolExpand?.setExpanded(expandKey(), expanded());
     toolExpand?.registerToggle(expandKey(), toggleExpanded);
     toolExpand?.registerCopyTarget(expandKey(), {
+      label: entry().name,
       getOutput: () => entry().output,
       isExpanded: () => expanded() || showDiff(),
     });
@@ -328,15 +355,16 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
   const running = () => entry().status === "running";
   const glyph = () =>
     running() ? spinnerFrame() : entry().status === "error" ? "×" : "–";
-  const accent = () =>
+  const toolNameColor = () =>
     running()
       ? theme.toolRunning
       : entry().status === "error"
         ? theme.toolError
-        : theme.toolDone;
-  const summary = () => toolSummary(entry().name, entry().args);
+        : theme.accent;
+  const summary = () => toolSummary(entry().name, entry().args, { truncate: running() });
+  const wrapSummary = () => !running() && !!summary() && shouldWrapToolSummary(summary());
+  const inlineSummary = () => !!summary() && !wrapSummary();
   const expandHint = () => (hasPlainOutput() && !expanded() ? outputExpandHint(entry().output!) : "");
-  const copyHint = () => ((expanded() || showDiff()) && entry().output ? "c copy" : "");
 
   // Two-tone line via sibling <text> nodes in a row. Each <text fg> reliably
   // colors its run, and plain-string children update on the in-place replaceText
@@ -352,19 +380,21 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
         flexDirection="row"
         onMouseDown={() => toggleExpanded()}
       >
-        <text selectable={false} fg={accent()} attributes={running() ? BOLD : 0}>
+        <text selectable={false} fg={toolNameColor()} attributes={running() ? BOLD : 0}>
           {nested() ? "↳ " : ""}{glyph()} {entry().name}
         </text>
-        <Show when={summary()}>
+        <Show when={inlineSummary()}>
           <text selectable={false} fg={theme.secondary}>  {summary()}</text>
         </Show>
         <Show when={expandHint()}>
           <text selectable={false} fg={theme.muted}>  {expandHint()}</text>
         </Show>
-        <Show when={copyHint()}>
-          <text selectable={false} fg={theme.muted}>  {copyHint()}</text>
-        </Show>
       </box>
+      <Show when={wrapSummary()}>
+        <text selectable={false} fg={theme.secondary} wrapMode="word" flexGrow={1}>
+          {"  "}{summary()}
+        </text>
+      </Show>
       <Show when={entry().status === "error" && entry().output && !expanded()}>
         <text selectable {...surfaceSelection(theme.bg)} fg={theme.toolError} wrapMode="word" flexGrow={1}>  {entry().output!.split("\n")[0]}</text>
       </Show>
@@ -451,15 +481,17 @@ export function TurnView(props: {
       </Show>
       <Show when={hasBlocks()}>
         <For each={turn().blocks}>
-          {(block) => {
+          {(block, index) => {
             if (block.type === "reasoning") {
               const lastBlock = turn().blocks[turn().blocks.length - 1];
               const isLast = lastBlock?.type === "reasoning" && lastBlock.id === block.id;
+              const spacedAbove = index() > 0 && turn().blocks[index() - 1]?.type === "tool";
               return (
                 <ReasoningBlock
                   id={`${props.turnKey}/${block.id}`}
                   text={block.text}
                   streaming={props.reasoningStreaming && isLast && !turn().assistantText}
+                  spacedAbove={spacedAbove}
                 />
               );
             }
@@ -539,7 +571,7 @@ export function ApprovalBar(props: { name: string; args: unknown }) {
       backgroundColor={theme.codeBg}
     >
       <text fg={theme.approval} attributes={BOLD} wrapMode="word" flexGrow={1}>
-        allow {props.name}?  {toolSummary(props.name, props.args)}  —  y / n
+        allow {props.name}?  {toolSummary(props.name, props.args, { truncate: false })}  —  y / n
       </text>
     </box>
   );

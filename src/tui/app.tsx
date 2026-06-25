@@ -2,7 +2,7 @@ import type { InputRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { createTextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import type { SessionController, SessionState, Turn } from "./controller.js";
+import { IDLE_STATUS_HINT, type SessionController, type SessionState, type Turn } from "./controller.js";
 import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
 import { useSpinnerClock } from "./spinner.js";
@@ -236,6 +236,21 @@ export function App(props: {
   };
 
   const copyConversation = () => performCopy(sessionToPlainText(state()));
+
+  const showHoverFooter = () =>
+    state().phase === "input"
+    && palette() === null
+    && configPrompt() === null
+    && !e2bPrompt()
+    && !exaPrompt()
+    && !submitting()
+    && state().statusHint === IDLE_STATUS_HINT;
+
+  const footerHint = createMemo(() => {
+    const hover = toolExpand.getHoverFooterHint();
+    if (hover && showHoverFooter()) return hover;
+    return state().statusHint;
+  });
 
   const performPaste = async () => {
     const result = await readFromClipboard();
@@ -1663,7 +1678,7 @@ export function App(props: {
             onSubmit={() => void handleSubmit(inputRef?.value ?? "")}
           />
         </box>
-        <text fg={theme.secondary}>{state().statusHint}</text>
+        <text fg={theme.muted}>{footerHint()}</text>
       </box>
     </box>
     </ToolExpandProvider>

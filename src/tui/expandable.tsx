@@ -56,7 +56,7 @@ export function ToolOutputView(props: {
         )}
       </For>
       <Show when={formatted().truncated}>
-        <text selectable={false} fg={theme.secondary}>
+        <text selectable={false} fg={theme.muted}>
           … {formatted().omittedLines} more lines — see session log
         </text>
       </Show>

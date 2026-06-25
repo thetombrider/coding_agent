@@ -1,20 +1,20 @@
-import { createContext, useContext, type ParentProps } from "solid-js";
+import { createContext, createSignal, useContext, type ParentProps } from "solid-js";
+import { formatHoverExpandFooter } from "./tool-output.js";
 
 interface ToolTarget {
+  label: string;
   getOutput: () => string | undefined;
   isExpanded: () => boolean;
 }
 
 export interface ToolExpandContextValue {
   registerToggle: (id: string, toggle: (() => void) | null) => void;
-  registerCopyTarget: (
-    id: string,
-    target: { getOutput: () => string | undefined; isExpanded: () => boolean } | null,
-  ) => void;
+  registerCopyTarget: (id: string, target: ToolTarget | null) => void;
   setHovered: (id: string) => void;
   toggleHovered: () => void;
   getHoveredOutput: () => string | undefined;
   getHoveredExpandedOutput: () => string | undefined;
+  getHoverFooterHint: () => string | null;
   isExpanded: (id: string) => boolean;
   setExpanded: (id: string, expanded: boolean) => void;
 }
@@ -25,7 +25,8 @@ export function createToolExpandState(): ToolExpandContextValue {
   const toggles = new Map<string, () => void>();
   const targets = new Map<string, ToolTarget>();
   const expandedStates = new Map<string, boolean>();
-  let hoveredId: string | null = null;
+  const [hoveredId, setHoveredId] = createSignal<string | null>(null);
+  const [footerRevision, setFooterRevision] = createSignal(0);
 
   return {
     registerToggle(id, toggle) {
@@ -37,31 +38,48 @@ export function createToolExpandState(): ToolExpandContextValue {
       else targets.delete(id);
     },
     setHovered(id) {
-      hoveredId = id;
+      setHoveredId(id);
     },
     toggleHovered() {
-      if (hoveredId && toggles.has(hoveredId)) {
-        toggles.get(hoveredId)?.();
+      const id = hoveredId();
+      if (id && toggles.has(id)) {
+        toggles.get(id)?.();
         return;
       }
       const last = [...toggles.keys()].at(-1);
       if (last) toggles.get(last)?.();
     },
     getHoveredOutput() {
-      if (!hoveredId) return undefined;
-      return targets.get(hoveredId)?.getOutput();
+      const id = hoveredId();
+      if (!id) return undefined;
+      return targets.get(id)?.getOutput();
     },
     getHoveredExpandedOutput() {
-      if (!hoveredId) return undefined;
-      const target = targets.get(hoveredId);
+      const id = hoveredId();
+      if (!id) return undefined;
+      const target = targets.get(id);
       if (!target?.isExpanded()) return undefined;
       return target.getOutput();
+    },
+    getHoverFooterHint() {
+      footerRevision();
+      const id = hoveredId();
+      if (!id) return null;
+      const target = targets.get(id);
+      if (!target) return null;
+      const expanded = expandedStates.get(id) ?? target.isExpanded();
+      return formatHoverExpandFooter(
+        target.label,
+        target.getOutput(),
+        expanded,
+      );
     },
     isExpanded(id) {
       return expandedStates.get(id) ?? false;
     },
     setExpanded(id, expanded) {
       expandedStates.set(id, expanded);
+      setFooterRevision((n) => n + 1);
     },
   };
 }

@@ -127,7 +127,7 @@ export interface SessionController {
   ) => void;
 }
 
-const IDLE_HINT = `scroll · ${clipboardHintText()} · Ctrl+C exit`;
+export const IDLE_STATUS_HINT = `scroll · ${clipboardHintText()} · Ctrl+C exit`;
 const RUNNING_HINT = "Working… · Ctrl+C stop";
 
 const TOOL_VERBS: Record<string, string> = {
@@ -237,7 +237,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     pendingApproval: null,
     pendingQuestion: null,
     input: "",
-    statusHint: IDLE_HINT,
+    statusHint: IDLE_STATUS_HINT,
   };
 
   const listeners = new Set<SessionListener>();
@@ -331,7 +331,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         currentBlocks: [],
         phase: "input",
         pendingQuestion: null,
-        statusHint: IDLE_HINT,
+        statusHint: IDLE_STATUS_HINT,
       });
     },
 
@@ -347,7 +347,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         todos: [],
         phase: "input",
         pendingQuestion: null,
-        statusHint: IDLE_HINT,
+        statusHint: IDLE_STATUS_HINT,
       });
     },
 
@@ -362,7 +362,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         currentBlocks: [],
         phase: "input",
         pendingQuestion: null,
-        statusHint: IDLE_HINT,
+        statusHint: IDLE_STATUS_HINT,
       });
     },
 

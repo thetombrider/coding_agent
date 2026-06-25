@@ -8,6 +8,9 @@ import {
   formatSessionCost,
   formatTokenCount,
   showTodoSidebar,
+  shouldWrapToolSummary,
+  toolSummary,
+  TOOL_SUMMARY_INLINE_MAX,
 } from "./views.js";
 import type { TodoItem } from "../todos/types.js";
 
@@ -115,5 +118,36 @@ describe("contextBadge", () => {
     expect(contextBadge({ contextTokens: 0, contextWindow: 200_000 })).toBe("");
     expect(contextBadge({ contextTokens: 50_000, contextWindow: 0 })).toBe("");
     expect(contextBadge({})).toBe("");
+  });
+});
+
+describe("toolSummary", () => {
+  const longCommand = "cd /Users/tommy/coding/coding_agent && gh issue view 222 && bun test";
+
+  it("truncates long bash commands by default", () => {
+    const summary = toolSummary("bash", { command: longCommand });
+    expect(summary).toMatch(/…$/);
+    expect(summary.length).toBeLessThan(longCommand.length);
+  });
+
+  it("shows the full command when truncation is disabled", () => {
+    expect(toolSummary("bash", { command: longCommand }, { truncate: false })).toBe(longCommand);
+  });
+
+  it("leaves short commands unchanged", () => {
+    expect(toolSummary("bash", { command: "echo hi" })).toBe("echo hi");
+  });
+});
+
+describe("shouldWrapToolSummary", () => {
+  it("keeps short summaries on the header row", () => {
+    expect(shouldWrapToolSummary("src/hooks/registry.ts")).toBe(false);
+    expect(shouldWrapToolSummary("hook")).toBe(false);
+  });
+
+  it("wraps summaries longer than the inline budget", () => {
+    const long = "x".repeat(TOOL_SUMMARY_INLINE_MAX + 1);
+    expect(shouldWrapToolSummary(long)).toBe(true);
+    expect(shouldWrapToolSummary("x".repeat(TOOL_SUMMARY_INLINE_MAX))).toBe(false);
   });
 });

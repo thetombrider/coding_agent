@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   countOutputLines,
+  EXPAND_HINT_LINE_COUNT_THRESHOLD,
+  formatHoverExpandFooter,
   formatToolOutputForDisplay,
   MAX_OUTPUT_DISPLAY_LINES,
   outputExpandHint,
@@ -28,9 +30,17 @@ describe("tool-output", () => {
     expect(result.totalLines).toBe(MAX_OUTPUT_DISPLAY_LINES + 50);
   });
 
-  it("builds expand hints for single- and multi-line output", () => {
-    expect(outputExpandHint("hello")).toBe("▸ expand");
-    expect(outputExpandHint("a\nb\nc")).toBe("▸ 3 lines");
+  it("builds tiered expand hints for collapsed output", () => {
+    expect(outputExpandHint("hello")).toBe("");
+    expect(outputExpandHint("a\nb")).toBe("▸");
+    const tenLines = Array.from({ length: EXPAND_HINT_LINE_COUNT_THRESHOLD }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(outputExpandHint(tenLines)).toBe(`▸ ${EXPAND_HINT_LINE_COUNT_THRESHOLD} lines`);
+  });
+
+  it("builds hover footer hints for expanded and collapsed blocks", () => {
+    expect(formatHoverExpandFooter("grep", "hello", false)).toBe("grep · click to expand");
+    expect(formatHoverExpandFooter("grep", "a\nb\nc", false)).toBe("grep · 3 lines · click to expand");
+    expect(formatHoverExpandFooter("thinking", "text", true)).toBe("thinking · expanded · c copy");
   });
 });
 
@@ -65,10 +75,12 @@ describe("createToolExpandState", () => {
     const { createToolExpandState } = await import("./tool-expand.js");
     const expand = createToolExpandState();
     expand.registerCopyTarget("a", {
+      label: "grep",
       getOutput: () => "full output",
       isExpanded: () => true,
     });
     expand.registerCopyTarget("b", {
+      label: "read",
       getOutput: () => "collapsed",
       isExpanded: () => false,
     });
@@ -97,5 +109,22 @@ describe("createToolExpandState", () => {
     expand.toggleHovered();
     expect(first).toBe(1);
     expect(second).toBe(1);
+  });
+
+  it("returns contextual footer hints for hovered blocks", async () => {
+    const { createToolExpandState } = await import("./tool-expand.js");
+    const expand = createToolExpandState();
+    expand.registerCopyTarget("a", {
+      label: "grep",
+      getOutput: () => Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n"),
+      isExpanded: () => false,
+    });
+
+    expect(expand.getHoverFooterHint()).toBeNull();
+    expand.setHovered("a");
+    expect(expand.getHoverFooterHint()).toBe("grep · 12 lines · click to expand");
+
+    expand.setExpanded("a", true);
+    expect(expand.getHoverFooterHint()).toBe("grep · expanded · c copy");
   });
 });

@@ -33,8 +33,24 @@ export function formatToolOutputForDisplay(output: string): {
   };
 }
 
+/** Show a line count in inline/footer hints once output reaches this size. */
+export const EXPAND_HINT_LINE_COUNT_THRESHOLD = 10;
+
 export function outputExpandHint(output: string): string {
   const lineCount = countOutputLines(output);
-  if (lineCount <= 1) return "▸ expand";
+  if (lineCount <= 1) return "";
+  if (lineCount < EXPAND_HINT_LINE_COUNT_THRESHOLD) return "▸";
   return `▸ ${lineCount} lines`;
+}
+
+export function formatHoverExpandFooter(
+  label: string,
+  output: string | undefined,
+  expanded: boolean,
+): string {
+  if (expanded) return `${label} · expanded · c copy`;
+  if (!output) return `${label} · click to expand`;
+  const lineCount = countOutputLines(output);
+  if (lineCount <= 1) return `${label} · click to expand`;
+  return `${label} · ${lineCount} lines · click to expand`;
 }
