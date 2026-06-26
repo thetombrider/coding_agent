@@ -342,11 +342,13 @@ function buildConfig(): Config {
     merged.provider.active,
   );
 
-  // A concurrency cap below 1 would deadlock the fan-out pool; clamp to a sane floor.
-  merged.subagent.maxParallel = Math.max(
-    1,
-    Math.floor(Number(merged.subagent.maxParallel) || DEFAULT_CONFIG.subagent.maxParallel),
-  );
+  // A concurrency cap below 1 would deadlock the fan-out pool; clamp to a sane
+  // floor. An explicit numeric value (including 0) clamps to 1; only a missing or
+  // non-numeric setting falls back to the default.
+  const maxParallel = Number(merged.subagent.maxParallel);
+  merged.subagent.maxParallel = Number.isFinite(maxParallel)
+    ? Math.max(1, Math.floor(maxParallel))
+    : DEFAULT_CONFIG.subagent.maxParallel;
 
   return merged;
 }

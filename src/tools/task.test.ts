@@ -602,19 +602,31 @@ describe("runParallelTasks", () => {
   });
 
   it("runs read-only children in parallel on the shared tree (no worktree needed)", async () => {
-    const provider = createStatefulFauxProvider([
-      { toolCalls: [{ id: "ls1", name: "ls", arguments: { path: "." } }] },
-      { text: ["explore one done"] },
-      { toolCalls: [{ id: "ls2", name: "ls", arguments: { path: "." } }] },
-      { text: ["explore two done"] },
-    ]);
+    // A shared turn counter would interleave nondeterministically across the two
+    // concurrent children, so drive each from its own prompt: ls first, then a
+    // summary tagged with the child's label once the tool result is in context.
+    const provider: StreamAssistantFn = (messages, options, emit) => {
+      const text = messages
+        .flatMap((m) => m.content.map((c) => (c.type === "text" ? c.text : "")))
+        .join(" ");
+      const label = text.includes("scan one") ? "one" : "two";
+      const sawToolResult = messages.some((m) => m.role === "tool");
+      return createFauxProvider(
+        sawToolResult
+          ? { text: [`explore ${label} done`], model: options.model }
+          : {
+              toolCalls: [{ id: `ls-${label}`, name: "ls", arguments: { path: "." } }],
+              model: options.model,
+            },
+      )(messages, options, emit);
+    };
     const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
 
     const result = await runParallelTasks(
       {
         tasks: [
-          { description: "scan one", prompt: "what's here?", agent: "explore" },
-          { description: "scan two", prompt: "what's here?", agent: "explore" },
+          { description: "scan one", prompt: "scan one: what's here?", agent: "explore" },
+          { description: "scan two", prompt: "scan two: what's here?", agent: "explore" },
         ],
       },
       ctx,
@@ -700,6 +712,38 @@ describe("runParallelTasks", () => {
     expect(result.isError).toBeFalsy();
     // Each child owns and disposes its own sandbox.
     expect(dispose).toHaveBeenCalledTimes(2);
+  });
+
+  it("isolates a child that throws during setup, preserving sibling output", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ sandbox: { e2b: { apiKey: "test-key" } } });
+
+    // The sandbox child throws while booting its workspace; the explore child
+    // runs to completion. The pool must not let the throw reject Promise.all.
+    const provider = createStatefulFauxProvider([{ text: ["explore survived"] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
+
+    const result = await runParallelTasks(
+      {
+        tasks: [
+          { description: "ok", prompt: "look around", agent: "explore" },
+          { description: "boom", prompt: "do risky", agent: "implement", isolation: "sandbox" },
+        ],
+      },
+      ctx,
+      new AbortController().signal,
+      {
+        createSandbox: async () => {
+          throw new Error("sandbox boot failed");
+        },
+      },
+    );
+
+    // One child failed, the other succeeded → partial result, not a total failure.
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain("explore survived");
+    expect(result.output).toContain("Subagent failed before returning a summary");
+    expect(result.output).toContain("sandbox boot failed");
   });
 
   it("blocks recursion beyond max depth before fanning out", async () => {

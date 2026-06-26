@@ -379,10 +379,22 @@ export async function runParallelTasks(
     while (true) {
       const i = cursor++;
       if (i >= tasks.length) return;
-      // Abort propagates out of runSubagentTask (which rethrows it); surfacing it
-      // here rejects Promise.all, while siblings already running wind down on the
-      // same signal and dispose their own workspaces in `finally`.
-      results[i] = await runSubagentTask(tasks[i], ctx, signal, deps, { parallel: true });
+      try {
+        results[i] = await runSubagentTask(tasks[i], ctx, signal, deps, { parallel: true });
+      } catch (err) {
+        // Cancellation must still tear down the whole fan-out: rethrow so
+        // Promise.all rejects while siblings wind down on the same signal and
+        // dispose their workspaces in `finally`.
+        if (isAbortError(err) || signal.aborted) throw err;
+        // Any other throw is a setup/teardown failure for this one child (e.g.
+        // sandbox boot or worktree harvest). Record it as that child's error so
+        // the pool finishes and successful siblings' output is preserved.
+        const message = err instanceof Error ? err.message : String(err);
+        results[i] = {
+          output: `Subagent failed before returning a summary: ${message}`,
+          isError: true,
+        };
+      }
     }
   }
 
@@ -397,7 +409,7 @@ export async function runParallelTasks(
   const failed = results.filter((r) => r.isError).length;
   const header =
     `Parallel fan-out: ${tasks.length} subagents ran concurrently (≤${cap} at once); `
-    + `mutating children each ran in an isolated worktree.`
+    + `mutating children each ran in an isolated workspace (worktree, or sandbox if requested).`
     + `${failed ? ` ${failed} reported an error.` : ""}`;
 
   return {
