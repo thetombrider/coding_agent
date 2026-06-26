@@ -14,13 +14,18 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "task")).toBe(true);
   });
 
-  it("excludes todowrite, task, file_op, askuser, and skill_write from child tool presets", () => {
+  it("includes task_parallel in core tools", () => {
+    expect(getCoreTools().some((t) => t.name === "task_parallel")).toBe(true);
+  });
+
+  it("excludes todowrite, task, task_parallel, file_op, askuser, and skill_write from child tool presets", () => {
     expect(getChildTools().some((t) => t.name === "todowrite")).toBe(false);
     expect(getChildTools().some((t) => t.name === "task")).toBe(false);
+    expect(getChildTools().some((t) => t.name === "task_parallel")).toBe(false);
     expect(getChildTools().some((t) => t.name === "file_op")).toBe(false);
     expect(getChildTools().some((t) => t.name === "askuser")).toBe(false);
     expect(getChildTools().some((t) => t.name === "skill_write")).toBe(false);
-    expect(getChildTools().length).toBe(getCoreTools().length - 5);
+    expect(getChildTools().length).toBe(getCoreTools().length - 6);
   });
 
   it("includes the read-only fetch tool in child tool presets", () => {

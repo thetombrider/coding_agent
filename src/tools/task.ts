@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { currentTurnCount } from "../agent/compaction.js";
 import { resolvePreset, type PresetDefinition } from "../agent/presets.js";
-import { resolveIsolationMode, type IsolationMode } from "../agent/isolation.js";
+import { maxIsolation, resolveIsolationMode, type IsolationMode } from "../agent/isolation.js";
 import { lastAssistantText, runLoop } from "../agent/loop.js";
 import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { defaultCheapModel, resolvePresetModel } from "../config/models.js";
@@ -43,10 +43,50 @@ const schema = z.object({
 
 export type TaskArgs = z.infer<typeof schema>;
 
+const childTaskSchema = z.object({
+  description: z.string().describe("Short label for UI/logs."),
+  prompt: z.string().describe("The task this subagent should accomplish independently."),
+  agent: z
+    .enum(["explore", "review", "implement"])
+    .optional()
+    .describe("Subagent preset; default implement. Same semantics as the `task` tool."),
+  isolation: z
+    .enum(["worktree", "sandbox"])
+    .optional()
+    .describe(
+      "Workspace isolation for this child. Defaults to worktree for mutating work "
+      + "(shared is forbidden in parallel — siblings would collide on the host tree). "
+      + "sandbox runs in an ephemeral E2B clone (requires sandbox.e2b.apiKey).",
+    ),
+});
+
+const parallelSchema = z.object({
+  tasks: z
+    .array(childTaskSchema)
+    .min(2)
+    .describe(
+      "Two or more independent units of work to run concurrently, each in its own "
+      + "subagent. Only use this when the tasks don't depend on each other's output.",
+    ),
+});
+
+export type ParallelTaskArgs = z.infer<typeof parallelSchema>;
+
 export interface TaskDeps {
   createSandbox?: () => Promise<Workspace>;
   seedRepo?: typeof seedRepoIntoWorkspace;
   createWorktree?: typeof createWorktree;
+}
+
+/** Per-run knobs that don't come from the model's tool arguments. */
+export interface RunSubagentOptions {
+  /**
+   * Parallel fan-out mode. Forces each mutating child into its own fresh git
+   * worktree — never the shared host tree, never a reused session worktree — so
+   * concurrent siblings can't collide on the working tree. Read-only presets are
+   * unaffected (they don't write). Set by `task_parallel`; off for serial `task`.
+   */
+  parallel?: boolean;
 }
 
 interface ResolvedIsolation {
@@ -56,10 +96,14 @@ interface ResolvedIsolation {
 function resolveIsolation(
   requested: IsolationMode | undefined,
   preset: PresetDefinition,
+  parallel: boolean,
 ): ResolvedIsolation | { error: string } {
   // The config `subagent.isolation` floor is a guarantee; the model may escalate
   // per call but not weaken below it (read-only presets are unaffected).
-  const floor = loadConfig().subagent.isolation;
+  let floor = loadConfig().subagent.isolation;
+  // Parallel mutating children must never share the host tree — raise the floor
+  // to at least `worktree` so each sibling gets its own dir + branch.
+  if (parallel && preset.mutating) floor = maxIsolation(floor, "worktree");
   const want = resolveIsolationMode(requested, preset.mutating, preset.defaultIsolation, floor);
 
   // shared and worktree run against the local tree — edits persist, matching how
@@ -81,6 +125,7 @@ export async function runSubagentTask(
   ctx: AgentContext,
   signal: AbortSignal,
   deps: TaskDeps = {},
+  opts: RunSubagentOptions = {},
 ): Promise<{ output: string; isError?: boolean }> {
   const host = ctx.loopHost;
   if (!host) {
@@ -93,7 +138,7 @@ export async function runSubagentTask(
   }
 
   const preset = resolvePreset(args.agent);
-  const isolationResult = resolveIsolation(args.isolation, preset);
+  const isolationResult = resolveIsolation(args.isolation, preset, opts.parallel ?? false);
   if ("error" in isolationResult) {
     return { output: isolationResult.error, isError: true };
   }
@@ -138,7 +183,12 @@ export async function runSubagentTask(
       if (seedMessage.startsWith("No git origin") || seedMessage.startsWith("git clone failed")) {
         return { output: seedMessage, isError: true };
       }
-    } else if (isolationResult.mode === "worktree" && host.sessionIsolation !== "worktree") {
+    } else if (
+      isolationResult.mode === "worktree" &&
+      // In parallel fan-out every child needs its own fresh worktree, so never
+      // reuse the session worktree (siblings would collide) — always create one.
+      (opts.parallel || host.sessionIsolation !== "worktree")
+    ) {
       const result = makeWorktree(host.hostCwd ?? ctx.cwd, subagentId);
       if ("error" in result) {
         return { output: result.error, isError: true };
@@ -295,5 +345,73 @@ export const taskTool: Tool<TaskArgs> = {
   schema,
   async execute(args, ctx, signal) {
     return runSubagentTask(args, ctx, signal);
+  },
+};
+
+/**
+ * Run an array of subagent tasks concurrently with a bounded worker pool, each
+ * child forced into its own isolated worktree (parallel mode) so siblings can't
+ * collide on the host tree. The shared `signal` aborts every child, and each
+ * child disposes its own worktree/sandbox in its own `finally`. Results are
+ * folded back into a single combined summary in task order.
+ */
+export async function runParallelTasks(
+  args: ParallelTaskArgs,
+  ctx: AgentContext,
+  signal: AbortSignal,
+  deps: TaskDeps = {},
+): Promise<{ output: string; isError?: boolean }> {
+  if (!ctx.loopHost) {
+    return { output: "Internal error: subagent loop host is not configured.", isError: true };
+  }
+  if ((ctx.depth ?? 0) >= MAX_SUBAGENT_DEPTH) {
+    return { output: "Subagent recursion limit reached.", isError: true };
+  }
+
+  const tasks = args.tasks;
+  const cap = Math.min(loadConfig().subagent.maxParallel, tasks.length);
+
+  // Bounded fan-out: `cap` workers pull from a shared cursor so no more than
+  // `cap` sandboxes/worktrees exist at once, capping E2B / git-worktree cost.
+  const results = new Array<{ output: string; isError?: boolean }>(tasks.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= tasks.length) return;
+      // Abort propagates out of runSubagentTask (which rethrows it); surfacing it
+      // here rejects Promise.all, while siblings already running wind down on the
+      // same signal and dispose their own workspaces in `finally`.
+      results[i] = await runSubagentTask(tasks[i], ctx, signal, deps, { parallel: true });
+    }
+  }
+
+  await Promise.all(Array.from({ length: cap }, () => worker()));
+
+  const sections = tasks.map((task, i) => {
+    const r = results[i];
+    const flag = r.isError ? " ⚠️" : "";
+    return `### ${i + 1}. ${task.description}${flag}\n\n${r.output}`;
+  });
+
+  const failed = results.filter((r) => r.isError).length;
+  const header =
+    `Parallel fan-out: ${tasks.length} subagents ran concurrently (≤${cap} at once); `
+    + `mutating children each ran in an isolated worktree.`
+    + `${failed ? ` ${failed} reported an error.` : ""}`;
+
+  return {
+    output: `${header}\n\n${sections.join("\n\n---\n\n")}`,
+    // Only a total failure is a tool error; partial results are still useful.
+    isError: failed === tasks.length,
+  };
+}
+
+export const taskParallelTool: Tool<ParallelTaskArgs> = {
+  name: "task_parallel",
+  description: loadToolDescription("task_parallel"),
+  schema: parallelSchema,
+  async execute(args, ctx, signal) {
+    return runParallelTasks(args, ctx, signal);
   },
 };

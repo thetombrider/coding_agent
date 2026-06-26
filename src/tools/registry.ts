@@ -11,7 +11,7 @@ import { lsTool } from "./ls.js";
 import { searchSymbolsTool } from "./search-symbols.js";
 import { readTool } from "./read.js";
 import { skillListTool, skillUseTool, skillWriteTool } from "./skill.js";
-import { taskTool } from "./task.js";
+import { taskParallelTool, taskTool } from "./task.js";
 import { todowriteTool } from "./todowrite.js";
 import { writeTool } from "./write.js";
 import type { Tool } from "./types.js";
@@ -33,6 +33,7 @@ const ALL_TOOLS: AnyTool[] = [
   delegateReadTool,
   todowriteTool,
   taskTool,
+  taskParallelTool,
   askUserTool,
   skillListTool,
   skillUseTool,
@@ -42,11 +43,18 @@ const ALL_TOOLS: AnyTool[] = [
 /**
  * Tools excluded from subagent child loops — the parent owns the plan, the
  * mutating file ops, and the user dialogue (no recursion in v1), so subagents
- * don't plan (`todowrite`), spawn further subagents (`task`), batch file
- * mutations (`file_op`), or interrupt the user (`askuser`). `fetch` and
- * `web_search` are read-only, so they stay.
+ * don't plan (`todowrite`), spawn further subagents (`task`/`task_parallel`),
+ * batch file mutations (`file_op`), or interrupt the user (`askuser`). `fetch`
+ * and `web_search` are read-only, so they stay.
  */
-const CHILD_EXCLUDED = new Set(["todowrite", "task", "file_op", "askuser", "skill_write"]);
+const CHILD_EXCLUDED = new Set([
+  "todowrite",
+  "task",
+  "task_parallel",
+  "file_op",
+  "askuser",
+  "skill_write",
+]);
 
 export function getCoreTools(): AnyTool[] {
   return [...ALL_TOOLS];

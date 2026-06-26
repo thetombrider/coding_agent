@@ -1,0 +1,22 @@
+Run two or more independent subagents concurrently and fold their summaries back into
+one result. Use this only when the units of work do NOT depend on each other's output
+(e.g. "refactor module A", "write tests for module B", "audit module C"). For a single
+task, or tasks that build on one another, use `task` (serial) instead.
+
+Each child runs its own tool loop and returns only a summary — intermediate steps stay
+out of your context, exactly like `task`.
+
+Isolation (the safety rule for parallel work):
+- Every mutating child runs in its OWN fresh git worktree (a private dir on a new
+  branch). Shared isolation is forbidden here — concurrent siblings editing the host
+  tree would collide. Each child's edits persist to its branch and the summary reports
+  the branch + diff stat, so you (or the user) decide how to combine them afterward.
+- Read-only children (explore/review) run on the shared tree since they never write.
+- sandbox is available per child for untrusted code (ephemeral E2B clone; requires
+  sandbox.e2b.apiKey).
+
+Concurrency is bounded by `subagent.maxParallel` in config; extra tasks queue until a
+slot frees. Cancelling the parent aborts every child and disposes its worktree/sandbox.
+
+Cost note: N children = N worktrees (or N sandbox VM boots). Prefer a single `task`
+when the work is small or sequential.

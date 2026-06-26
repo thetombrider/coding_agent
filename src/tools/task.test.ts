@@ -28,7 +28,7 @@ import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { createFauxProvider, createStatefulFauxProvider } from "../provider/faux.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import { getChildTools, getCoreTools } from "./registry.js";
-import { runSubagentTask, taskTool } from "./task.js";
+import { runParallelTasks, runSubagentTask, taskParallelTool, taskTool } from "./task.js";
 import type { AgentContext, LoopHost } from "../types.js";
 import { createLocalWorkspace } from "../workspace/local.js";
 import { runLoop } from "../agent/loop.js";
@@ -528,6 +528,238 @@ describe("runSubagentTask", () => {
     expect(turns.every((t) => t.source === "subagent")).toBe(true);
     expect(summary?.sourceMix.subagent).toBe(turns.length);
     expect(summary?.modelMix["faux:test"]?.turns).toBe(turns.length);
+  });
+});
+
+describe("runParallelTasks", () => {
+  it("fans out N children, each in its own worktree branch, leaving the host tree clean", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orin-par-wt-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+
+      // Each child writes a distinct file. A prompt-aware provider keeps the two
+      // concurrent children deterministic regardless of interleaving: each writes
+      // the file named in its own prompt, then summarizes once the write is done.
+      const provider: StreamAssistantFn = (messages, options, emit) => {
+        const text = messages
+          .flatMap((m) => m.content.map((c) => (c.type === "text" ? c.text : "")))
+          .join(" ");
+        const file = text.includes("a.txt") ? "a.txt" : "b.txt";
+        const wroteAlready = messages.some((m) => m.role === "tool");
+        const script = wroteAlready
+          ? { text: [`wrote ${file}`], model: options.model }
+          : {
+              toolCalls: [{ id: "w", name: "write", arguments: { path: file, content: file } }],
+              model: options.model,
+            };
+        return createFauxProvider(script)(messages, options, emit);
+      };
+      const ctx = baseCtx({ cwd: dir, loopHost: loopHost(provider, getChildTools()) });
+
+      const result = await runParallelTasks(
+        {
+          tasks: [
+            { description: "task A", prompt: "create a.txt", agent: "implement" },
+            { description: "task B", prompt: "create b.txt", agent: "implement" },
+          ],
+        },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toContain("Parallel fan-out: 2 subagents");
+      expect(result.output).toContain("### 1. task A");
+      expect(result.output).toContain("### 2. task B");
+      // Neither child wrote to the host working tree.
+      expect(existsSync(join(dir, "a.txt"))).toBe(false);
+      expect(existsSync(join(dir, "b.txt"))).toBe(false);
+      // Two distinct subagent branches were created, one per child.
+      const branches = g("branch", "--list", "orin/subagent-*")
+        .split("\n")
+        .map((b) => b.replace(/^\*?\s*/, ""))
+        .filter(Boolean);
+      expect(branches).toHaveLength(2);
+      // Each child's write landed on its own branch — both files exist, on
+      // separate branches, never on the host tree.
+      const filesAcrossBranches = branches.flatMap((b) =>
+        g("ls-tree", "--name-only", b).split("\n").filter(Boolean),
+      );
+      expect(filesAcrossBranches).toContain("a.txt");
+      expect(filesAcrossBranches).toContain("b.txt");
+      // Worktree dirs were cleaned up — only the main worktree remains.
+      const worktrees = g("worktree", "list").trim().split("\n").filter(Boolean);
+      expect(worktrees).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs read-only children in parallel on the shared tree (no worktree needed)", async () => {
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "ls1", name: "ls", arguments: { path: "." } }] },
+      { text: ["explore one done"] },
+      { toolCalls: [{ id: "ls2", name: "ls", arguments: { path: "." } }] },
+      { text: ["explore two done"] },
+    ]);
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
+
+    const result = await runParallelTasks(
+      {
+        tasks: [
+          { description: "scan one", prompt: "what's here?", agent: "explore" },
+          { description: "scan two", prompt: "what's here?", agent: "explore" },
+        ],
+      },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain("explore one done");
+    expect(result.output).toContain("explore two done");
+  });
+
+  it("bounds concurrency to subagent.maxParallel", async () => {
+    const { saveConfig, __testClearCache } = await import("../config/config.js");
+    saveConfig({ subagent: { maxParallel: 2 } });
+    __testClearCache();
+
+    let active = 0;
+    let peak = 0;
+    // Each child's single provider call holds a slot briefly so overlapping
+    // children are observable; the pool must cap simultaneous workers at 2.
+    const provider: StreamAssistantFn = async (messages, options, emit) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 20));
+      active -= 1;
+      return createFauxProvider({ text: ["done"], model: options.model })(messages, options, emit);
+    };
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
+
+    const result = await runParallelTasks(
+      {
+        tasks: Array.from({ length: 4 }, (_, i) => ({
+          description: `scan ${i}`,
+          prompt: "look",
+          agent: "explore" as const,
+        })),
+      },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(peak).toBeLessThanOrEqual(2);
+    // 4 tasks with 2 workers should actually reach the cap.
+    expect(peak).toBe(2);
+    expect(result.output).toContain("≤2 at once");
+  });
+
+  it("disposes every child workspace when children run in sandboxes", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ sandbox: { e2b: { apiKey: "test-key" } } });
+    const dispose = vi.fn(async () => {});
+    const makeSandbox = () => ({
+      kind: "e2b" as const,
+      exec: async () => ({ exitCode: 0 }),
+      readFile: async () => "",
+      writeFile: async () => {},
+      list: async () => [],
+      stat: async () => null,
+      deleteFile: async () => {},
+      move: async () => {},
+      dispose,
+    });
+
+    const provider = createStatefulFauxProvider([
+      { text: ["sandbox one done"] },
+      { text: ["sandbox two done"] },
+    ]);
+    const ctx = baseCtx({ loopHost: loopHost(provider) });
+
+    const result = await runParallelTasks(
+      {
+        tasks: [
+          { description: "one", prompt: "do one", agent: "implement", isolation: "sandbox" },
+          { description: "two", prompt: "do two", agent: "implement", isolation: "sandbox" },
+        ],
+      },
+      ctx,
+      new AbortController().signal,
+      { createSandbox: async () => makeSandbox(), seedRepo: async () => "Cloned repo into sandbox" },
+    );
+
+    expect(result.isError).toBeFalsy();
+    // Each child owns and disposes its own sandbox.
+    expect(dispose).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks recursion beyond max depth before fanning out", async () => {
+    const provider = createStatefulFauxProvider([{ text: ["unused"] }]);
+    const ctx = baseCtx({ loopHost: loopHost(provider), depth: 1 });
+
+    const result = await runParallelTasks(
+      {
+        tasks: [
+          { description: "a", prompt: "x", agent: "explore" },
+          { description: "b", prompt: "y", agent: "explore" },
+        ],
+      },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("recursion limit");
+  });
+
+  it("flags a tool error only when every child fails, not on partial failure", async () => {
+    // No E2B key configured, so sandbox children fail; explore children succeed.
+    const provider = createStatefulFauxProvider([
+      { text: ["explore ok"] },
+      { text: ["explore ok"] },
+    ]);
+    const ctx = baseCtx({ loopHost: loopHost(provider, getChildTools()) });
+
+    const allFail = await runParallelTasks(
+      {
+        tasks: [
+          { description: "s1", prompt: "x", agent: "implement", isolation: "sandbox" },
+          { description: "s2", prompt: "y", agent: "implement", isolation: "sandbox" },
+        ],
+      },
+      ctx,
+      new AbortController().signal,
+    );
+    expect(allFail.isError).toBe(true);
+    expect(allFail.output).toContain("2 reported an error");
+
+    const partial = await runParallelTasks(
+      {
+        tasks: [
+          { description: "ok", prompt: "look", agent: "explore" },
+          { description: "bad", prompt: "y", agent: "implement", isolation: "sandbox" },
+        ],
+      },
+      ctx,
+      new AbortController().signal,
+    );
+    // One child succeeded → the fan-out is not a total failure.
+    expect(partial.isError).toBeFalsy();
+    expect(partial.output).toContain("1 reported an error");
+    expect(partial.output).toContain("explore ok");
+  });
+
+  it("exposes the task_parallel tool", () => {
+    expect(taskParallelTool.name).toBe("task_parallel");
   });
 });
 
