@@ -82,6 +82,35 @@ describe("processCommand", () => {
     expect(processCommand("/sessions", ctx).type).toBe("sessions");
   });
 
+  it("handles /skills with and without a name", () => {
+    expect(processCommand("/skills", ctx)).toEqual({ type: "skills", name: undefined });
+    expect(processCommand("/skills git-workflow", ctx)).toEqual({
+      type: "skills",
+      name: "git-workflow",
+    });
+    expect(isActionableCommandResult({ type: "skills" })).toBe(true);
+  });
+
+  it("handles /skill with a name and optional task", () => {
+    expect(processCommand("/skill git-workflow", ctx)).toEqual({
+      type: "skill",
+      name: "git-workflow",
+      task: undefined,
+    });
+    expect(processCommand("/skill git-workflow open a PR", ctx)).toEqual({
+      type: "skill",
+      name: "git-workflow",
+      task: "open a PR",
+    });
+    expect(isActionableCommandResult({ type: "skill", name: "x" })).toBe(true);
+  });
+
+  it("rejects /skill without a name", () => {
+    const r = processCommand("/skill", ctx);
+    expect(r.type).toBe("error");
+    expect(isActionableCommandResult(r)).toBe(false);
+  });
+
   it("handles /checkpoints", () => {
     const r = processCommand("/checkpoints", ctx);
     expect(r.type).toBe("checkpoints");

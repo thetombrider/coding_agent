@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { findRepoRoot } from "../prompt/repo-root.js";
-import type { SkillContent, SkillMeta } from "./types.js";
+import type { SkillContent, SkillMeta, SkillScope } from "./types.js";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/;
 
@@ -123,4 +123,21 @@ export function resolveSkill(name: string, cwd: string): SkillContent | undefine
 /** Global skills directory (user-level, where skill_write saves by default). */
 export function globalSkillsDir(): string {
   return join(homedir(), ".orin", "skills");
+}
+
+/**
+ * Classify where a skill lives, for display in the TUI palette.
+ *
+ *   - `global`  — anything under the user's home dir (`~/.orin`, `~/.claude`, `~/.agents`)
+ *   - `claude`  — a project-local `.claude/skills/` (cross-agent compat tier)
+ *   - `project` — a project-local `.orin/skills/`
+ *
+ * Derived from `SkillMeta.path`; home-dir installs win so a `~/.claude` skill
+ * reads as `global` rather than `claude`.
+ */
+export function skillScope(meta: SkillMeta): SkillScope {
+  const home = homedir();
+  if (meta.path === home || meta.path.startsWith(home + sep)) return "global";
+  if (meta.path.includes(`${sep}.claude${sep}`)) return "claude";
+  return "project";
 }

@@ -42,10 +42,20 @@ import type { SessionSummary } from "../session/log.js";
 import type { CheckpointRecord } from "../checkpoint/manager.js";
 import type { SessionsPaletteState } from "./sessions-palette.js";
 import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
+import type { SkillsPaletteState } from "./skills-palette.js";
+import {
+  selectedSkill,
+  skillInvocationMessage,
+  skillPrefill,
+  skillScopeLabel,
+  skillsPaletteHint,
+} from "./skills-palette.js";
+import { discoverSkills } from "../skills/discovery.js";
 
 const BOLD = createTextAttributes({ bold: true });
 const SESSION_LIST_MAX_VISIBLE = 10;
 const MODEL_LIST_MAX_VISIBLE = 10;
+const SKILLS_LIST_MAX_VISIBLE = 10;
 
 const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
@@ -53,6 +63,7 @@ const SLASH_COMMANDS = [
   { name: "providers", label: "/providers", description: "switch LLM provider" },
   { name: "settings",  label: "/settings",  description: "E2B key, isolation, telemetry, task models" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
+  { name: "skills",    label: "/skills",    description: "browse available skills" },
   { name: "checkpoints", label: "/checkpoints", description: "list workspace checkpoints" },
   { name: "restore",   label: "/restore",   description: "roll back the working tree" },
   { name: "new",       label: "/new",       description: "archive & start new session" },
@@ -72,7 +83,8 @@ type PaletteState =
   | { phase: "settings-isolation"; index: number }
   | { phase: "settings-session-isolation"; index: number }
   | { phase: "settings-role"; index: number; role: AgentPreset }
-  | SessionsPaletteState;
+  | SessionsPaletteState
+  | SkillsPaletteState;
 
 /** Roles a user can pin a task-tool model to, in menu order. */
 const SETTINGS_ROLES: ReadonlyArray<{ role: AgentPreset; label: string }> = [
@@ -285,10 +297,15 @@ export function App(props: {
   let scrollRef: ScrollBoxRenderable | undefined;
   let sessionListScrollRef: ScrollBoxRenderable | undefined;
   let modelListScrollRef: ScrollBoxRenderable | undefined;
+  let skillsListScrollRef: ScrollBoxRenderable | undefined;
   let inputRef: InputRenderable | undefined;
 
   const scrollSessionIntoView = (index: number) => {
     sessionListScrollRef?.scrollChildIntoView(`session-row-${index}`);
+  };
+
+  const scrollSkillIntoView = (index: number) => {
+    skillsListScrollRef?.scrollChildIntoView(`skill-row-${index}`);
   };
 
   const scrollModelIntoView = (index: number) => {
@@ -307,6 +324,13 @@ export function App(props: {
     if (p?.phase !== "model" && p?.phase !== "settings-role") return;
     const index = p.index;
     queueMicrotask(() => scrollModelIntoView(index));
+  });
+
+  createEffect(() => {
+    const p = palette();
+    if (p?.phase !== "skills" || p.menu !== "list") return;
+    const index = p.index;
+    queueMicrotask(() => scrollSkillIntoView(index));
   });
 
   const live = () => currentTurn(state());
@@ -511,6 +535,29 @@ export function App(props: {
     setPalette(state);
   };
 
+  /** Open the skills browser, or report the empty state if none are discoverable. */
+  const openSkillsPalette = () => {
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+    const skills = discoverSkills(state().meta.cwd);
+    if (skills.length === 0) {
+      setPalette(null);
+      props.controller.setStatusHint(
+        "No skills found — add SKILL.md under .orin/skills/ or ask the agent to create one",
+      );
+      return;
+    }
+    setPalette({ phase: "skills", index: 0, skills, menu: "list" });
+  };
+
+  /** Prefill `/skill <name> ` so the user can append a task and submit. */
+  const prefillSkill = (name: string) => {
+    const text = skillPrefill(name);
+    setPalette(null);
+    if (inputRef) inputRef.value = text;
+    props.controller.setInput(text);
+  };
+
   const confirmSessionDelete = () => {
     const p = palette();
     if (p?.phase !== "sessions" || p.menu !== "delete") return;
@@ -534,6 +581,19 @@ export function App(props: {
     openSessionsPalette(next);
   };
 
+  /** Submit a synthesized user turn (e.g. a `/skill` invocation). No-op while busy. */
+  const runUserTurn = async (text: string) => {
+    if (submitting() || state().phase !== "input") return;
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+    setSubmitting(true);
+    try {
+      await props.onSubmit(text);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const applyCommandResult = (result: CommandResult) => {
     switch (result.type) {
       case "exit":
@@ -554,6 +614,29 @@ export function App(props: {
           return;
         }
         setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
+        return;
+      }
+      case "skills": {
+        if (result.name) {
+          const skills = discoverSkills(state().meta.cwd);
+          const meta = skills.find((s) => s.name === result.name);
+          if (!meta) {
+            props.controller.setStatusHint(
+              `No skill "${result.name}" — /skills to browse what's available`,
+            );
+            return;
+          }
+          const version = meta.version ? `  v${meta.version}` : "";
+          props.controller.setStatusHint(
+            `${meta.name}  ${skillScopeLabel(meta)}${version}\n${meta.description}\n${meta.path}`,
+          );
+          return;
+        }
+        openSkillsPalette();
+        return;
+      }
+      case "skill": {
+        void runUserTurn(skillInvocationMessage(result.name, result.task));
         return;
       }
       case "checkpoints": {
@@ -684,6 +767,11 @@ export function App(props: {
           return;
         }
         setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
+        return;
+      }
+
+      if (name === "skills") {
+        openSkillsPalette();
         return;
       }
 
@@ -848,6 +936,19 @@ export function App(props: {
         setPalette(null);
         props.onResume(session.sessionId);
       }
+      return;
+    }
+
+    if (p.phase === "skills") {
+      const skill = selectedSkill(p);
+      if (!skill) return;
+      // List view: Enter opens the detail view. Detail view: Enter prefills
+      // `/skill <name> ` so the user can append a task and submit.
+      if (p.menu === "list") {
+        setPalette({ ...p, menu: "detail" });
+        return;
+      }
+      prefillSkill(skill.name);
       return;
     }
   };
@@ -1072,6 +1173,21 @@ export function App(props: {
         }
       }
 
+      if (p.phase === "skills") {
+        if (p.menu === "detail") {
+          if (key.name === "left" || key.name === "escape") {
+            setPalette({ ...p, menu: "list" });
+            return;
+          }
+          // Enter (prefill) is handled by the input submit path. Swallow the
+          // rest so the detail view doesn't scroll or move the list selection.
+          if (key.name !== undefined) return;
+        } else if (key.name === "right") {
+          setPalette({ ...p, menu: "detail" });
+          return;
+        }
+      }
+
       if (key.name === "up") {
         setPalette({ ...p, index: Math.max(0, p.index - 1) });
         return;
@@ -1086,6 +1202,8 @@ export function App(props: {
                 ? Math.max(0, p.providers.length - 1)
                 : p.phase === "sessions"
                     ? Math.max(0, p.sessions.length - 1)
+                    : p.phase === "skills"
+                    ? Math.max(0, p.skills.length - 1)
                     : p.phase === "settings"
                       ? Math.max(0, SETTINGS_ITEMS.length - 1)
                       : p.phase === "settings-isolation"
@@ -1651,13 +1769,64 @@ export function App(props: {
                 </Show>
               </Show>
 
+              <Show when={p().phase === "skills"}>
+                <Show
+                  when={(p() as SkillsPaletteState).menu === "list"}
+                  fallback={
+                    <Show when={selectedSkill(p() as SkillsPaletteState)}>
+                      {(skill) => {
+                        const version = () => (skill().version ? `  v${skill().version}` : "");
+                        return (
+                          <box flexDirection="column">
+                            <box flexDirection="row">
+                              <text fg={theme.fg} attributes={BOLD}>{skill().name}</text>
+                              <text fg={theme.secondary}>  {skillScopeLabel(skill())}{version()}</text>
+                            </box>
+                            <text fg={theme.secondary}>  {skill().description}</text>
+                            <text fg={theme.muted}>  {skill().path}</text>
+                          </box>
+                        );
+                      }}
+                    </Show>
+                  }
+                >
+                  <scrollbox
+                    ref={skillsListScrollRef}
+                    height={Math.min(
+                      (p() as SkillsPaletteState).skills.length,
+                      SKILLS_LIST_MAX_VISIBLE,
+                    )}
+                    scrollY
+                    contentOptions={{ flexDirection: "column" }}
+                  >
+                    <For each={(p() as SkillsPaletteState).skills}>
+                      {(skill, i) => {
+                        const sp = () => p() as SkillsPaletteState;
+                        const selected = () => sp().index === i();
+                        const version = () => (skill.version ? `  v${skill.version}` : "");
+                        return (
+                          <box id={`skill-row-${i()}`} flexDirection="row">
+                            <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                              {selected() ? "▶ " : "  "}{skill.name}
+                            </text>
+                            <text fg={theme.secondary}>  {skillScopeLabel(skill)}{version()}  {skill.description}</text>
+                          </box>
+                        );
+                      }}
+                    </For>
+                  </scrollbox>
+                </Show>
+              </Show>
+
               <box marginTop={1}>
                 <text fg={theme.secondary}>
                   {p().phase === "commands"
                     ? "↑↓ navigate · Enter select · Esc close"
                     : p().phase === "sessions"
                       ? sessionsPaletteHint((p() as SessionsPaletteState).menu)
-                      : "↑↓ navigate · Enter select · Esc back"}
+                      : p().phase === "skills"
+                        ? skillsPaletteHint((p() as SkillsPaletteState).menu)
+                        : "↑↓ navigate · Enter select · Esc back"}
                 </text>
               </box>
             </box>

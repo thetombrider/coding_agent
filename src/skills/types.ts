@@ -1,3 +1,6 @@
+/** Where a discovered skill lives, for display in the TUI. */
+export type SkillScope = "project" | "global" | "claude";
+
 export interface SkillMeta {
   name: string;
   description: string;
