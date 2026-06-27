@@ -48,6 +48,8 @@ export type CommandResult =
   | { type: "clear" }
   | { type: "new" }
   | { type: "sessions" }
+  | { type: "skills"; name?: string }
+  | { type: "skill"; name: string; task?: string }
   | { type: "checkpoints" }
   | { type: "restore"; id?: string }
   | { type: "set-model"; model: string; message: string }
@@ -87,6 +89,8 @@ const HELP_LINES = [
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/settings exa                 configure Exa API key (for web_search tool)",
   "/sessions                     browse and resume saved sessions",
+  "/skills [name]                browse skills, or show one skill's metadata",
+  "/skill <name> [task]          ask the agent to use a skill",
   "/checkpoints                  list workspace checkpoints for this session",
   "/restore [id]                 roll the working tree back (latest checkpoint if no id)",
   "/new                          archive this session and start a new one",
@@ -431,6 +435,24 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
   };
 }
 
+/** `/skills` opens the palette; `/skills <name>` shows one skill's metadata. */
+function handleSkills(arg: string): CommandResult {
+  const name = arg.trim();
+  return { type: "skills", name: name || undefined };
+}
+
+/** `/skill <name> [task]` submits a user turn asking the agent to use a skill. */
+function handleSkill(arg: string): CommandResult {
+  const trimmed = arg.trim();
+  if (!trimmed) {
+    return { type: "error", message: "usage: /skill <name> [task] — or /skills to browse" };
+  }
+  const space = trimmed.indexOf(" ");
+  const name = space === -1 ? trimmed : trimmed.slice(0, space);
+  const task = space === -1 ? "" : trimmed.slice(space + 1).trim();
+  return { type: "skill", name, task: task || undefined };
+}
+
 function handleProviders(arg: string, ctx: CommandContext): CommandResult {
   const parts = arg.trim().split(/\s+/).filter(Boolean);
   const sub = parts[0]?.toLowerCase();
@@ -450,6 +472,8 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "clear":
     case "new":
     case "sessions":
+    case "skills":
+    case "skill":
     case "checkpoints":
     case "restore":
     case "set-model":
@@ -493,6 +517,10 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
       return { type: "new" };
     case "/sessions":
       return { type: "sessions" };
+    case "/skills":
+      return handleSkills(arg);
+    case "/skill":
+      return handleSkill(arg);
     case "/checkpoints":
     case "/checkpoint":
       return { type: "checkpoints" };
