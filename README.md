@@ -29,7 +29,8 @@ expensive model thinks; a cheap one does the grunt work).
   expensive context.
 - **Parallel subagents** — hand scoped work (`explore`, `implement`, `review`) to
   isolated subagents that run in the shared tree, a throwaway git worktree, or a
-  cloud sandbox.
+  cloud sandbox. `task_parallel` fans independent units of work out concurrently,
+  each mutating child in its own worktree so siblings can't collide.
 - **Bring your own model** — OpenRouter, Anthropic, and EU-hosted Regolo ship
   today; switch provider or model mid-session with `/providers` and `/model`.
 - **Never loses the thread** — sessions are resumable logs, context auto-compacts
@@ -130,6 +131,7 @@ checkpoints all live under `~/.orin/` and survive upgrades.
 | Cheap model | `models.cheap` | Used by `delegate_read` and compaction (default `deepseek/deepseek-v4-flash`). |
 | Approval mode | `approval.mode` | `normal` \| `auto-accept` \| `plan`. |
 | Subagent isolation | `subagent.isolation` | `shared` \| `worktree` \| `sandbox` floor for `task` subagents. |
+| Subagent concurrency | `subagent.maxParallel` | Max `task_parallel` children running at once (default `4`). |
 | E2B API key | `sandbox.e2b.apiKey` | Optional — for `sandbox` isolation or whole-session E2B. |
 
 Orin also records **cost and token metrics** locally (`~/.orin/metrics.jsonl`) by
@@ -253,8 +255,9 @@ runLoop(ctx, emit):
 Everything is **messages of typed content blocks** (`text`, `toolCall`,
 `toolResult`). The tool set is deliberately small — `read`, `write`, `edit`,
 `bash`, `grep`, `find`, `ls`, plus `fetch` (read a URL), `file_op` (batch file
-mutations), `delegate_read` (cheap-model reads), `task` (subagents), `todowrite`
-(a live plan), and `askuser` (pause to ask the user a multiple-choice question).
+mutations), `delegate_read` (cheap-model reads), `task` / `task_parallel` (serial and
+concurrent subagents), `todowrite` (a live plan), and `askuser` (pause to ask the
+user a multiple-choice question).
 The provider layer wraps the AI SDK's
 `streamText` behind one function and resolves the active backend through a registry
 on every turn, so switching models or providers takes effect on the next turn with
@@ -276,7 +279,7 @@ src/
   types.ts        # message + content-block data model
   agent/          # the loop, compaction, presets, isolation, mutation queue
   provider/       # streamAssistant, registry, providers/ (openrouter, anthropic, regolo) + faux
-  tools/          # read, write, edit, bash, grep, find, ls, fetch, file_op, delegate_read, task, todowrite, askuser (+ .txt descriptions)
+  tools/          # read, write, edit, bash, grep, find, ls, fetch, file_op, delegate_read, task, task_parallel, todowrite, askuser (+ .txt descriptions)
   approval/       # approval modes + policy
   edit/           # fuzzy replacer chain for the edit tool
   delegate/       # delegate_read implementation

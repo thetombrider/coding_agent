@@ -54,6 +54,73 @@ export interface CreateWorktreeOptions {
   dir?: string;
   /** Attach to an existing branch instead of creating a new one. */
   existingBranch?: string;
+  /**
+   * Commit or branch to branch from when creating a fresh worktree. Defaults to
+   * `HEAD` at `hostCwd`. Parallel fan-out passes an ephemeral snapshot of the
+   * parent's working tree (committed tip + uncommitted changes).
+   */
+  baseRef?: string;
+}
+
+export type ParallelWorktreeBaseResult = { baseRef: string } | { error: string };
+
+/**
+ * Resolve the git ref parallel mutating children should branch from: `HEAD` at
+ * `parentCwd` (the parent's actual tree — host checkout or session worktree),
+ * plus an ephemeral `commit-tree` snapshot when the tree is dirty. The snapshot
+ * is not attached to any branch; siblings share one base per fan-out. The
+ * parent's index is restored afterward so uncommitted work stays uncommitted.
+ */
+export function resolveParallelWorktreeBase(parentCwd: string): ParallelWorktreeBaseResult {
+  const head = git(parentCwd, ["rev-parse", "HEAD"]);
+  if (head.status !== 0) {
+    return {
+      error:
+        "Parallel worktree isolation requires a git repository with at least one commit. "
+        + "Commit your work or use shared isolation.",
+    };
+  }
+
+  const dirty = git(parentCwd, ["status", "--porcelain"]);
+  if (dirty.status !== 0) {
+    return { error: `Could not read git status in ${parentCwd}: ${dirty.stderr || dirty.stdout}` };
+  }
+  if (!dirty.stdout) {
+    return { baseRef: head.stdout };
+  }
+
+  const add = git(parentCwd, ["add", "-A"]);
+  if (add.status !== 0) {
+    return { error: `Could not stage parent tree for parallel snapshot: ${add.stderr || add.stdout}` };
+  }
+
+  const tree = git(parentCwd, ["write-tree"]);
+  if (tree.status !== 0) {
+    git(parentCwd, ["reset", "--mixed", "HEAD"]);
+    return { error: `Could not snapshot parent tree: ${tree.stderr || tree.stdout}` };
+  }
+
+  const headTree = git(parentCwd, ["rev-parse", `${head.stdout}^{tree}`]);
+  if (headTree.status === 0 && tree.stdout === headTree.stdout) {
+    git(parentCwd, ["reset", "--mixed", "HEAD"]);
+    return { baseRef: head.stdout };
+  }
+
+  const snapshot = git(parentCwd, [
+    "-c", "user.name=orin",
+    "-c", "user.email=orin@localhost",
+    "commit-tree", tree.stdout,
+    "-p", head.stdout,
+    "-m", "orin parallel base snapshot",
+  ]);
+  git(parentCwd, ["reset", "--mixed", "HEAD"]);
+
+  if (snapshot.status !== 0) {
+    return {
+      error: `Could not create parallel base snapshot: ${snapshot.stderr || snapshot.stdout}`,
+    };
+  }
+  return { baseRef: snapshot.stdout };
 }
 
 function buildHandle(
@@ -98,10 +165,10 @@ function buildHandle(
 }
 
 /**
- * Create or attach a git worktree on a branch off the host repo's HEAD (or an
- * existing branch). Edits are isolated from the host working tree but persist to
- * the branch. Branches from HEAD when creating fresh, so uncommitted host changes
- * are not carried in (documented limitation).
+ * Create or attach a git worktree on a branch off the host repo's HEAD (or
+ * `baseRef` / an existing branch). Edits are isolated from the host working tree
+ * but persist to the branch. Branches from HEAD when creating fresh, so
+ * uncommitted changes in the parent are included via `resolveParallelWorktreeBase`.
  */
 export function createWorktree(
   hostCwd: string,
@@ -115,15 +182,18 @@ export function createWorktree(
 
   let baseSha = "";
   if (!opts.existingBranch) {
-    const head = git(hostCwd, ["rev-parse", "HEAD"]);
-    if (head.status !== 0) {
+    const base = opts.baseRef
+      ? git(hostCwd, ["rev-parse", "--verify", opts.baseRef])
+      : git(hostCwd, ["rev-parse", "HEAD"]);
+    if (base.status !== 0) {
       return {
-        error:
-          "Worktree isolation requires a git repository with at least one commit. "
-          + 'Use isolation "shared" (the default) or commit your work first.',
+        error: opts.baseRef
+          ? `Could not resolve base ref ${opts.baseRef}: ${base.stderr || base.stdout}`
+          : "Worktree isolation requires a git repository with at least one commit. "
+            + 'Use isolation "shared" (the default) or commit your work first.',
       };
     }
-    baseSha = head.stdout;
+    baseSha = base.stdout;
   } else {
     const verify = git(hostCwd, ["rev-parse", "--verify", branch]);
     if (verify.status !== 0) {

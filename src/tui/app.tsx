@@ -30,6 +30,13 @@ import {
   SESSION_ISOLATION_LABELS,
   type SessionIsolationMode,
 } from "../agent/session-isolation.js";
+import {
+  PARALLEL_SUBAGENT_INFO,
+  PARALLEL_SUBAGENT_MENU_VALUE,
+  effectiveSerialSubagentMenuValue,
+  parentWorkspaceMenuValue,
+  serialSubagentPaletteHeader,
+} from "../agent/workspace-settings.js";
 import type { AgentPreset } from "../agent/presets.js";
 import { pickerModelsForProvider } from "../config/models.js";
 import { hasE2BApiKey, hasExaApiKey, loadConfig } from "../config/config.js";
@@ -82,9 +89,19 @@ type PaletteState =
   | { phase: "settings"; index: number }
   | { phase: "settings-isolation"; index: number }
   | { phase: "settings-session-isolation"; index: number }
+  | { phase: "settings-serial-info"; index: number }
+  | { phase: "settings-parallel-info"; index: number }
   | { phase: "settings-role"; index: number; role: AgentPreset }
   | SessionsPaletteState
   | SkillsPaletteState;
+
+function settingsItemIndex(kind: SettingsItem["kind"]): number {
+  return SETTINGS_ITEMS.findIndex((item) => item.kind === kind);
+}
+
+function liveSessionIsolation(state: SessionState): SessionIsolationMode {
+  return state.meta.sessionIsolation ?? loadConfig().session?.isolation ?? "shared";
+}
 
 /** Roles a user can pin a task-tool model to, in menu order. */
 const SETTINGS_ROLES: ReadonlyArray<{ role: AgentPreset; label: string }> = [
@@ -96,16 +113,18 @@ const SETTINGS_ROLES: ReadonlyArray<{ role: AgentPreset; label: string }> = [
 type SettingsItem =
   | { kind: "e2b" }
   | { kind: "exa" }
-  | { kind: "isolation" }
   | { kind: "session-isolation" }
+  | { kind: "isolation" }
+  | { kind: "parallel-info" }
   | { kind: "telemetry-capture" }
   | { kind: "role"; role: AgentPreset; label: string };
 
 const SETTINGS_ITEMS: readonly SettingsItem[] = [
+  { kind: "session-isolation" },
+  { kind: "isolation" },
+  { kind: "parallel-info" },
   { kind: "e2b" },
   { kind: "exa" },
-  { kind: "isolation" },
-  { kind: "session-isolation" },
   { kind: "telemetry-capture" },
   ...SETTINGS_ROLES.map((r) => ({ kind: "role" as const, role: r.role, label: r.label })),
 ];
@@ -403,6 +422,9 @@ export function App(props: {
       currentMode: coerceApprovalMode(meta.approval) ?? "normal",
       currentIsolation: loadConfig().subagent.isolation,
       currentSessionIsolation: loadConfig().session?.isolation ?? "shared",
+      liveSessionIsolation: state().meta.sessionIsolation,
+      liveSessionBranch: state().meta.branch,
+      liveCwd: state().meta.cwd,
       currentCaptureContent: loadConfig().telemetry.otel.captureContent,
       knownModels: pickerModels(),
       currentProvider: meta.provider ?? activeProviderId(),
@@ -848,8 +870,16 @@ export function App(props: {
         return;
       }
       if (item.kind === "isolation") {
+        if (liveSessionIsolation(state()) === "worktree") {
+          setPalette({ phase: "settings-serial-info", index: 0 });
+          return;
+        }
         const currentIdx = ISOLATION_MODES.indexOf(loadConfig().subagent.isolation);
         setPalette({ phase: "settings-isolation", index: Math.max(0, currentIdx) });
+        return;
+      }
+      if (item.kind === "parallel-info") {
+        setPalette({ phase: "settings-parallel-info", index: 0 });
         return;
       }
       if (item.kind === "session-isolation") {
@@ -876,8 +906,16 @@ export function App(props: {
       const mode = ISOLATION_MODES[p.index];
       if (mode) {
         props.onSetIsolation(mode);
-        setPalette({ phase: "settings", index: 2 });
+        setPalette({ phase: "settings", index: settingsItemIndex("isolation") });
       }
+      return;
+    }
+
+    if (p.phase === "settings-serial-info" || p.phase === "settings-parallel-info") {
+      setPalette({
+        phase: "settings",
+        index: settingsItemIndex(p.phase === "settings-serial-info" ? "isolation" : "parallel-info"),
+      });
       return;
     }
 
@@ -885,7 +923,7 @@ export function App(props: {
       const mode = SESSION_ISOLATION_MODES[p.index];
       if (mode) {
         props.onSetSessionIsolation(mode);
-        setPalette({ phase: "settings", index: 3 });
+        setPalette({ phase: "settings", index: settingsItemIndex("session-isolation") });
       }
       return;
     }
@@ -1222,7 +1260,7 @@ export function App(props: {
           return;
         }
         // Settings submenus step back to the settings menu, not the command list.
-        if (p.phase === "settings-isolation" || p.phase === "settings-session-isolation" || p.phase === "settings-role") {
+        if (p.phase === "settings-isolation" || p.phase === "settings-session-isolation" || p.phase === "settings-role" || p.phase === "settings-serial-info" || p.phase === "settings-parallel-info") {
           setPalette({ phase: "settings", index: 0 });
           return;
         }
@@ -1581,36 +1619,45 @@ export function App(props: {
 
               <Show when={p().phase === "settings"}>
                 <text fg={theme.secondary}>
-                  Task model overrides apply to the active provider · {roleProviderId()}
+                  Workspace · task model overrides use provider {roleProviderId()}
                 </text>
                 <For each={SETTINGS_ITEMS}>
                   {(item, i) => {
                     const selected = () => (p() as { phase: "settings"; index: number }).index === i();
                     const cfg = () => loadConfig();
+                    const sessionMode = () => liveSessionIsolation(state());
                     const label = () =>
                       item.kind === "e2b"
                         ? "E2B API key"
                         : item.kind === "exa"
                           ? "Exa API key"
                           : item.kind === "isolation"
-                            ? "Subagent isolation"
+                            ? "Serial subagents (task)"
                             : item.kind === "session-isolation"
-                              ? "Session isolation"
-                              : item.kind === "telemetry-capture"
-                              ? "Telemetry content capture"
-                              : item.label;
+                              ? "Parent workspace"
+                              : item.kind === "parallel-info"
+                                ? "Parallel subagents"
+                                : item.kind === "telemetry-capture"
+                                  ? "Telemetry content capture"
+                                  : item.label;
                     const value = () =>
                       item.kind === "e2b"
                         ? (hasE2BApiKey() ? "configured" : "not configured")
                         : item.kind === "exa"
                           ? (hasExaApiKey() ? "configured" : "not configured")
                           : item.kind === "isolation"
-                            ? cfg().subagent.isolation
+                            ? effectiveSerialSubagentMenuValue(sessionMode(), cfg().subagent.isolation)
                             : item.kind === "session-isolation"
-                              ? (cfg().session?.isolation ?? "shared")
-                              : item.kind === "telemetry-capture"
-                              ? (cfg().telemetry.otel.captureContent ? "on" : "off")
-                              : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
+                              ? parentWorkspaceMenuValue(
+                                  sessionMode(),
+                                  state().meta.branch,
+                                  state().meta.cwd,
+                                )
+                              : item.kind === "parallel-info"
+                                ? PARALLEL_SUBAGENT_MENU_VALUE
+                                : item.kind === "telemetry-capture"
+                                  ? (cfg().telemetry.otel.captureContent ? "on" : "off")
+                                  : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
@@ -1624,6 +1671,7 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "settings-session-isolation"}>
+                <text fg={theme.secondary}>Parent agent — where your edits land</text>
                 <For each={SESSION_ISOLATION_MODES}>
                   {(mode, i) => {
                     const selected = () =>
@@ -1644,6 +1692,7 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "settings-isolation"}>
+                <text fg={theme.secondary}>{serialSubagentPaletteHeader("shared")}</text>
                 <For each={ISOLATION_MODES}>
                   {(mode, i) => {
                     const selected = () => (p() as { phase: "settings-isolation"; index: number }).index === i();
@@ -1660,6 +1709,16 @@ export function App(props: {
                     );
                   }}
                 </For>
+              </Show>
+
+              <Show when={p().phase === "settings-serial-info"}>
+                <text fg={theme.secondary}>{serialSubagentPaletteHeader("worktree")}</text>
+                <text fg={theme.fg}>  Enter to return</text>
+              </Show>
+
+              <Show when={p().phase === "settings-parallel-info"}>
+                <text fg={theme.secondary}>{PARALLEL_SUBAGENT_INFO}</text>
+                <text fg={theme.fg}>  Enter to return</text>
               </Show>
 
               <Show when={p().phase === "settings-role"}>

@@ -70,6 +70,12 @@ export interface Config {
      * call but never weaken below this. Read-only presets are unaffected.
      */
     isolation: IsolationMode;
+    /**
+     * Maximum number of `task_parallel` children that run concurrently. Bounds
+     * the fan-out cost (each mutating child boots its own git worktree); extra
+     * tasks queue until a slot frees. Floored at 1.
+     */
+    maxParallel: number;
   };
   session: {
     /** Whole-session parent-loop isolation. Default `shared`. */
@@ -151,7 +157,7 @@ const DEFAULT_CONFIG: Config = {
     },
   },
   approval: { mode: "normal", autoApprovedCommands: [] },
-  subagent: { isolation: "shared" },
+  subagent: { isolation: "shared", maxParallel: 4 },
   session: { isolation: "shared" },
   system: { prompt: "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely." },
   telemetry: {
@@ -335,6 +341,14 @@ function buildConfig(): Config {
     (raw.models as { roles?: unknown } | undefined)?.roles ?? merged.models.roles,
     merged.provider.active,
   );
+
+  // A concurrency cap below 1 would deadlock the fan-out pool; clamp to a sane
+  // floor. An explicit numeric value (including 0) clamps to 1; only a missing or
+  // non-numeric setting falls back to the default.
+  const maxParallel = Number(merged.subagent.maxParallel);
+  merged.subagent.maxParallel = Number.isFinite(maxParallel)
+    ? Math.max(1, Math.floor(maxParallel))
+    : DEFAULT_CONFIG.subagent.maxParallel;
 
   return merged;
 }
