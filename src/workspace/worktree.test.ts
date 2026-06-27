@@ -146,11 +146,13 @@ describe("createWorktree", () => {
 
   it("subagentWorktreeOptions uses the session branch when the parent runs in worktree mode", () => {
     initRepo(host);
-    expect(subagentWorktreeOptions({ sessionIsolation: "shared" }, { cwd: host })).toEqual({});
+    expect(subagentWorktreeOptions({ sessionIsolation: "shared" }, { cwd: host }, true)).toEqual({});
+    expect(subagentWorktreeOptions({ sessionIsolation: "worktree", sessionBranch: "orin/session-abc" }, { cwd: host }, false)).toEqual({});
     expect(
       subagentWorktreeOptions(
         { sessionIsolation: "worktree", sessionBranch: "orin/session-abc" },
         { cwd: host },
+        true,
       ),
     ).toEqual({ baseRef: "orin/session-abc" });
   });

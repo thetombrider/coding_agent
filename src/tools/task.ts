@@ -12,7 +12,7 @@ import { loadToolDescription } from "../util/load-txt.js";
 import { isAbortError } from "../util/abort.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
-import { createWorktree, subagentWorktreeOptions, type HarvestResult, type WorktreeHandle } from "../workspace/worktree.js";
+import { createWorktree, subagentWorktreeOptions, type CreateWorktreeResult, type HarvestResult, type WorktreeHandle } from "../workspace/worktree.js";
 import type { Workspace } from "../workspace/types.js";
 import type { AgentContext } from "../types.js";
 import type { Tool } from "./types.js";
@@ -81,15 +81,11 @@ export interface TaskDeps {
 /** Per-run knobs that don't come from the model's tool arguments. */
 export interface RunSubagentOptions {
   /**
-<<<<<<< Updated upstream
-   * Parallel fan-out mode. Forces each mutating child into its own fresh git
-   * worktree — never the shared host tree, never a reused session worktree — so
-   * concurrent siblings can't collide on the working tree. Read-only presets are
-   * unaffected (they don't write). Set by `task_parallel`; off for serial `task`.
-=======
-   * Parallel fan-out mode. Forces a fresh git worktree even when the parent
-   * session already runs in worktree mode — siblings must not share one tree.
->>>>>>> Stashed changes
+   * Parallel fan-out mode (`task_parallel`). Forces each mutating child into its
+   * own fresh git worktree — never the shared host tree, never a reused session
+   * worktree — so concurrent siblings can't collide. In session worktree mode,
+   * each child branches from the session tip via `createWorktree` `baseRef`.
+   * Read-only presets are unaffected (they don't write).
    */
   parallel?: boolean;
 }
@@ -123,6 +119,21 @@ function resolveIsolation(
   }
 
   return { mode: want };
+}
+
+/** Create an isolated subagent worktree from the host repo (respecting session baseRef). */
+function spawnSubagentWorktree(
+  host: NonNullable<AgentContext["loopHost"]>,
+  ctx: AgentContext,
+  subagentId: string,
+  parallel: boolean,
+  makeWorktree: TaskDeps["createWorktree"] & typeof createWorktree,
+): CreateWorktreeResult {
+  return makeWorktree(
+    host.hostCwd ?? ctx.cwd,
+    subagentId,
+    subagentWorktreeOptions(host, ctx, parallel),
+  );
 }
 
 export async function runSubagentTask(
@@ -194,7 +205,7 @@ export async function runSubagentTask(
       // reuse the session worktree (siblings would collide) — always create one.
       && (opts.parallel || host.sessionIsolation !== "worktree")
     ) {
-      const result = makeWorktree(host.hostCwd ?? ctx.cwd, subagentId, subagentWorktreeOptions(host, ctx));
+      const result = spawnSubagentWorktree(host, ctx, subagentId, opts.parallel ?? false, makeWorktree);
       if ("error" in result) {
         return { output: result.error, isError: true };
       }
@@ -354,11 +365,12 @@ export const taskTool: Tool<TaskArgs> = {
 };
 
 /**
- * Run an array of subagent tasks concurrently with a bounded worker pool, each
- * child forced into its own isolated worktree (parallel mode) so siblings can't
- * collide on the host tree. The shared `signal` aborts every child, and each
- * child disposes its own worktree/sandbox in its own `finally`. Results are
- * folded back into a single combined summary in task order.
+ * Run an array of subagent tasks concurrently with a bounded worker pool. Each
+ * mutating child gets `{ parallel: true }`, which forces a fresh git worktree
+ * (never the host tree or session worktree). In session worktree mode, children
+ * branch from the session tip via `createWorktree` `baseRef`. Read-only children
+ * share the parent's tree. The shared `signal` aborts every child; each disposes
+ * its worktree/sandbox in `finally`. Results fold back in task order.
  */
 export async function runParallelTasks(
   args: ParallelTaskArgs,

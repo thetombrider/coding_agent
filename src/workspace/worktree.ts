@@ -105,10 +105,11 @@ function buildHandle(
 }
 
 /**
- * Create or attach a git worktree on a branch off the host repo's HEAD (or an
- * existing branch). Edits are isolated from the host working tree but persist to
- * the branch. Branches from HEAD when creating fresh, so uncommitted host changes
- * are not carried in (documented limitation).
+ * Create or attach a git worktree on a branch off the host repo's HEAD (or
+ * `baseRef` / an existing branch). Edits are isolated from the host working tree
+ * but persist to the branch. Branches from HEAD when creating fresh, so
+ * uncommitted host changes are not carried in (documented limitation). Parallel
+ * subagents in session worktree mode pass `baseRef` as the session branch tip.
  */
 export function createWorktree(
   hostCwd: string,
@@ -176,15 +177,17 @@ export function createWorktree(
 }
 
 /**
- * When the parent session runs in worktree mode, subagent worktrees should branch
- * from the session branch tip (not host HEAD) so children inherit committed session
- * work and merges back into the session branch are meaningful.
+ * Options for a dedicated subagent worktree (`runSubagentTask` with worktree
+ * isolation). Parallel fan-out in session worktree mode branches from the session
+ * tip so each orin/subagent-* child includes committed session work; host-tree
+ * parallel fan-out omits baseRef and branches from host HEAD instead.
  */
 export function subagentWorktreeOptions(
   host: Pick<LoopHost, "sessionIsolation" | "sessionBranch">,
   ctx: Pick<AgentContext, "cwd">,
+  parallel: boolean,
 ): Pick<CreateWorktreeOptions, "baseRef"> {
-  if (host.sessionIsolation !== "worktree") return {};
+  if (!parallel || host.sessionIsolation !== "worktree") return {};
   if (host.sessionBranch) return { baseRef: host.sessionBranch };
   const tip = git(ctx.cwd, ["rev-parse", "HEAD"]);
   if (tip.status === 0 && tip.stdout) return { baseRef: tip.stdout };

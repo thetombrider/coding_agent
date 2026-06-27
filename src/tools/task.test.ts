@@ -658,6 +658,84 @@ describe("runParallelTasks", () => {
     }
   });
 
+  it("task_parallel branches mutating children from the session tip when parent uses a session worktree", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orin-par-session-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    const gs = (sessionCwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", sessionCwd, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+
+      const { bootstrapSessionWorktree } = await import("../workspace/session-worktree.js");
+      const wt = bootstrapSessionWorktree(dir, randomUUID());
+      if (!("binding" in wt)) throw new Error("expected session worktree");
+      const sessionCwd = wt.binding.handle.cwd;
+      const sessionBranch = wt.binding.branch;
+
+      writeFileSync(join(sessionCwd, "session-only.txt"), "session work");
+      gs(sessionCwd, "add", "-A");
+      gs(sessionCwd, "commit", "-q", "-m", "session work");
+
+      const provider: StreamAssistantFn = (messages, options, emit) => {
+        const text = messages
+          .flatMap((m) => m.content.map((c) => (c.type === "text" ? c.text : "")))
+          .join(" ");
+        const file = text.includes("a.txt") ? "a.txt" : "b.txt";
+        const wroteAlready = messages.some((m) => m.role === "tool");
+        return createFauxProvider(
+          wroteAlready
+            ? { text: [`wrote ${file}`], model: options.model }
+            : {
+                toolCalls: [{ id: "w", name: "write", arguments: { path: file, content: file } }],
+                model: options.model,
+              },
+        )(messages, options, emit);
+      };
+      const host = loopHost(provider, getChildTools());
+      host.sessionIsolation = "worktree";
+      host.hostCwd = dir;
+      host.sessionBranch = sessionBranch;
+      const ctx = baseCtx({ cwd: sessionCwd, loopHost: host });
+
+      const result = await runParallelTasks(
+        {
+          tasks: [
+            { description: "task A", prompt: "create a.txt", agent: "implement" },
+            { description: "task B", prompt: "create b.txt", agent: "implement" },
+          ],
+        },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(existsSync(join(sessionCwd, "a.txt"))).toBe(false);
+      expect(existsSync(join(sessionCwd, "b.txt"))).toBe(false);
+      const branches = g("branch", "--list", "orin/subagent-*")
+        .split("\n")
+        .map((b) => b.replace(/^\*?\s*/, ""))
+        .filter(Boolean);
+      expect(branches).toHaveLength(2);
+      for (const branch of branches) {
+        expect(g("show", `${branch}:session-only.txt`)).toContain("session work");
+      }
+      const filesAcrossBranches = branches.flatMap((b) =>
+        g("ls-tree", "--name-only", b).split("\n").filter(Boolean),
+      );
+      expect(filesAcrossBranches).toContain("a.txt");
+      expect(filesAcrossBranches).toContain("b.txt");
+      // Session branch itself was not written to — only subagent branches were.
+      expect(gs(sessionCwd, "status", "--porcelain")).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("runs read-only children in parallel on the shared tree (no worktree needed)", async () => {
     // A shared turn counter would interleave nondeterministically across the two
     // concurrent children, so drive each from its own prompt: ls first, then a

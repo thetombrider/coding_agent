@@ -15,6 +15,8 @@ Isolation (the safety rule for parallel work):
   branches from that session tip — not host HEAD — so parallel work includes prior
   session commits.
 - Read-only children (explore/review) run on the shared tree since they never write.
+  When the parent uses a session branch, read-only children share that session
+  worktree; only mutating children get separate orin/subagent-* worktrees.
 - sandbox is available per child for untrusted code (ephemeral E2B clone; requires
   sandbox.e2b.apiKey).
 
