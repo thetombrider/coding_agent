@@ -265,27 +265,40 @@ describe("runSubagentTask", () => {
       gs(sessionCwd, "add", "-A");
       gs(sessionCwd, "commit", "-q", "-m", "session work");
 
-      const provider = createStatefulFauxProvider([
-        { toolCalls: [{ id: "w1", name: "write", arguments: { path: "child.txt", content: "from subagent" } }] },
-        { text: ["Done"] },
-      ]);
+      const provider: StreamAssistantFn = (messages, options, emit) => {
+        const text = messages
+          .flatMap((m) => m.content.map((c) => (c.type === "text" ? c.text : "")))
+          .join(" ");
+        const file = text.includes("child.txt") ? "child.txt" : "other.txt";
+        const wroteAlready = messages.some((m) => m.role === "tool");
+        return createFauxProvider(
+          wroteAlready
+            ? { text: ["Done"], model: options.model }
+            : {
+                toolCalls: [{ id: "w1", name: "write", arguments: { path: file, content: "from subagent" } }],
+                model: options.model,
+              },
+        )(messages, options, emit);
+      };
       const host = loopHost(provider, getChildTools());
       host.sessionIsolation = "worktree";
       host.hostCwd = dir;
       host.sessionBranch = sessionBranch;
       const ctx = baseCtx({ cwd: sessionCwd, loopHost: host });
 
-      const result = await runSubagentTask(
-        { description: "edit", prompt: "add child.txt", agent: "implement", isolation: "worktree" },
+      const result = await runParallelTasks(
+        {
+          tasks: [
+            { description: "edit A", prompt: "add child.txt", agent: "implement" },
+            { description: "edit B", prompt: "add other.txt", agent: "implement" },
+          ],
+        },
         ctx,
         new AbortController().signal,
-        {},
-        { parallel: true },
       );
 
       expect(result.isError).toBeFalsy();
       expect(existsSync(join(sessionCwd, "child.txt"))).toBe(false);
-      expect(existsSync(join(dir, "child.txt"))).toBe(false);
       const subagentBranch = g("branch", "--list", "orin/subagent-*")
         .split("\n")
         .map((b) => b.replace(/^\*?\s*/, ""))
@@ -653,6 +666,63 @@ describe("runParallelTasks", () => {
       // Worktree dirs were cleaned up — only the main worktree remains.
       const worktrees = g("worktree", "list").trim().split("\n").filter(Boolean);
       expect(worktrees).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("task_parallel includes uncommitted parent work on the host tree", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orin-par-wip-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+      writeFileSync(join(dir, "wip.txt"), "uncommitted parent work");
+
+      const provider: StreamAssistantFn = (messages, options, emit) => {
+        const text = messages
+          .flatMap((m) => m.content.map((c) => (c.type === "text" ? c.text : "")))
+          .join(" ");
+        const file = text.includes("a.txt") ? "a.txt" : "b.txt";
+        const wroteAlready = messages.some((m) => m.role === "tool");
+        return createFauxProvider(
+          wroteAlready
+            ? { text: [`wrote ${file}`], model: options.model }
+            : {
+                toolCalls: [{ id: "w", name: "write", arguments: { path: file, content: file } }],
+                model: options.model,
+              },
+        )(messages, options, emit);
+      };
+      const ctx = baseCtx({ cwd: dir, loopHost: loopHost(provider, getChildTools()) });
+
+      const result = await runParallelTasks(
+        {
+          tasks: [
+            { description: "task A", prompt: "create a.txt", agent: "implement" },
+            { description: "task B", prompt: "create b.txt", agent: "implement" },
+          ],
+        },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(existsSync(join(dir, "a.txt"))).toBe(false);
+      expect(existsSync(join(dir, "b.txt"))).toBe(false);
+      expect(existsSync(join(dir, "wip.txt"))).toBe(true);
+      const branches = g("branch", "--list", "orin/subagent-*")
+        .split("\n")
+        .map((b) => b.replace(/^\*?\s*/, ""))
+        .filter(Boolean);
+      expect(branches).toHaveLength(2);
+      for (const branch of branches) {
+        expect(g("show", `${branch}:wip.txt`)).toContain("uncommitted parent work");
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

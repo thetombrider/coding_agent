@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createWorktree, subagentWorktreeOptions } from "./worktree.js";
+import { createWorktree, resolveParallelWorktreeBase } from "./worktree.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -144,16 +144,27 @@ describe("createWorktree", () => {
     expect(git(host, "rev-parse", "--verify", handle.branch)).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it("subagentWorktreeOptions uses the session branch when the parent runs in worktree mode", () => {
+  it("resolveParallelWorktreeBase uses HEAD when the parent tree is clean", () => {
     initRepo(host);
-    expect(subagentWorktreeOptions({ sessionIsolation: "shared" }, { cwd: host }, true)).toEqual({});
-    expect(subagentWorktreeOptions({ sessionIsolation: "worktree", sessionBranch: "orin/session-abc" }, { cwd: host }, false)).toEqual({});
-    expect(
-      subagentWorktreeOptions(
-        { sessionIsolation: "worktree", sessionBranch: "orin/session-abc" },
-        { cwd: host },
-        true,
-      ),
-    ).toEqual({ baseRef: "orin/session-abc" });
+    writeFileSync(join(host, "tracked.txt"), "v1\n");
+    git(host, "add", "tracked.txt");
+    git(host, "commit", "-q", "-m", "tracked");
+    const base = resolveParallelWorktreeBase(host);
+    expect("error" in base).toBe(false);
+    if ("error" in base) return;
+    expect(base.baseRef).toBe(git(host, "rev-parse", "HEAD"));
+  });
+
+  it("resolveParallelWorktreeBase snapshots uncommitted parent work for parallel children", () => {
+    initRepo(host);
+    writeFileSync(join(host, "wip.txt"), "uncommitted\n");
+    const base = resolveParallelWorktreeBase(host);
+    expect("error" in base).toBe(false);
+    if ("error" in base) return;
+    expect(base.baseRef).not.toBe(git(host, "rev-parse", "HEAD"));
+    expect(git(host, "show", `${base.baseRef}:wip.txt`)).toContain("uncommitted");
+    // Parent working tree is unchanged and still dirty (not committed to a branch).
+    expect(existsSync(join(host, "wip.txt"))).toBe(true);
+    expect(git(host, "status", "--porcelain")).toContain("wip.txt");
   });
 });
