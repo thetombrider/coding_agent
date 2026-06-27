@@ -1619,7 +1619,7 @@ export function App(props: {
 
               <Show when={p().phase === "settings"}>
                 <text fg={theme.secondary}>
-                  Workspace · task model overrides use provider {roleProviderId()}
+                  Subagent workspace settings above. Task model overrides below apply to {roleProviderId()} only.
                 </text>
                 <For each={SETTINGS_ITEMS}>
                   {(item, i) => {
@@ -1723,7 +1723,7 @@ export function App(props: {
 
               <Show when={p().phase === "settings-role"}>
                 <text fg={theme.secondary}>
-                  {(p() as { phase: "settings-role"; role: AgentPreset }).role} model · provider {roleProviderId()}
+                  {(p() as { phase: "settings-role"; role: AgentPreset }).role} subagent model — saved for {roleProviderId()} (use /providers to switch)
                 </text>
                 <scrollbox
                   ref={modelListScrollRef}
