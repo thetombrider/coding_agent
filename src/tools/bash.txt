@@ -1,1 +1,10 @@
-Run a shell command in the workspace. Use for builds, tests, and git — not for reading files (use read).
+Run a shell command in the workspace. Use for builds, tests, git, and curl — not for reading files (use read).
+
+Do not run long-lived foreground processes (uvicorn, npm run dev, rails s, docker compose up, watch mode). They block this tool until stopped and you cannot continue.
+
+Prefer automated tests (pytest, TestClient, npm test) over manually starting a server.
+
+If you must verify a live server: background it, redirect output away from the shell, probe with curl, then kill it. Example:
+  uvicorn main:app --port 8000 >/tmp/server.log 2>&1 & sleep 2 && curl -s http://127.0.0.1:8000/health; kill $!
+
+Use curl for localhost HTTP checks — fetch refuses loopback hosts. Ask the user to verify in a browser when that is enough.

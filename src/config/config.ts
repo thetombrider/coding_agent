@@ -156,7 +156,11 @@ const DEFAULT_CONFIG: Config = {
   approval: { mode: "normal", autoApprovedCommands: [] },
   subagent: { isolation: "shared", maxParallel: 4 },
   session: { isolation: "shared" },
-  system: { prompt: "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely." },
+  system: {
+    prompt:
+      "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely. "
+      + "Prefer automated tests over starting dev servers; bash blocks on foreground long-running processes.",
+  },
   telemetry: {
     enabled: true,
     stdout: false,
