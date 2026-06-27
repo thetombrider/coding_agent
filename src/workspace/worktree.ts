@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createLocalWorkspace } from "./local.js";
 import type { Workspace } from "./types.js";
+import type { AgentContext, LoopHost } from "../types.js";
 
 interface GitResult {
   status: number;
@@ -54,6 +55,12 @@ export interface CreateWorktreeOptions {
   dir?: string;
   /** Attach to an existing branch instead of creating a new one. */
   existingBranch?: string;
+  /**
+   * Commit or branch to branch from when creating a fresh worktree. Defaults to
+   * `HEAD` at `hostCwd`. Use the session branch tip when the parent session runs
+   * in worktree mode so subagent branches include prior session work.
+   */
+  baseRef?: string;
 }
 
 function buildHandle(
@@ -115,15 +122,18 @@ export function createWorktree(
 
   let baseSha = "";
   if (!opts.existingBranch) {
-    const head = git(hostCwd, ["rev-parse", "HEAD"]);
-    if (head.status !== 0) {
+    const base = opts.baseRef
+      ? git(hostCwd, ["rev-parse", "--verify", opts.baseRef])
+      : git(hostCwd, ["rev-parse", "HEAD"]);
+    if (base.status !== 0) {
       return {
-        error:
-          "Worktree isolation requires a git repository with at least one commit. "
-          + 'Use isolation "shared" (the default) or commit your work first.',
+        error: opts.baseRef
+          ? `Could not resolve base ref ${opts.baseRef}: ${base.stderr || base.stdout}`
+          : "Worktree isolation requires a git repository with at least one commit. "
+            + 'Use isolation "shared" (the default) or commit your work first.',
       };
     }
-    baseSha = head.stdout;
+    baseSha = base.stdout;
   } else {
     const verify = git(hostCwd, ["rev-parse", "--verify", branch]);
     if (verify.status !== 0) {
@@ -163,4 +173,20 @@ export function createWorktree(
   return {
     handle: buildHandle(hostCwd, dir, branch, baseSha, shortId, commitLabel, ownsTempBase),
   };
+}
+
+/**
+ * When the parent session runs in worktree mode, subagent worktrees should branch
+ * from the session branch tip (not host HEAD) so children inherit committed session
+ * work and merges back into the session branch are meaningful.
+ */
+export function subagentWorktreeOptions(
+  host: Pick<LoopHost, "sessionIsolation" | "sessionBranch">,
+  ctx: Pick<AgentContext, "cwd">,
+): Pick<CreateWorktreeOptions, "baseRef"> {
+  if (host.sessionIsolation !== "worktree") return {};
+  if (host.sessionBranch) return { baseRef: host.sessionBranch };
+  const tip = git(ctx.cwd, ["rev-parse", "HEAD"]);
+  if (tip.status === 0 && tip.stdout) return { baseRef: tip.stdout };
+  return {};
 }

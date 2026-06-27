@@ -17,6 +17,13 @@ import {
   SESSION_ISOLATION_MODES,
   type SessionIsolationMode,
 } from "../agent/session-isolation.js";
+import {
+  PARALLEL_SUBAGENT_INFO,
+  PARALLEL_SUBAGENT_MENU_VALUE,
+  effectiveSerialSubagentMenuValue,
+  serialSubagentPaletteHeader,
+  workspaceSettingsOverview,
+} from "../agent/workspace-settings.js";
 import { hasE2BApiKey, hasExaApiKey } from "../config/config.js";
 import type { ModelPricing } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
@@ -31,6 +38,12 @@ export interface CommandContext {
   currentIsolation?: IsolationMode;
   /** Configured session isolation (`session.isolation`). */
   currentSessionIsolation?: SessionIsolationMode;
+  /** Live session branch when the parent runs in session worktree mode. */
+  liveSessionBranch?: string;
+  /** Live parent cwd (session worktree dir or host checkout). */
+  liveCwd?: string;
+  /** Live session isolation for this run (may differ before config catches up). */
+  liveSessionIsolation?: SessionIsolationMode;
   /** Configured OTLP content-capture opt-in (`telemetry.otel.captureContent`). */
   currentCaptureContent?: boolean;
   knownModels: readonly string[];
@@ -278,12 +291,28 @@ function handleProviderSwitch(arg: string, ctx: CommandContext): CommandResult {
   return { type: "set-provider", provider: match.id, model, message };
 }
 
+function liveSessionMode(ctx: CommandContext): SessionIsolationMode {
+  return ctx.liveSessionIsolation ?? ctx.currentSessionIsolation ?? "shared";
+}
+
 function isolationInfo(ctx: CommandContext): string {
-  const current = ctx.currentIsolation ?? "shared";
+  const floor = ctx.currentIsolation ?? "shared";
+  const serial = effectiveSerialSubagentMenuValue(liveSessionMode(ctx), floor);
+  if (liveSessionMode(ctx) === "worktree") {
+    return (
+      `${serialSubagentPaletteHeader("worktree")}\n\n`
+      + `Effective serial task behavior: ${serial}\n`
+      + `Stored floor (applies on host tree): ${floor}\n`
+      + `Parallel task_parallel: ${PARALLEL_SUBAGENT_MENU_VALUE}\n\n`
+      + PARALLEL_SUBAGENT_INFO
+    );
+  }
+  const current = floor;
   const options = ISOLATION_MODES.map((m) => `  ${m === current ? "›" : " "} ${ISOLATION_LABELS[m]}`);
   return (
-    `subagent isolation: ${current} (floor — the model may escalate, never weaken)\n`
+    `Serial task subagent floor: ${current} (model may escalate, never weaken)\n`
     + `${options.join("\n")}\n`
+    + `Parallel task_parallel: ${PARALLEL_SUBAGENT_MENU_VALUE}\n`
     + "/settings isolation <shared|worktree|sandbox> to change"
   );
 }
@@ -294,7 +323,7 @@ function sessionIsolationInfo(ctx: CommandContext): string {
     (m) => `  ${m === current ? "›" : " "} ${SESSION_ISOLATION_LABELS[m]}`,
   );
   return (
-    `session isolation: ${current} (parent loop — applies immediately)\n`
+    `Parent workspace (config): ${current}\n`
     + `${options.join("\n")}\n`
     + "/settings session-isolation <shared|worktree> to change"
   );
@@ -379,6 +408,21 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
     return { type: "open-settings" };
   }
 
+  if (sub === "workspace") {
+    if (!ctx.liveCwd) {
+      return { type: "info", message: "Workspace summary is available in an active session." };
+    }
+    return {
+      type: "info",
+      message: workspaceSettingsOverview({
+        sessionIsolation: liveSessionMode(ctx),
+        sessionBranch: ctx.liveSessionBranch,
+        cwd: ctx.liveCwd,
+        subagentFloor: ctx.currentIsolation ?? "shared",
+      }),
+    };
+  }
+
   if (sub === "isolation") {
     return handleIsolation(parts[1], ctx);
   }
@@ -427,7 +471,7 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
 
   return {
     type: "error",
-    message: `unknown setting "${sub}" — try /settings isolation, /settings session-isolation, /settings telemetry, /settings e2b, or /settings exa`,
+    message: `unknown setting "${sub}" — try /settings workspace, /settings isolation, /settings session-isolation, /settings telemetry, /settings e2b, or /settings exa`,
   };
 }
 

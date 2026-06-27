@@ -329,6 +329,22 @@ describe("processCommand", () => {
       if (r.type === "info") {
         expect(r.message).toContain("worktree");
         expect(r.message).toContain("sandbox");
+        expect(r.message).toContain("task_parallel");
+      }
+    });
+
+    it("shows workspace overview", () => {
+      const r = processCommand("/settings workspace", {
+        ...ctx,
+        liveCwd: "/repo",
+        liveSessionIsolation: "worktree",
+        liveSessionBranch: "orin/session-abc",
+        currentIsolation: "shared",
+      });
+      expect(r.type).toBe("info");
+      if (r.type === "info") {
+        expect(r.message).toContain("co-edit session branch");
+        expect(r.message).toContain("worktree per child");
       }
     });
 

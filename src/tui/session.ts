@@ -4,11 +4,12 @@ import { render } from "@opentui/solid";
 import { runLoop } from "../agent/loop.js";
 import type { IsolationMode } from "../agent/isolation.js";
 import type { SessionIsolationMode } from "../agent/session-isolation.js";
+import { sessionWorktreeEnableHint } from "../agent/workspace-settings.js";
 import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { loadConfig, saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveRoleModel } from "../config/config.js";
+import { saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveRoleModel } from "../config/config.js";
 import type { AgentPreset } from "../agent/presets.js";
 import { defaultCheapModel } from "../config/models.js";
 import { getProvider, resolveActiveProvider } from "../provider/registry.js";
@@ -120,12 +121,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     });
   };
 
-  const ensureSubagentSharedForSessionWorktree = () => {
-    if (loadConfig().subagent.isolation !== "shared") {
-      saveConfig({ subagent: { isolation: "shared" } });
-    }
-  };
-
   const bindSessionWorktree = (sessionId: string, meta?: SessionMetaRecord) => {
     if (config.sessionIsolation !== "worktree") return;
     const result = bootstrapSessionWorktree(config.hostCwd, sessionId, meta);
@@ -136,7 +131,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       return;
     }
     applyWorktreeBinding(result.binding);
-    ensureSubagentSharedForSessionWorktree();
   };
 
   bindSessionWorktree(activeSessionId, config.sessionMeta);
@@ -404,23 +398,21 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     config.sessionIsolation = isolation;
 
     if (isolation === "worktree") {
-      saveConfig({ session: { isolation: "worktree" }, subagent: { isolation: "shared" } });
+      saveConfig({ session: { isolation: "worktree" } });
       bindSessionWorktree(activeSessionId, replaySessionMeta(sessionPath(activeSessionId)));
       if (config.sessionIsolation !== "worktree") {
         saveConfig({ session: { isolation: "shared" } });
         return;
       }
       writeMeta();
-      controller.setStatusHint(
-        `session isolation → worktree on \`${sessionWorktree?.branch}\` · subagent isolation → shared`,
-      );
+      controller.setStatusHint(sessionWorktreeEnableHint(sessionWorktree?.branch));
       return;
     }
 
     saveConfig({ session: { isolation: "shared" } });
     clearWorktreeBinding();
     writeMeta();
-    controller.setStatusHint("session isolation → shared (editing host tree)");
+    controller.setStatusHint("Parent → host tree (serial subagents use your isolation floor)");
   };
 
   // Opt-in OTLP content capture (telemetry 7a). The OTel exporter reads

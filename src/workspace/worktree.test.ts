@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createWorktree } from "./worktree.js";
+import { createWorktree, subagentWorktreeOptions } from "./worktree.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -50,6 +50,26 @@ describe("createWorktree", () => {
       expect(existsSync(handle.cwd)).toBe(true);
       // The worktree starts from the base commit's content.
       expect(readFileSync(join(handle.cwd, "seed.txt"), "utf8")).toBe("base\n");
+    } finally {
+      handle.remove();
+    }
+  });
+
+  it("branches from baseRef instead of host HEAD", () => {
+    initRepo(host);
+    git(host, "checkout", "-q", "-b", "orin/session-test");
+    writeFileSync(join(host, "session.txt"), "session-only\n");
+    git(host, "add", "-A");
+    git(host, "commit", "-q", "-m", "session work");
+    git(host, "checkout", "-q", "-");
+
+    const result = createWorktree(host, "session001", { baseRef: "orin/session-test" });
+    if (!("handle" in result)) throw new Error("expected handle");
+    const { handle } = result;
+
+    try {
+      expect(readFileSync(join(handle.cwd, "session.txt"), "utf8")).toBe("session-only\n");
+      expect(existsSync(join(host, "session.txt"))).toBe(false);
     } finally {
       handle.remove();
     }
@@ -122,5 +142,16 @@ describe("createWorktree", () => {
     expect(existsSync(handle.cwd)).toBe(false);
     // Branch still resolves after the worktree is gone.
     expect(git(host, "rev-parse", "--verify", handle.branch)).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("subagentWorktreeOptions uses the session branch when the parent runs in worktree mode", () => {
+    initRepo(host);
+    expect(subagentWorktreeOptions({ sessionIsolation: "shared" }, { cwd: host })).toEqual({});
+    expect(
+      subagentWorktreeOptions(
+        { sessionIsolation: "worktree", sessionBranch: "orin/session-abc" },
+        { cwd: host },
+      ),
+    ).toEqual({ baseRef: "orin/session-abc" });
   });
 });

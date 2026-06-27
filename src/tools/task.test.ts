@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -214,7 +215,7 @@ describe("runSubagentTask", () => {
       g("commit", "-q", "-m", "base");
 
       const { bootstrapSessionWorktree } = await import("../workspace/session-worktree.js");
-      const wt = bootstrapSessionWorktree(dir, "parent1234");
+      const wt = bootstrapSessionWorktree(dir, randomUUID());
       if (!("binding" in wt)) throw new Error("expected session worktree");
 
       const provider = createStatefulFauxProvider([
@@ -236,6 +237,62 @@ describe("runSubagentTask", () => {
       expect(existsSync(join(wt.binding.handle.cwd, "child.txt"))).toBe(true);
       expect(existsSync(join(dir, "child.txt"))).toBe(false);
       expect(g("branch", "--list", "orin/subagent-*").trim()).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("parallel subagent worktrees branch from the session tip, not host HEAD", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orin-par-session-wt-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    const gs = (sessionCwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", sessionCwd, ...args], { encoding: "utf8" });
+    try {
+      g("init", "-q");
+      g("config", "user.email", "t@t");
+      g("config", "user.name", "t");
+      writeFileSync(join(dir, "seed.txt"), "base");
+      g("add", "-A");
+      g("commit", "-q", "-m", "base");
+
+      const { bootstrapSessionWorktree } = await import("../workspace/session-worktree.js");
+      const wt = bootstrapSessionWorktree(dir, randomUUID());
+      if (!("binding" in wt)) throw new Error("expected session worktree");
+      const sessionCwd = wt.binding.handle.cwd;
+      const sessionBranch = wt.binding.branch;
+
+      writeFileSync(join(sessionCwd, "session-only.txt"), "session work");
+      gs(sessionCwd, "add", "-A");
+      gs(sessionCwd, "commit", "-q", "-m", "session work");
+
+      const provider = createStatefulFauxProvider([
+        { toolCalls: [{ id: "w1", name: "write", arguments: { path: "child.txt", content: "from subagent" } }] },
+        { text: ["Done"] },
+      ]);
+      const host = loopHost(provider, getChildTools());
+      host.sessionIsolation = "worktree";
+      host.hostCwd = dir;
+      host.sessionBranch = sessionBranch;
+      const ctx = baseCtx({ cwd: sessionCwd, loopHost: host });
+
+      const result = await runSubagentTask(
+        { description: "edit", prompt: "add child.txt", agent: "implement", isolation: "worktree" },
+        ctx,
+        new AbortController().signal,
+        {},
+        { parallel: true },
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(existsSync(join(sessionCwd, "child.txt"))).toBe(false);
+      expect(existsSync(join(dir, "child.txt"))).toBe(false);
+      const subagentBranch = g("branch", "--list", "orin/subagent-*")
+        .split("\n")
+        .map((b) => b.replace(/^\*?\s*/, ""))
+        .filter(Boolean)[0];
+      expect(subagentBranch).toBeTruthy();
+      expect(g("show", `${subagentBranch}:session-only.txt`)).toContain("session work");
+      expect(g("show", `${subagentBranch}:child.txt`)).toContain("from subagent");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

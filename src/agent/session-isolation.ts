@@ -8,8 +8,8 @@ export type SessionIsolationMode = "shared" | "worktree";
 export const SESSION_ISOLATION_MODES: readonly SessionIsolationMode[] = ["shared", "worktree"];
 
 export const SESSION_ISOLATION_LABELS: Record<SessionIsolationMode, string> = {
-  shared: "shared — main agent edits the host working tree",
-  worktree: "worktree — main agent runs on an isolated git branch",
+  shared: "Host tree — edit the repo checkout directly",
+  worktree: "Session branch — parent runs on orin/session-*",
 };
 
 export function coerceSessionIsolation(raw: string): SessionIsolationMode | undefined {

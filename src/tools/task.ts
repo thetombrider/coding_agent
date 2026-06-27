@@ -12,7 +12,7 @@ import { loadToolDescription } from "../util/load-txt.js";
 import { isAbortError } from "../util/abort.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { REMOTE_SANDBOX_ROOT, seedRepoIntoWorkspace } from "../workspace/seed.js";
-import { createWorktree, type HarvestResult, type WorktreeHandle } from "../workspace/worktree.js";
+import { createWorktree, subagentWorktreeOptions, type HarvestResult, type WorktreeHandle } from "../workspace/worktree.js";
 import type { Workspace } from "../workspace/types.js";
 import type { AgentContext } from "../types.js";
 import type { Tool } from "./types.js";
@@ -81,10 +81,15 @@ export interface TaskDeps {
 /** Per-run knobs that don't come from the model's tool arguments. */
 export interface RunSubagentOptions {
   /**
+<<<<<<< Updated upstream
    * Parallel fan-out mode. Forces each mutating child into its own fresh git
    * worktree — never the shared host tree, never a reused session worktree — so
    * concurrent siblings can't collide on the working tree. Read-only presets are
    * unaffected (they don't write). Set by `task_parallel`; off for serial `task`.
+=======
+   * Parallel fan-out mode. Forces a fresh git worktree even when the parent
+   * session already runs in worktree mode — siblings must not share one tree.
+>>>>>>> Stashed changes
    */
   parallel?: boolean;
 }
@@ -184,12 +189,12 @@ export async function runSubagentTask(
         return { output: seedMessage, isError: true };
       }
     } else if (
-      isolationResult.mode === "worktree" &&
+      isolationResult.mode === "worktree"
       // In parallel fan-out every child needs its own fresh worktree, so never
       // reuse the session worktree (siblings would collide) — always create one.
-      (opts.parallel || host.sessionIsolation !== "worktree")
+      && (opts.parallel || host.sessionIsolation !== "worktree")
     ) {
-      const result = makeWorktree(host.hostCwd ?? ctx.cwd, subagentId);
+      const result = makeWorktree(host.hostCwd ?? ctx.cwd, subagentId, subagentWorktreeOptions(host, ctx));
       if ("error" in result) {
         return { output: result.error, isError: true };
       }

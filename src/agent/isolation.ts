@@ -12,8 +12,8 @@ export const ISOLATION_MODES: readonly IsolationMode[] = ["shared", "worktree", 
 const RANK: Record<IsolationMode, number> = { shared: 0, worktree: 1, sandbox: 2 };
 
 export const ISOLATION_LABELS: Record<IsolationMode, string> = {
-  shared: "shared — edits the local working tree (changes persist)",
-  worktree: "worktree — runs on an isolated git branch (changes persist)",
+  shared: "shared — edits the host working tree (changes persist)",
+  worktree: "worktree — fresh orin/subagent-* branch (changes persist)",
   sandbox: "sandbox — ephemeral E2B clone (changes discarded; needs sandbox.e2b.apiKey in config)",
 };
 

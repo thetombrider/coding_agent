@@ -11,6 +11,9 @@ Isolation (the safety rule for parallel work):
   branch). Shared isolation is forbidden here — concurrent siblings editing the host
   tree would collide. Each child's edits persist to its branch and the summary reports
   the branch + diff stat, so you (or the user) decide how to combine them afterward.
+  When the parent session runs on a session branch (orin --worktree), each child
+  branches from that session tip — not host HEAD — so parallel work includes prior
+  session commits.
 - Read-only children (explore/review) run on the shared tree since they never write.
 - sandbox is available per child for untrusted code (ephemeral E2B clone; requires
   sandbox.e2b.apiKey).
