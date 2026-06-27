@@ -18,6 +18,34 @@ describe("createSessionController", () => {
     expect(turn?.assistantText).toBe("Answer.");
   });
 
+  it("drops empty reasoning blocks left by llm_start without reasoning deltas", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("tool then text");
+
+    controller.handleEvent({ type: "reasoning_delta", text: "Plan the read." });
+    controller.handleEvent({
+      type: "tool_start",
+      id: "read1",
+      name: "read",
+      args: { path: "a.ts" },
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "read1",
+      name: "read",
+      output: "ok",
+    });
+    controller.handleEvent({ type: "llm_start", id: "call-2", model: "test/model" });
+    controller.handleEvent({ type: "text_delta", text: "Done." });
+    controller.finalizeTurn();
+
+    const turn = controller.getState().completedTurns[0];
+    expect(turn?.reasoningText).toBe("Plan the read.");
+    expect(turn?.blocks.filter((b) => b.type === "reasoning")).toEqual([
+      { type: "reasoning", id: expect.any(String), text: "Plan the read." },
+    ]);
+  });
+
   it("tracks a turn lifecycle", () => {
     const controller = createSessionController(meta);
     controller.beginTurn("hello");
@@ -312,5 +340,49 @@ describe("createSessionController", () => {
     expect(task?.subagent?.tools).toHaveLength(1);
     expect(task?.subagent?.tools[0]?.name).toBe("read");
     expect(task?.subagent?.active).toBe(false);
+
+    const taskBlock = controller.getState().completedTurns[0]?.blocks.find(
+      (b) => b.type === "tool" && b.entry.id === "task1",
+    );
+    expect(taskBlock?.type).toBe("tool");
+    if (taskBlock?.type === "tool") {
+      expect(taskBlock.entry.subagent?.agent).toBe("explore");
+      expect(taskBlock.entry.subagent?.tools[0]?.name).toBe("read");
+    }
+  });
+
+  it("mirrors subagent nesting into currentBlocks while the turn is live", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("explore");
+
+    controller.handleEvent({ type: "llm_start", id: "call-1", model: "test/model" });
+    controller.handleEvent({
+      type: "tool_start",
+      id: "task1",
+      name: "task",
+      args: { description: "scan repo", prompt: "list files", agent: "explore" },
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan repo",
+      agent: "explore",
+    });
+    controller.handleEvent({
+      type: "tool_start",
+      id: "read1",
+      name: "read",
+      args: { path: "package.json" },
+      subagentId: "sub1",
+    });
+
+    const taskBlock = controller.getState().currentBlocks.find(
+      (b) => b.type === "tool" && b.entry.id === "task1",
+    );
+    expect(taskBlock?.type).toBe("tool");
+    if (taskBlock?.type === "tool") {
+      expect(taskBlock.entry.subagent?.tools).toHaveLength(1);
+      expect(taskBlock.entry.subagent?.tools[0]?.name).toBe("read");
+    }
   });
 });

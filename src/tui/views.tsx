@@ -257,6 +257,12 @@ function ReasoningBlock(props: {
     setExpanded(!expanded());
   };
 
+  const visible = () => hasText() || !!props.streaming;
+  const glyph = () => {
+    if (props.streaming) return spinnerFrame();
+    return expanded() ? "▾" : "▸";
+  };
+
   onMount(() => {
     toolExpand?.setExpanded(props.id, expanded());
     toolExpand?.registerToggle(props.id, toggleExpanded);
@@ -278,28 +284,28 @@ function ReasoningBlock(props: {
   };
 
   return (
-    <box
-      flexDirection="column"
-      marginLeft={1}
-      marginTop={props.spacedAbove ? 1 : 0}
-      marginBottom={1}
-      onMouseOver={() => toolExpand?.setHovered(props.id)}
-    >
+    <Show when={visible()}>
       <box
-        flexDirection="row"
+        flexDirection="column"
+        marginLeft={1}
+        marginTop={props.spacedAbove ? 1 : 0}
+        marginBottom={1}
+        onMouseOver={() => toolExpand?.setHovered(props.id)}
         onMouseDown={() => toggleExpanded()}
       >
-        <text selectable={false} fg={theme.accent} attributes={props.streaming ? BOLD : 0}>
-          {props.streaming ? spinnerFrame() : "▸"} thinking
-        </text>
-        <Show when={hint()}>
-          <text selectable={false} fg={theme.muted}>  {hint()}</text>
+        <box flexDirection="row">
+          <text selectable={false} fg={theme.accent} attributes={props.streaming ? BOLD : 0}>
+            {glyph()} thinking
+          </text>
+          <Show when={hint()}>
+            <text selectable={false} fg={theme.muted}>  {hint()}</text>
+          </Show>
+        </box>
+        <Show when={hasText() && expanded()}>
+          <ReasoningOutputView text={text()} />
         </Show>
       </box>
-      <Show when={hasText() && expanded()}>
-        <ReasoningOutputView text={text()} />
-      </Show>
-    </box>
+    </Show>
   );
 }
 

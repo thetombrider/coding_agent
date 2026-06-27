@@ -222,6 +222,16 @@ function finalizeSubagent(tools: ToolEntry[], subagentId: string): ToolEntry[] {
   });
 }
 
+/** Copy nested subagent state from `tools` into matching tool block entries. */
+function syncBlocksWithTools(blocks: TurnBlock[], tools: ToolEntry[]): TurnBlock[] {
+  const toolById = new Map(tools.map((t) => [t.id, t]));
+  return blocks.map((block) => {
+    if (block.type !== "tool") return block;
+    const source = toolById.get(block.entry.id);
+    return source ? { ...block, entry: source } : block;
+  });
+}
+
 export function createSessionController(meta: SessionMeta): SessionController {
   let state: SessionState = {
     meta,
@@ -262,27 +272,32 @@ export function createSessionController(meta: SessionMeta): SessionController {
     notify();
   };
 
+  const setCurrentTools = (currentTools: ToolEntry[]) => {
+    update({
+      currentTools,
+      currentBlocks: syncBlocksWithTools(state.currentBlocks, currentTools),
+    });
+  };
+
   const upsertTool = (id: string, patch: Partial<ToolEntry> & Pick<ToolEntry, "name" | "args">) => {
     const idx = state.currentTools.findIndex((t) => t.id === id);
     if (idx === -1) {
-      update({
-        currentTools: [
-          ...state.currentTools,
-          {
-            id,
-            name: patch.name,
-            args: patch.args,
-            status: patch.status ?? "running",
-            output: patch.output,
-          },
-        ],
-      });
+      setCurrentTools([
+        ...state.currentTools,
+        {
+          id,
+          name: patch.name,
+          args: patch.args,
+          status: patch.status ?? "running",
+          output: patch.output,
+        },
+      ]);
       return;
     }
 
     const next = [...state.currentTools];
     next[idx] = { ...next[idx]!, ...patch };
-    update({ currentTools: next });
+    setCurrentTools(next);
   };
 
   return {
@@ -312,6 +327,12 @@ export function createSessionController(meta: SessionMeta): SessionController {
       const allReasoning = state.streamingReasoningSegments
         .map((s) => s.text)
         .join("");
+      const blocks = syncBlocksWithTools(
+        state.currentBlocks.filter(
+          (b) => b.type !== "reasoning" || b.text.length > 0,
+        ),
+        state.currentTools,
+      );
       update({
         completedTurns: [
           ...state.completedTurns,
@@ -320,7 +341,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
             assistantText: state.streamingText,
             reasoningText: allReasoning || undefined,
             tools: state.currentTools,
-            blocks: state.currentBlocks,
+            blocks,
           },
         ],
         currentUserText: "",
@@ -424,13 +445,16 @@ export function createSessionController(meta: SessionMeta): SessionController {
             break;
           } else {
             const segId = randomUUID();
+            const currentBlocks = state.currentBlocks.filter(
+              (b) => b.type !== "reasoning" || b.text.length > 0,
+            );
             update({
               streamingReasoningSegments: [
                 ...state.streamingReasoningSegments,
                 { id: segId, text: "" },
               ],
               currentBlocks: [
-                ...state.currentBlocks,
+                ...currentBlocks,
                 { type: "reasoning" as const, id: segId, text: "" },
               ],
             });
@@ -478,19 +502,20 @@ export function createSessionController(meta: SessionMeta): SessionController {
           const modalPending = state.pendingQuestion !== null || state.pendingApproval !== null;
           if (event.subagentId) {
             const agent = findSubagentAgent(state.currentTools, event.subagentId);
-            const patch: Partial<SessionState> = {
-              currentTools: upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
+            setCurrentTools(
+              upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
                 name: event.name,
                 args: event.args,
                 status: "running",
               }),
-            };
+            );
             if (!modalPending) {
-              patch.pendingApproval = null;
-              patch.phase = "running";
-              patch.statusHint = toolStatusHint(event.name, event.args, agent);
+              update({
+                pendingApproval: null,
+                phase: "running",
+                statusHint: toolStatusHint(event.name, event.args, agent),
+              });
             }
-            update(patch);
             break;
           }
           upsertTool(event.id, {
@@ -525,8 +550,8 @@ export function createSessionController(meta: SessionMeta): SessionController {
         }
         case "tool_end":
           if (event.subagentId) {
-            update({
-              currentTools: upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
+            setCurrentTools(
+              upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
                 name: event.name,
                 args: state.currentTools
                   .flatMap((t) => t.subagent?.tools ?? [])
@@ -534,7 +559,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
                 status: event.isError ? "error" : "done",
                 output: event.output,
               }),
-            });
+            );
             break;
           }
           upsertTool(event.id, {
@@ -543,37 +568,26 @@ export function createSessionController(meta: SessionMeta): SessionController {
             status: event.isError ? "error" : "done",
             output: event.output,
           });
-          update({
-            currentBlocks: state.currentBlocks.map((b) => {
-              if (b.type !== "tool" || b.entry.id !== event.id) return b;
-              return {
-                ...b,
-                entry: {
-                  ...b.entry,
-                  status: event.isError ? "error" as const : "done" as const,
-                  output: event.output,
-                },
-              };
-            }),
-          });
           break;
         case "todo_update":
           update({ todos: event.todos });
           break;
         case "subagent_start":
-          update({
-            currentTools: attachSubagentToRunningTask(state.currentTools, {
+          setCurrentTools(
+            attachSubagentToRunningTask(state.currentTools, {
               id: event.id,
               agent: event.agent,
               description: event.description,
               active: true,
             }),
+          );
+          update({
             statusHint: `Subagent (${event.agent}): ${event.description}…`,
           });
           break;
         case "subagent_end":
+          setCurrentTools(finalizeSubagent(state.currentTools, event.id));
           update({
-            currentTools: finalizeSubagent(state.currentTools, event.id),
             statusHint: `Subagent (${event.agent}) finished — ${event.turns} turn${event.turns === 1 ? "" : "s"}`,
           });
           break;

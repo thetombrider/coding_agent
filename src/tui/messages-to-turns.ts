@@ -27,7 +27,9 @@ function finishTurn(builder: TurnBuilder): Turn {
     assistantText: builder.assistantText,
     reasoningText: builder.reasoningText || undefined,
     tools: builder.tools,
-    blocks: builder.blocks,
+    blocks: builder.blocks.filter(
+      (b) => b.type !== "reasoning" || b.text.length > 0,
+    ),
   };
 }
 
