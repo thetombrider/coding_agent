@@ -3,6 +3,7 @@ import type { AgentEvent } from "../agent/events.js";
 import type { SessionCostSnapshot } from "../telemetry/events.js";
 import type { SandboxKind } from "../workspace/types.js";
 import type { TodoItem } from "../todos/types.js";
+import { formatMcpToolLabel, isMcpTool } from "../mcp/names.js";
 import { todowriteSchema } from "../tools/todowrite.js";
 import { clipboardHintText } from "./shortcuts.js";
 
@@ -150,7 +151,8 @@ function todosFromToolArgs(args: unknown): TodoItem[] | undefined {
 
 /** Build a descriptive status hint for a running tool, e.g. "Reading src/foo.ts…". */
 function toolStatusHint(name: string, args: unknown, subagentAgent?: string): string {
-  const verb = TOOL_VERBS[name] ?? `Running ${name}`;
+  const displayName = isMcpTool(name) ? formatMcpToolLabel(name) : name;
+  const verb = TOOL_VERBS[name] ?? `Running ${displayName}`;
   let detail = "";
   if (args && typeof args === "object") {
     const r = args as Record<string, unknown>;

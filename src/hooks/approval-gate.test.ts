@@ -45,6 +45,35 @@ describe("installApprovalGate", () => {
     expect(result).toEqual({ block: true, reason: "Tool bash blocked in plan mode." });
   });
 
+  it("blocks MCP tools in plan mode", async () => {
+    const mcpTool: Tool<Record<string, unknown>> = {
+      name: "fs__write_file",
+      description: "write via MCP",
+      schema: z.record(z.string(), z.unknown()),
+      needsApproval: () => true,
+      async execute() {
+        return { output: "ok" };
+      },
+    };
+    const hooks = createHookRegistry();
+    installApprovalGate(hooks, {
+      mode: "plan",
+      autoAcceptCli: false,
+      tools: [mcpTool],
+    });
+
+    const result = await hooks.fireHook(
+      "before_tool",
+      { id: "tc1", name: "fs__write_file", args: { path: "x" } },
+      ctx,
+    );
+
+    expect(result).toEqual({
+      block: true,
+      reason: "Tool fs__write_file blocked in plan mode.",
+    });
+  });
+
   it("auto-approves configured bash commands without prompting", async () => {
     const hooks = createHookRegistry();
     const confirm = vi.fn();

@@ -49,6 +49,26 @@ import type { CheckpointRecord } from "../checkpoint/manager.js";
 import type { SessionsPaletteState } from "./sessions-palette.js";
 import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
 import type { SkillsPaletteState } from "./skills-palette.js";
+import type { McpPaletteState } from "./mcp-palette.js";
+import {
+  mcpListRowLabel,
+  mcpListRows,
+  mcpPaletteAfterReload,
+  mcpPaletteHint,
+  mcpServerDetailLines,
+  selectedMcpListRow,
+} from "./mcp-palette.js";
+import type { McpSessionHost } from "./session.js";
+import {
+  applyWizardStep,
+  beginAddWizard,
+  beginEditWizard,
+  currentWizardStep,
+  validateWizardStep,
+  wizardComplete,
+  wizardToServerConfig,
+  type McpWizardState,
+} from "../mcp/wizard.js";
 import {
   selectedSkill,
   skillInvocationMessage,
@@ -62,12 +82,14 @@ const BOLD = createTextAttributes({ bold: true });
 const SESSION_LIST_MAX_VISIBLE = 10;
 const MODEL_LIST_MAX_VISIBLE = 10;
 const SKILLS_LIST_MAX_VISIBLE = 10;
+const MCP_LIST_MAX_VISIBLE = 10;
 
 const SLASH_COMMANDS = [
   { name: "model",     label: "/model",     description: "switch model" },
   { name: "mode",      label: "/mode",      description: "set approval mode" },
   { name: "providers", label: "/providers", description: "switch LLM provider" },
-  { name: "settings",  label: "/settings",  description: "E2B key, isolation, telemetry, task models" },
+  { name: "settings",  label: "/settings",  description: "MCP, E2B key, isolation, telemetry, task models" },
+  { name: "mcp",       label: "/mcp",       description: "browse and configure MCP servers" },
   { name: "sessions",  label: "/sessions",  description: "browse sessions" },
   { name: "skills",    label: "/skills",    description: "browse available skills" },
   { name: "checkpoints", label: "/checkpoints", description: "list workspace checkpoints" },
@@ -92,7 +114,8 @@ type PaletteState =
   | { phase: "settings-parallel-info"; index: number }
   | { phase: "settings-model-slot"; index: number; slot: ModelSlot }
   | SessionsPaletteState
-  | SkillsPaletteState;
+  | SkillsPaletteState
+  | McpPaletteState;
 
 function settingsItemIndex(kind: SettingsItem["kind"]): number {
   return SETTINGS_ITEMS.findIndex((item) => item.kind === kind);
@@ -111,6 +134,7 @@ const SETTINGS_MODEL_SLOTS: ReadonlyArray<{ slot: ModelSlot; label: string }> = 
 ];
 
 type SettingsItem =
+  | { kind: "mcp" }
   | { kind: "e2b" }
   | { kind: "exa" }
   | { kind: "session-isolation" }
@@ -123,6 +147,7 @@ const SETTINGS_ITEMS: readonly SettingsItem[] = [
   { kind: "session-isolation" },
   { kind: "isolation" },
   { kind: "parallel-info" },
+  { kind: "mcp" },
   { kind: "e2b" },
   { kind: "exa" },
   { kind: "telemetry-capture" },
@@ -191,6 +216,7 @@ export function App(props: {
   ) => void;
   onConfigureE2b: (apiKey: string) => void;
   onConfigureExa: (apiKey: string) => void;
+  mcpHost: McpSessionHost;
   onClear: () => void;
   onNew: () => void;
   onResume: (sessionId: string) => void;
@@ -205,8 +231,10 @@ export function App(props: {
   const [questionIndex, setQuestionIndex] = createSignal(0);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
+  const [mcpWizard, setMcpWizard] = createSignal<McpWizardState | null>(null);
   const [e2bPrompt, setE2bPrompt] = createSignal(false);
   const [exaPrompt, setExaPrompt] = createSignal(false);
+  const [mcpServers, setMcpServers] = createSignal(props.mcpHost.getServers());
   const toolExpand = createToolExpandState();
   const renderer = useRenderer();
   onCleanup(props.controller.subscribe(setState));
@@ -237,6 +265,7 @@ export function App(props: {
     state().phase === "input"
     && palette() === null
     && configPrompt() === null
+    && mcpWizard() === null
     && !e2bPrompt()
     && !exaPrompt()
     && !submitting();
@@ -245,6 +274,7 @@ export function App(props: {
     state().phase !== "approval"
     && state().phase !== "question"
     && palette() === null
+    && mcpWizard() === null
     && !submitting();
 
   const performCopy = async (text: string | null | undefined) => {
@@ -272,6 +302,7 @@ export function App(props: {
     state().phase === "input"
     && palette() === null
     && configPrompt() === null
+    && mcpWizard() === null
     && !e2bPrompt()
     && !exaPrompt()
     && !submitting()
@@ -454,6 +485,95 @@ export function App(props: {
     setExaPrompt(false);
     if (inputRef) inputRef.value = "";
     props.controller.clearInput();
+  };
+
+  const closeMcpWizard = () => {
+    setMcpWizard(null);
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+  };
+
+  const mcpWizardHint = (wizard: McpWizardState): string => {
+    const step = currentWizardStep(wizard);
+    if (!step) return "Saving MCP server…";
+    const prefix = wizard.mode === "edit" ? `Edit MCP server ${wizard.name}` : "Add MCP server";
+    return `${prefix}: ${step.hint} · Esc to cancel`;
+  };
+
+  const openMcpPalette = () => {
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+    setMcpServers(props.mcpHost.getServers());
+    setPalette({ phase: "mcp", menu: "list", index: 0, servers: props.mcpHost.getServers() });
+  };
+
+  const reloadMcpConnections = async (previous?: McpPaletteState) => {
+    props.controller.setStatusHint("Reloading MCP servers…");
+    const result = await props.mcpHost.reload();
+    setMcpServers(result.servers);
+    props.controller.setStatusHint(result.statusHint ?? "MCP servers reloaded");
+    if (previous) {
+      setPalette(mcpPaletteAfterReload(result.servers, previous));
+    }
+  };
+
+  const finishMcpWizard = async (wizard: McpWizardState) => {
+    const serverConfig = wizardToServerConfig(wizard);
+    if (!serverConfig) {
+      props.controller.setStatusHint("MCP server configuration incomplete");
+      return;
+    }
+    closeMcpWizard();
+    const result = await props.mcpHost.saveServer(wizard.name, serverConfig, {
+      replace: wizard.originalName,
+    });
+    setMcpServers(result.servers);
+    props.controller.setStatusHint(result.statusHint ?? `Saved MCP server ${wizard.name}`);
+  };
+
+  const handleMcpWizardSubmit = (raw: string) => {
+    const wizard = mcpWizard();
+    if (!wizard) return;
+
+    const step = currentWizardStep(wizard);
+    if (!step) {
+      void finishMcpWizard(wizard);
+      return;
+    }
+
+    const trimmed = raw.trim();
+    if (!trimmed && !step.optional) {
+      props.controller.setStatusHint("value required — Esc to cancel");
+      return;
+    }
+
+    const error = validateWizardStep(wizard, step, trimmed);
+    if (error) {
+      props.controller.setStatusHint(error);
+      return;
+    }
+
+    const next = applyWizardStep(wizard, step, trimmed);
+    if (inputRef) inputRef.value = "";
+    props.controller.clearInput();
+
+    if (wizardComplete(next)) {
+      void finishMcpWizard(next);
+      return;
+    }
+
+    setMcpWizard(next);
+    props.controller.setStatusHint(mcpWizardHint(next));
+  };
+
+  const confirmMcpDelete = async () => {
+    const p = palette();
+    if (p?.phase !== "mcp" || p.menu !== "delete" || !p.selectedName) return;
+    const name = p.selectedName;
+    const result = await props.mcpHost.removeServer(name);
+    setMcpServers(result.servers);
+    props.controller.setStatusHint(result.statusHint ?? `Removed MCP server ${name}`);
+    setPalette({ phase: "mcp", menu: "list", index: 0, servers: result.servers });
   };
 
   const closeConfigPrompt = () => {
@@ -721,6 +841,9 @@ export function App(props: {
         setExaPrompt(true);
         props.controller.setStatusHint(result.message);
         return;
+      case "open-mcp":
+        openMcpPalette();
+        return;
       case "open-settings":
         if (inputRef) inputRef.value = "";
         props.controller.clearInput();
@@ -797,6 +920,11 @@ export function App(props: {
         return;
       }
 
+      if (name === "mcp") {
+        openMcpPalette();
+        return;
+      }
+
       if (name === "settings") {
         if (inputRef) inputRef.value = "";
         props.controller.clearInput();
@@ -849,6 +977,11 @@ export function App(props: {
     if (p.phase === "settings") {
       const item = SETTINGS_ITEMS[p.index];
       if (!item) return;
+      if (item.kind === "mcp") {
+        setPalette(null);
+        openMcpPalette();
+        return;
+      }
       if (item.kind === "e2b") {
         setPalette(null);
         if (inputRef) inputRef.value = "";
@@ -989,6 +1122,44 @@ export function App(props: {
       prefillSkill(skill.name);
       return;
     }
+
+    if (p.phase === "mcp") {
+      if (p.menu === "delete") {
+        void confirmMcpDelete();
+        return;
+      }
+      if (p.menu === "detail") {
+        const server = p.servers.find((s) => s.name === p.selectedName);
+        if (!server) return;
+        setPalette(null);
+        const wizard = beginEditWizard(server.name, server.config);
+        setMcpWizard(wizard);
+        props.controller.setStatusHint(mcpWizardHint(wizard));
+        return;
+      }
+
+      const row = selectedMcpListRow(p);
+      if (!row) return;
+      if (row.kind === "add") {
+        setPalette(null);
+        const wizard = beginAddWizard();
+        setMcpWizard(wizard);
+        props.controller.setStatusHint(mcpWizardHint(wizard));
+        return;
+      }
+      if (row.kind === "reload") {
+        void reloadMcpConnections(p);
+        return;
+      }
+      setPalette({
+        phase: "mcp",
+        menu: "detail",
+        index: p.index,
+        servers: p.servers,
+        selectedName: row.server.name,
+      });
+      return;
+    }
   };
 
   const handleSubmit = async (raw: string) => {
@@ -1009,6 +1180,10 @@ export function App(props: {
     // Provider/E2B config prompts take priority over the command palette.
     if (configPrompt() !== null) {
       handleConfigSubmit(raw);
+      return;
+    }
+    if (mcpWizard() !== null) {
+      handleMcpWizardSubmit(raw);
       return;
     }
     if (e2bPrompt()) {
@@ -1072,7 +1247,7 @@ export function App(props: {
     const value = sanitizePromptInput(rawValue);
     if (value !== rawValue && inputRef) inputRef.value = value;
     props.controller.setInput(value);
-    if (configPrompt() !== null || e2bPrompt() || exaPrompt()) return;
+    if (configPrompt() !== null || mcpWizard() !== null || e2bPrompt() || exaPrompt()) return;
 
     const p = palette();
 
@@ -1128,6 +1303,11 @@ export function App(props: {
         props.controller.setStatusHint("configuration cancelled");
         return;
       }
+      if (mcpWizard() !== null) {
+        closeMcpWizard();
+        props.controller.setStatusHint("MCP configuration cancelled");
+        return;
+      }
       if (canStopTurn()) {
         handleStopTurn();
         return;
@@ -1174,6 +1354,14 @@ export function App(props: {
       if (key.name === "escape") {
         closeConfigPrompt();
         props.controller.setStatusHint("configuration cancelled");
+      }
+      return;
+    }
+
+    if (mcpWizard() !== null) {
+      if (key.name === "escape") {
+        closeMcpWizard();
+        props.controller.setStatusHint("MCP configuration cancelled");
       }
       return;
     }
@@ -1226,6 +1414,33 @@ export function App(props: {
         }
       }
 
+      if (p.phase === "mcp") {
+        if (p.menu === "delete") {
+          if (key.name === "left" || key.name === "escape") {
+            const server = p.servers.find((s) => s.name === p.selectedName);
+            setPalette({
+              phase: "mcp",
+              menu: "detail",
+              index: p.index,
+              servers: p.servers,
+              selectedName: server?.name,
+            });
+            return;
+          }
+          if (key.name !== undefined) return;
+        } else if (p.menu === "detail") {
+          if (key.name === "left" || key.name === "escape") {
+            setPalette({ ...p, menu: "list", selectedName: undefined });
+            return;
+          }
+          if (key.name === "right") {
+            setPalette({ ...p, menu: "delete" });
+            return;
+          }
+          if (key.name !== undefined) return;
+        }
+      }
+
       if (key.name === "up") {
         setPalette({ ...p, index: Math.max(0, p.index - 1) });
         return;
@@ -1242,6 +1457,8 @@ export function App(props: {
                     ? Math.max(0, p.sessions.length - 1)
                     : p.phase === "skills"
                     ? Math.max(0, p.skills.length - 1)
+                    : p.phase === "mcp"
+                      ? Math.max(0, mcpListRows(p.servers).length - 1)
                     : p.phase === "settings"
                       ? Math.max(0, SETTINGS_ITEMS.length - 1)
                       : p.phase === "settings-isolation"
@@ -1265,6 +1482,10 @@ export function App(props: {
           return;
         }
         if (p.phase !== "commands") {
+          if (p.phase === "mcp" && (p.menu === "detail" || p.menu === "delete")) {
+            setPalette({ phase: "mcp", menu: "list", index: p.index, servers: p.servers });
+            return;
+          }
           // Go back to command list
           setPalette({ phase: "commands", index: 0 });
         } else {
@@ -1506,6 +1727,40 @@ export function App(props: {
           </box>
         </Show>
 
+        <Show when={mcpWizard()}>
+          {(wizard) => {
+            const step = () => currentWizardStep(wizard());
+            return (
+              <box
+                flexShrink={0}
+                flexDirection="column"
+                marginBottom={1}
+                paddingLeft={1}
+                paddingRight={1}
+                borderStyle="rounded"
+                border
+                borderColor={theme.accent}
+                backgroundColor={theme.codeBg}
+              >
+                <text fg={theme.accent} attributes={BOLD}>
+                  {wizard().mode === "edit" ? `Edit MCP server — ${wizard().name}` : "Add MCP server"}
+                </text>
+                <Show when={step()}>
+                  {(s) => (
+                    <>
+                      <text fg={theme.fg} attributes={BOLD}>{s().title}</text>
+                      <text fg={theme.secondary}>{s().hint}</text>
+                    </>
+                  )}
+                </Show>
+                <text fg={theme.secondary}>
+                  Saved to ~/.orin/mcp.json
+                </text>
+              </box>
+            );
+          }}
+        </Show>
+
         <Show when={palette()}>
           {(p) => (
             <box
@@ -1627,7 +1882,9 @@ export function App(props: {
                     const cfg = () => loadConfig();
                     const sessionMode = () => liveSessionIsolation(state());
                     const label = () =>
-                      item.kind === "e2b"
+                      item.kind === "mcp"
+                        ? "MCP servers"
+                        : item.kind === "e2b"
                         ? "E2B API key"
                         : item.kind === "exa"
                           ? "Exa API key"
@@ -1641,7 +1898,9 @@ export function App(props: {
                                   ? "Telemetry content capture"
                                   : item.label;
                     const value = () =>
-                      item.kind === "e2b"
+                      item.kind === "mcp"
+                        ? `${mcpServers().length} configured`
+                        : item.kind === "e2b"
                         ? (hasE2BApiKey() ? "configured" : "not configured")
                         : item.kind === "exa"
                           ? (hasExaApiKey() ? "configured" : "not configured")
@@ -1831,6 +2090,65 @@ export function App(props: {
                 </Show>
               </Show>
 
+              <Show when={p().phase === "mcp"}>
+                <Show
+                  when={(p() as McpPaletteState).menu === "list"}
+                  fallback={
+                    <Show
+                      when={(p() as McpPaletteState).menu === "detail"}
+                      fallback={
+                        <Show when={(p() as McpPaletteState).selectedName}>
+                          {(name) => (
+                            <box flexDirection="column">
+                              <text fg={theme.toolError} attributes={BOLD}>delete MCP server</text>
+                              <text fg={theme.fg} attributes={BOLD}>{name()}</text>
+                              <text fg={theme.secondary}>  This removes the entry from ~/.orin/mcp.json and disconnects it.</text>
+                            </box>
+                          )}
+                        </Show>
+                      }
+                    >
+                      <Show when={(p() as McpPaletteState).selectedName}>
+                        {(name) => {
+                          const server = () =>
+                            (p() as McpPaletteState).servers.find((s) => s.name === name());
+                          return (
+                            <Show when={server()}>
+                              {(s) => (
+                                <box flexDirection="column">
+                                  <For each={mcpServerDetailLines(s())}>
+                                    {(line) => <text fg={theme.secondary}>{line}</text>}
+                                  </For>
+                                </box>
+                              )}
+                            </Show>
+                          );
+                        }}
+                      </Show>
+                    </Show>
+                  }
+                >
+                  <scrollbox
+                    height={Math.min(mcpListRows((p() as McpPaletteState).servers).length, MCP_LIST_MAX_VISIBLE)}
+                    scrollY
+                    contentOptions={{ flexDirection: "column" }}
+                  >
+                    <For each={mcpListRows((p() as McpPaletteState).servers)}>
+                      {(row, i) => {
+                        const selected = () => (p() as McpPaletteState).index === i();
+                        return (
+                          <box flexDirection="row">
+                            <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                              {selected() ? "▶ " : "  "}{mcpListRowLabel(row)}
+                            </text>
+                          </box>
+                        );
+                      }}
+                    </For>
+                  </scrollbox>
+                </Show>
+              </Show>
+
               <Show when={p().phase === "skills"}>
                 <Show
                   when={(p() as SkillsPaletteState).menu === "list"}
@@ -1888,6 +2206,8 @@ export function App(props: {
                       ? sessionsPaletteHint((p() as SessionsPaletteState).menu)
                       : p().phase === "skills"
                         ? skillsPaletteHint((p() as SkillsPaletteState).menu)
+                        : p().phase === "mcp"
+                          ? mcpPaletteHint((p() as McpPaletteState).menu)
                         : "↑↓ navigate · Enter select · Esc back"}
                 </text>
               </box>

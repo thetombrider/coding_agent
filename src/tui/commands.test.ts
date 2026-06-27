@@ -329,6 +329,17 @@ describe("processCommand", () => {
   });
 
   describe("/settings", () => {
+    it("opens MCP browser with /mcp", () => {
+      const r = processCommand("/mcp", ctx);
+      expect(r).toEqual({ type: "open-mcp" });
+      expect(isActionableCommandResult(r)).toBe(true);
+    });
+
+    it("opens MCP browser from /settings mcp", () => {
+      const r = processCommand("/settings mcp", ctx);
+      expect(r).toEqual({ type: "open-mcp" });
+    });
+
     it("starts E2B configure flow when no key is set", () => {
       const r = processCommand("/settings e2b", ctx);
       expect(r).toMatchObject({ type: "configure-e2b" });

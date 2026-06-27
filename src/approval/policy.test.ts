@@ -39,6 +39,11 @@ describe("approval policy", () => {
     expect(isToolBlocked("plan", "read")).toBe(false);
   });
 
+  it("blocks MCP tools in plan mode", () => {
+    expect(isToolBlocked("plan", "fs__write_file")).toBe(true);
+    expect(isToolBlocked("normal", "fs__write_file")).toBe(false);
+  });
+
   it("skips approval in auto-accept mode", () => {
     expect(shouldAutoAccept("auto-accept", false)).toBe(true);
     expect(needsInteractiveApproval("auto-accept", false, "bash", true)).toBe(false);

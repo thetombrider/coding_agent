@@ -1,4 +1,5 @@
 import { createTextAttributes } from "@opentui/core";
+import { formatMcpToolLabel, isMcpTool } from "../mcp/names.js";
 import type { ModelPricing } from "../config/config.js";
 import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
 import type { SubagentContext, ToolEntry, Turn } from "./controller.js";
@@ -562,6 +563,7 @@ export function Header(props: {
 }
 
 export function ApprovalBar(props: { name: string; args: unknown }) {
+  const label = () => (isMcpTool(props.name) ? formatMcpToolLabel(props.name) : props.name);
   return (
     <box
       flexShrink={0}
@@ -577,7 +579,7 @@ export function ApprovalBar(props: { name: string; args: unknown }) {
       backgroundColor={theme.codeBg}
     >
       <text fg={theme.approval} attributes={BOLD} wrapMode="word" flexGrow={1}>
-        allow {props.name}?  {toolSummary(props.name, props.args, { truncate: false })}  —  y / n
+        allow {label()}?  {toolSummary(props.name, props.args, { truncate: false })}  —  y / n
       </text>
     </box>
   );

@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/config.js";
+import { isMcpTool } from "../mcp/names.js";
 
 export type ApprovalMode = "normal" | "auto-accept" | "plan";
 
@@ -62,7 +63,9 @@ export function isAutoApprovedBash(name: string, args: unknown): boolean {
 }
 
 export function isToolBlocked(mode: ApprovalMode, toolName: string): boolean {
-  return mode === "plan" && WRITE_TOOLS.has(toolName);
+  if (mode !== "plan") return false;
+  if (WRITE_TOOLS.has(toolName)) return true;
+  return isMcpTool(toolName);
 }
 
 export function needsInteractiveApproval(

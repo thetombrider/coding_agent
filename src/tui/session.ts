@@ -25,6 +25,9 @@ import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import { getCoreTools } from "../tools/registry.js";
+import type { McpServerConfig } from "../mcp/config.js";
+import { removeMcpServer, upsertMcpServer } from "../mcp/config.js";
+import { loadMcpServers, type McpServerStatus } from "../mcp/loader.js";
 import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
@@ -52,10 +55,33 @@ const osc = (code: number, c: { r: number; g: number; b: number }) =>
 /** Set the terminal's default fg/bg so the emulator's padding matches the theme. */
 const SET_TERMINAL_COLORS = osc(11, terminalBg) + osc(10, terminalFg);
 
+export interface McpReloadResult {
+  servers: McpServerStatus[];
+  statusHint?: string;
+  warnings: string[];
+}
+
+export interface McpSessionHost {
+  getServers: () => McpServerStatus[];
+  reload: () => Promise<McpReloadResult>;
+  saveServer: (
+    name: string,
+    server: McpServerConfig,
+    opts?: { replace?: string },
+  ) => Promise<McpReloadResult>;
+  removeServer: (name: string) => Promise<McpReloadResult>;
+}
+
 export interface TuiSessionConfig {
   ctx: AgentContext;
   provider: StreamAssistantFn;
   tools: AnyTool[];
+  /** MCP tools merged into `tools`; kept separately for refreshTools(). */
+  mcpTools?: AnyTool[];
+  mcpDispose?: () => Promise<void>;
+  mcpServers?: McpServerStatus[];
+  /** Startup status hint after MCP servers connect, e.g. "MCP: fs (8 tools)". */
+  mcpStartupHint?: string;
   model: string;
   system: string;
   approvalMode: ApprovalMode;
@@ -319,9 +345,37 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   reinstallTelemetry();
 
   let activeTools = config.tools;
+  let currentMcpTools = config.mcpTools ?? [];
+  let currentMcpDispose = config.mcpDispose;
+  let mcpServers = config.mcpServers ?? [];
+
   const refreshTools = () => {
-    activeTools = getCoreTools();
+    activeTools = [...getCoreTools(), ...currentMcpTools];
     approvalRef.tools = activeTools;
+  };
+
+  const applyMcpLoad = async (): Promise<McpReloadResult> => {
+    await currentMcpDispose?.();
+    const mcp = await loadMcpServers();
+    currentMcpTools = mcp.tools;
+    currentMcpDispose = mcp.dispose;
+    mcpServers = mcp.servers;
+    refreshTools();
+    for (const warning of mcp.warnings) console.warn(warning);
+    return { servers: mcp.servers, statusHint: mcp.statusHint, warnings: mcp.warnings };
+  };
+
+  const mcpHost: McpSessionHost = {
+    getServers: () => mcpServers,
+    reload: applyMcpLoad,
+    saveServer: async (name, server, opts) => {
+      upsertMcpServer(name, server, opts);
+      return applyMcpLoad();
+    },
+    removeServer: async (name) => {
+      removeMcpServer(name);
+      return applyMcpLoad();
+    },
   };
 
   config.ctx.loopHost = {
@@ -610,6 +664,8 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       controller.setStatusHint(
         "Previous Orin session ended unexpectedly — details in ~/.orin/crash.log",
       );
+    } else if (config.mcpStartupHint) {
+      controller.setStatusHint(config.mcpStartupHint);
     } else if (startupCopyHint) {
       controller.setStatusHint(startupCopyHint);
     }
@@ -631,6 +687,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onConfigureProvider: configureProvider,
           onConfigureE2b: configureE2b,
           onConfigureExa: configureExa,
+          mcpHost,
           onClear: () => {
             config.ctx.messages = [];
             config.ctx.todos = [];
@@ -693,6 +750,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       ]);
     }
     await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
+    await config.mcpDispose?.();
     disposeTelemetry();
     await config.ctx.workspace.dispose();
     await log.close();

@@ -14,6 +14,7 @@ import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, repl
 import { resolveSessionIsolation } from "./workspace/session-worktree.js";
 import type { SessionIsolationMode } from "./agent/session-isolation.js";
 import { rebuildTodosFromMessages } from "./todos/store.js";
+import { loadMcpServers } from "./mcp/loader.js";
 import { getCoreTools } from "./tools/registry.js";
 import { createDefaultSinks, installTelemetry } from "./telemetry/install.js";
 import { runTuiSession } from "./tui/session.js";
@@ -155,11 +156,17 @@ async function runInteractive(opts: {
   const ctx: AgentContext = { cwd: hostCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
   attachSymbolService(ctx, createSymbolService());
   const hooks = createSessionHooks();
+  const mcp = await loadMcpServers();
+  for (const warning of mcp.warnings) console.warn(warning);
 
   await runTuiSession({
     ctx,
     provider,
-    tools: getCoreTools(),
+    tools: [...getCoreTools(), ...mcp.tools],
+    mcpTools: mcp.tools,
+    mcpDispose: mcp.dispose,
+    mcpServers: mcp.servers,
+    mcpStartupHint: mcp.statusHint,
     model,
     system: sessionSystem(hostCwd),
     approvalMode: opts.approvalMode,
@@ -267,10 +274,14 @@ async function runHeadless(opts: {
   const { runLoop } = await import("./agent/loop.js");
   const sessionId = opts.useFaux ? undefined : generateSessionId();
   const hooks = createSessionHooks();
+  const mcp = await loadMcpServers();
+  for (const warning of mcp.warnings) console.warn(warning);
+  const tools = [...getCoreTools(), ...mcp.tools];
+
   const approvalRef: ApprovalGateRef = {
     mode: opts.approvalMode,
     autoAcceptCli: opts.autoAcceptCli,
-    tools: getCoreTools(),
+    tools,
   };
   installCoreHooks(hooks, approvalRef);
 
@@ -309,13 +320,14 @@ async function runHeadless(opts: {
   try {
     await runLoop(ctx, hooks, {
       provider,
-      tools: getCoreTools(),
+      tools,
       model,
       system: sessionSystem(hostCwd),
       sessionId,
     });
   } finally {
     await hooks.fireHook("session_end", { reason: "complete" }, ctx);
+    await mcp.dispose();
     if (worktreeHandle) {
       worktreeHandle.harvest();
       try {
