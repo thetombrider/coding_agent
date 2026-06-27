@@ -102,7 +102,7 @@ const HELP_LINES = [
   "/settings telemetry [on|off]  opt in/out of prompt+response capture on OTLP spans",
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/settings exa                 configure Exa API key (for web_search tool)",
-  "/mcp                          browse and configure MCP servers (~/.orin/mcp.json)",
+  "/mcp                          browse and configure MCP servers",
   "/sessions                     browse and resume saved sessions",
   "/skills [name]                browse skills, or show one skill's metadata",
   "/skill <name> [task]          ask the agent to use a skill",

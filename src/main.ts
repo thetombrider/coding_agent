@@ -35,8 +35,15 @@ function createSessionHooks(): ReturnType<typeof createHookRegistry> {
 
 async function main(): Promise<void> {
   ensureConfigFile();
+  const argv = process.argv.slice(2);
+  if (argv[0] === "mcp") {
+    const { runMcpCli } = await import("./cli/mcp.js");
+    await runMcpCli(argv.slice(1));
+    return;
+  }
+
   const { prompt, useFaux, headless, listSessions: listSessionsFlag, chat, resumeId, worktree, autoAcceptCli, approvalMode } =
-    parseCliArgs(process.argv.slice(2));
+    parseCliArgs(argv);
 
   if (listSessionsFlag) {
     printSessionList();

@@ -2,22 +2,35 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { parseMcpOAuth, type McpOAuthOptions } from "./oauth-config.js";
+import { deleteMcpOAuthStore } from "./oauth-store.js";
+
+export type { McpOAuthOptions };
+
 export type McpStdioConfig = {
   type: "stdio";
   command: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
+  disabled?: boolean;
 };
 
 export type McpHttpConfig = {
   type: "http";
   url: string;
+  /** Optional request headers (e.g. Authorization for authenticated endpoints). */
+  headers?: Record<string, string>;
+  /** Enable MCP OAuth 2.1 (`true` or static client registration). */
+  oauth?: true | McpOAuthOptions;
+  disabled?: boolean;
 };
 
 export type McpWsConfig = {
   type: "ws";
   url: string;
+  headers?: Record<string, string>;
+  disabled?: boolean;
 };
 
 export type McpServerConfig = McpStdioConfig | McpHttpConfig | McpWsConfig;
@@ -34,11 +47,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function parseDisabled(raw: Record<string, unknown>): boolean | undefined {
+  return raw.disabled === true ? true : undefined;
+}
+
 function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfig; warning?: string } {
   if (!isRecord(raw)) {
     return { warning: `MCP server "${name}": expected an object, skipping.` };
   }
 
+  const disabled = parseDisabled(raw);
   const type = raw.type;
   if (type === "stdio") {
     if (typeof raw.command !== "string" || !raw.command.trim()) {
@@ -65,6 +83,7 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
         args,
         env,
         cwd,
+        disabled,
       },
     };
   }
@@ -74,14 +93,27 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
       return { warning: `MCP server "${name}": ${type} transport requires a non-empty "url", skipping.` };
     }
     try {
-      // Validate URL early so bad entries fail at config load, not connect time.
       new URL(raw.url);
     } catch {
       return { warning: `MCP server "${name}": invalid url "${raw.url}", skipping.` };
     }
+    const headers =
+      raw.headers === undefined
+        ? undefined
+        : isRecord(raw.headers) &&
+            Object.entries(raw.headers).every(([k, v]) => typeof k === "string" && typeof v === "string")
+          ? (raw.headers as Record<string, string>)
+          : undefined;
+    if (raw.headers !== undefined && headers === undefined) {
+      return { warning: `MCP server "${name}": "headers" must be a string map, skipping.` };
+    }
+    const oauth = parseMcpOAuth(raw.oauth);
+    if (raw.oauth !== undefined && oauth === undefined) {
+      return { warning: `MCP server "${name}": "oauth" must be true or an object, skipping.` };
+    }
     return type === "http"
-      ? { config: { type: "http", url: raw.url } }
-      : { config: { type: "ws", url: raw.url } };
+      ? { config: { type: "http", url: raw.url, headers, oauth, disabled } }
+      : { config: { type: "ws", url: raw.url, headers, disabled } };
   }
 
   return { warning: `MCP server "${name}": unknown transport type "${String(type)}", skipping.` };
@@ -155,6 +187,7 @@ export function removeMcpServer(name: string): McpConfig {
   const { config } = loadMcpConfig();
   const servers = { ...config.servers };
   delete servers[name];
+  deleteMcpOAuthStore(name);
   const next = { servers };
   saveMcpConfig(next);
   return next;

@@ -58,6 +58,7 @@ import {
   mcpServerDetailLines,
   selectedMcpListRow,
 } from "./mcp-palette.js";
+import { mcpDetailCanAuthenticate } from "../mcp/oauth.js";
 import type { McpSessionHost } from "./session.js";
 import {
   applyWizardStep,
@@ -66,6 +67,7 @@ import {
   currentWizardStep,
   validateWizardStep,
   wizardComplete,
+  wizardNeedsOAuthAfterSave,
   wizardToServerConfig,
   type McpWizardState,
 } from "../mcp/wizard.js";
@@ -528,6 +530,22 @@ export function App(props: {
       replace: wizard.originalName,
     });
     setMcpServers(result.servers);
+    if (wizardNeedsOAuthAfterSave(wizard)) {
+      props.controller.setStatusHint(`Saved ${wizard.name} — opening browser to authenticate…`);
+      const authResult = await props.mcpHost.authenticateServer(wizard.name);
+      setMcpServers(authResult.servers);
+      if (authResult.warnings.length > 0) {
+        props.controller.setStatusHint(authResult.warnings[0]!);
+        return;
+      }
+      const server = authResult.servers.find((s) => s.name === wizard.name);
+      props.controller.setStatusHint(
+        server?.status === "connected"
+          ? `MCP ${wizard.name}: connected (${server.toolCount} tools)`
+          : (authResult.statusHint ?? `Saved MCP server ${wizard.name}`),
+      );
+      return;
+    }
     props.controller.setStatusHint(result.statusHint ?? `Saved MCP server ${wizard.name}`);
   };
 
@@ -574,6 +592,32 @@ export function App(props: {
     setMcpServers(result.servers);
     props.controller.setStatusHint(result.statusHint ?? `Removed MCP server ${name}`);
     setPalette({ phase: "mcp", menu: "list", index: 0, servers: result.servers });
+  };
+
+  const authenticateMcpServerFromPalette = async () => {
+    const p = palette();
+    if (p?.phase !== "mcp" || p.menu !== "detail" || !p.selectedName) return;
+    const name = p.selectedName;
+    const server = p.servers.find((s) => s.name === name);
+    if (!server || !mcpDetailCanAuthenticate(server)) return;
+
+    props.controller.setStatusHint(`Opening browser to authenticate ${name}…`);
+    if (server.config.type === "http" && server.config.oauth === undefined) {
+      await props.mcpHost.enableOAuth(name);
+    }
+    const result = await props.mcpHost.authenticateServer(name);
+    setMcpServers(result.servers);
+    if (result.warnings.length > 0) {
+      props.controller.setStatusHint(result.warnings[0]!);
+    } else {
+      const updated = result.servers.find((s) => s.name === name);
+      props.controller.setStatusHint(
+        updated?.status === "connected"
+          ? `MCP ${name}: connected (${updated.toolCount} tools)`
+          : (result.statusHint ?? `Authenticated MCP server ${name}`),
+      );
+    }
+    setPalette({ ...p, servers: result.servers });
   };
 
   const closeConfigPrompt = () => {
@@ -1437,6 +1481,13 @@ export function App(props: {
             setPalette({ ...p, menu: "delete" });
             return;
           }
+          if (key.name === "a") {
+            const server = p.servers.find((s) => s.name === p.selectedName);
+            if (server && mcpDetailCanAuthenticate(server)) {
+              void authenticateMcpServerFromPalette();
+              return;
+            }
+          }
           if (key.name !== undefined) return;
         }
       }
@@ -1750,11 +1801,20 @@ export function App(props: {
                     <>
                       <text fg={theme.fg} attributes={BOLD}>{s().title}</text>
                       <text fg={theme.secondary}>{s().hint}</text>
+                      <Show when={s().id === "authMode"}>
+                        <text fg={theme.muted}>oauth opens a browser login; tokens are stored separately from server config</text>
+                      </Show>
+                      <Show when={s().id === "token"}>
+                        <text fg={theme.muted}>Stored as Authorization header on this server entry</text>
+                      </Show>
+                      <Show when={s().id === "oauthClientId" || s().id === "oauthClientSecret" || s().id === "oauthScopes"}>
+                        <text fg={theme.muted}>Optional — skip with Enter if your provider uses dynamic registration</text>
+                      </Show>
                     </>
                   )}
                 </Show>
-                <text fg={theme.secondary}>
-                  Saved to ~/.orin/mcp.json
+                <text fg={theme.muted}>
+                  Configuration is saved automatically
                 </text>
               </box>
             );
@@ -2102,7 +2162,7 @@ export function App(props: {
                             <box flexDirection="column">
                               <text fg={theme.toolError} attributes={BOLD}>delete MCP server</text>
                               <text fg={theme.fg} attributes={BOLD}>{name()}</text>
-                              <text fg={theme.secondary}>  This removes the entry from ~/.orin/mcp.json and disconnects it.</text>
+                              <text fg={theme.secondary}>  This removes the server and disconnects it.</text>
                             </box>
                           )}
                         </Show>
@@ -2207,7 +2267,14 @@ export function App(props: {
                       : p().phase === "skills"
                         ? skillsPaletteHint((p() as SkillsPaletteState).menu)
                         : p().phase === "mcp"
-                          ? mcpPaletteHint((p() as McpPaletteState).menu)
+                          ? mcpPaletteHint(
+                              (p() as McpPaletteState).menu,
+                              (p() as McpPaletteState).selectedName
+                                ? (p() as McpPaletteState).servers.find(
+                                    (s) => s.name === (p() as McpPaletteState).selectedName,
+                                  )
+                                : undefined,
+                            )
                         : "↑↓ navigate · Enter select · Esc back"}
                 </text>
               </box>

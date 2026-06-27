@@ -28,6 +28,7 @@ import { getCoreTools } from "../tools/registry.js";
 import type { McpServerConfig } from "../mcp/config.js";
 import { removeMcpServer, upsertMcpServer } from "../mcp/config.js";
 import { loadMcpServers, type McpServerStatus } from "../mcp/loader.js";
+import { authenticateMcpServer, enableMcpOAuth } from "../mcp/oauth.js";
 import type { AgentContext } from "../types.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
 import { createLocalWorkspace } from "../workspace/local.js";
@@ -70,6 +71,8 @@ export interface McpSessionHost {
     opts?: { replace?: string },
   ) => Promise<McpReloadResult>;
   removeServer: (name: string) => Promise<McpReloadResult>;
+  authenticateServer: (name: string) => Promise<McpReloadResult>;
+  enableOAuth: (name: string) => Promise<McpReloadResult>;
 }
 
 export interface TuiSessionConfig {
@@ -374,6 +377,21 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     },
     removeServer: async (name) => {
       removeMcpServer(name);
+      return applyMcpLoad();
+    },
+    authenticateServer: async (name) => {
+      const result = await authenticateMcpServer(name);
+      if (!result.ok) {
+        return {
+          servers: mcpServers,
+          warnings: [`MCP OAuth failed for "${name}": ${result.error ?? "unknown error"}`],
+          statusHint: `MCP OAuth failed: ${name}`,
+        };
+      }
+      return applyMcpLoad();
+    },
+    enableOAuth: async (name) => {
+      enableMcpOAuth(name);
       return applyMcpLoad();
     },
   };

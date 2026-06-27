@@ -1,5 +1,8 @@
 import type { McpServerStatus } from "../mcp/loader.js";
-import { formatServerConfigSummary } from "../mcp/wizard.js";
+import { isMcpOAuthConfigured, mcpOAuthAuthHint } from "../mcp/oauth-config.js";
+import { mcpDetailCanAuthenticate } from "../mcp/oauth.js";
+import { mcpListStatusLabel } from "../mcp/status.js";
+import { formatServerConfigSummary, mcpAuthModeLabel } from "../mcp/wizard.js";
 
 export const MCP_ADD_ACTION = "__mcp_add__";
 export const MCP_RELOAD_ACTION = "__mcp_reload__";
@@ -32,7 +35,7 @@ export function mcpListRowLabel(row: McpListRow): string {
   if (row.kind === "add") return "+ Add server";
   if (row.kind === "reload") return "↻ Reload connections";
   const s = row.server;
-  const status = s.connected ? `${s.toolCount} tools` : "failed";
+  const status = mcpListStatusLabel(s.status, s.toolCount);
   return `${s.name}  ·  ${formatServerConfigSummary(s.config)}  ·  ${status}`;
 }
 
@@ -45,15 +48,22 @@ export function selectedMcpServer(state: McpPaletteState): McpServerStatus | und
   return row?.kind === "server" ? row.server : undefined;
 }
 
-export function mcpPaletteHint(menu: McpPaletteMenu): string {
+export function mcpPaletteHint(menu: McpPaletteMenu, server?: McpServerStatus): string {
   switch (menu) {
     case "list":
       return "↑↓ navigate · Enter select · Esc back";
     case "detail":
+      if (server && mcpDetailCanAuthenticate(server)) {
+        return "a authenticate · Enter edit · → delete · ← or Esc back";
+      }
       return "Enter edit · → delete · ← or Esc back";
     case "delete":
       return "Enter confirm delete · ← or Esc cancel";
   }
+}
+
+export function mcpServerSupportsOAuth(server: McpServerStatus): boolean {
+  return mcpDetailCanAuthenticate(server);
 }
 
 export function mcpServerDetailLines(server: McpServerStatus): string[] {
@@ -61,10 +71,32 @@ export function mcpServerDetailLines(server: McpServerStatus): string[] {
     `name: ${server.name}`,
     `transport: ${server.config.type}`,
     `config: ${formatServerConfigSummary(server.config)}`,
-    server.connected
-      ? `status: connected (${server.toolCount} tools)`
-      : `status: failed — ${server.error ?? "connection error"}`,
   ];
+  if (server.config.type === "http" || server.config.type === "ws") {
+    lines.push(`auth: ${mcpAuthModeLabel(server.config)}`);
+  }
+
+  switch (server.status) {
+    case "connected":
+      lines.push(`status: connected (${server.toolCount} tools)`);
+      break;
+    case "disabled":
+      lines.push("status: disabled");
+      break;
+    case "needs_auth":
+      lines.push("status: needs auth");
+      if (server.error) lines.push(`reason: ${server.error}`);
+      if (server.hint) lines.push(`hint: ${server.hint}`);
+      else if (isMcpOAuthConfigured(server.config)) {
+        lines.push(`hint: ${mcpOAuthAuthHint(server.name)}`);
+      }
+      break;
+    case "failed":
+      lines.push(`status: failed${server.error ? ` — ${server.error}` : ""}`);
+      if (server.hint) lines.push(`hint: ${server.hint}`);
+      break;
+  }
+
   return lines;
 }
 
