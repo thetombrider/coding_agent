@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Provider } from "./types.js";
 import {
-  lastUsedPatchForProviderSwitch,
   modelLikelySupported,
   resolveModelOnProviderSwitch,
 } from "./picker-models.js";
@@ -50,11 +49,11 @@ describe("picker-models", () => {
     expect(result.note).toContain("Llama-3.3-70B-Instruct");
   });
 
-  it("restores last-used model for the target provider", async () => {
+  it("restores the target provider main slot when pinned", async () => {
     const { saveConfig } = await import("../config/config.js");
     saveConfig({
       models: {
-        lastUsed: { regolo: { main: "qwen3-coder-next" } },
+        providers: { regolo: { main: "qwen3-coder-next" } },
       },
     });
     vi.resetModules();
@@ -97,7 +96,7 @@ describe("picker-models", () => {
           ],
         },
       },
-    });
+    } as Parameters<typeof saveConfig>[0]);
     const { loadPickerModels } = await import("./picker-models.js");
     await expect(loadPickerModels("openrouter")).resolves.toEqual([...OPENROUTER_PICKER_MODELS]);
   });
@@ -119,7 +118,12 @@ describe("picker-models", () => {
         listModelIds: async () => ["good/model", "other/model"],
       },
       pickerModels: ["good/model", "stale/model"],
-      defaultModels: { main: "good/model", cheap: "other/model" },
+      defaultSlots: {
+        main: "good/model",
+        explore: "other/model",
+        delegate_read: "other/model",
+        compaction: "other/model",
+      },
     };
     registerProvider(fake);
     expect(getProvider("fake-catalog")?.id).toBe("fake-catalog");
@@ -143,18 +147,17 @@ describe("picker-models", () => {
         listModelIds: async () => ["claude-opus-4-8", "claude-haiku-4-5-20251001"],
       },
       pickerModels: ["claude-opus-4-8", "claude-haiku-4-5"],
-      defaultModels: { main: "claude-opus-4-8", cheap: "claude-haiku-4-5" },
+      defaultSlots: {
+        main: "claude-opus-4-8",
+        explore: "claude-haiku-4-5",
+        delegate_read: "claude-haiku-4-5",
+        compaction: "claude-haiku-4-5",
+      },
     };
     registerProvider(fake);
     await expect(loadPicker("fake-dated-catalog")).resolves.toEqual([
       "claude-opus-4-8",
       "claude-haiku-4-5",
     ]);
-  });
-
-  it("builds last-used patches for provider switches", () => {
-    expect(lastUsedPatchForProviderSwitch("openrouter", "anthropic/claude-sonnet-4", "cheap/model")).toEqual({
-      openrouter: { main: "anthropic/claude-sonnet-4", cheap: "cheap/model" },
-    });
   });
 });

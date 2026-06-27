@@ -6,7 +6,7 @@ import { parseApprovalMode } from "./approval/policy.js";
 import { parseCliArgs } from "./cli-args.js";
 import { loadConfig, ensureConfigFile } from "./config/config.js";
 import { resolveSystemPrompt } from "./prompt/system.js";
-import { defaultCheapModel, defaultMainModel, loadModelConfig } from "./config/models.js";
+import { resolveProviderSlot } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { resolveActiveProvider, repairActiveProviderIfNeeded, activeProviderId } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
@@ -92,7 +92,7 @@ function resolveProvider(useFaux: boolean): { provider: StreamAssistantFn; model
     );
   }
 
-  return { provider: streamAssistant, model: defaultMainModel() };
+  return { provider: streamAssistant, model: resolveProviderSlot(active.id, "main") };
 }
 
 function resolveInteractiveProvider(useFaux: boolean): {
@@ -108,7 +108,7 @@ function resolveInteractiveProvider(useFaux: boolean): {
   const active = repairActiveProviderIfNeeded();
   return {
     provider: streamAssistant,
-    model: defaultMainModel(),
+    model: resolveProviderSlot(active.id, "main"),
     providerConfigured: active.isConfigured(),
   };
 }
@@ -122,7 +122,6 @@ async function runInteractive(opts: {
   worktree: boolean;
 }): Promise<void> {
   const { provider, model, providerConfigured } = resolveInteractiveProvider(opts.useFaux);
-  const models = loadModelConfig();
   const hostCwd = process.cwd();
   const sessionIsolation = resolveSessionIsolation(loadConfig().session?.isolation, opts.worktree);
 
@@ -172,7 +171,7 @@ async function runInteractive(opts: {
     sessionIsolation: effectiveIsolation,
     sessionMeta,
     meta: {
-      model: opts.useFaux ? "faux" : models.main,
+      model: opts.useFaux ? "faux" : model,
       provider: opts.useFaux ? "faux" : resolveActiveProvider().id,
       approval: opts.approvalMode,
       cwd: hostCwd,
@@ -287,7 +286,6 @@ async function runHeadless(opts: {
   ctx.loopHost = {
     provider,
     model,
-    cheapModel: defaultCheapModel(),
     sessionId,
     hooks,
     approval: approvalRef,
@@ -358,7 +356,7 @@ async function runOneShotMode(opts: { prompt: string; useFaux: boolean }): Promi
       );
     }
     provider = streamAssistant;
-    model = defaultMainModel();
+    model = resolveProviderSlot(active.id, "main");
   }
 
   await runOneShot(

@@ -9,12 +9,10 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveRoleModel } from "../config/config.js";
-import type { AgentPreset } from "../agent/presets.js";
-import { defaultCheapModel } from "../config/models.js";
-import { getProvider, resolveActiveProvider } from "../provider/registry.js";
+import { saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveProviderModelSlot, type ModelSlot } from "../config/config.js";
+import { getProvider, resolveActiveProvider, activeProviderId } from "../provider/registry.js";
 import { getContextWindow } from "../provider/context-window.js";
-import { lastUsedPatchForProviderSwitch, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
+import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { createCheckpointManager } from "../checkpoint/manager.js";
 import { isMutatingTool } from "../checkpoint/tracker.js";
 import { removeCheckpointRepo, scheduleCheckpointCleanup } from "../checkpoint/retention.js";
@@ -329,7 +327,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   config.ctx.loopHost = {
     provider: config.provider,
     model: activeModel,
-    cheapModel: defaultCheapModel(),
     sessionId: activeSessionId,
     onEvent: (event) => log.write(event),
     hooks: config.hooks,
@@ -367,7 +364,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     if (config.ctx.loopHost) config.ctx.loopHost.model = model;
     controller.updateMeta({ model });
     refreshContextWindow(model);
-    saveConfig({ models: { main: model } });
+    saveProviderModelSlot(config.meta.provider ?? activeProviderId(), "main", model);
   };
 
   const setApprovalMode = (mode: ApprovalMode) => {
@@ -429,15 +426,12 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     );
   };
 
-  // Persisted only — `resolvePresetModel` reads `models.roles` from config each
-  // time the task tool spawns a subagent, so no live ref needs rewiring. The
-  // override is stored per provider so it only applies where the model is valid.
-  const setRoleModel = (role: AgentPreset, model: string, providerId: string) => {
-    saveRoleModel(providerId, role, model);
+  const setModelSlot = (slot: ModelSlot, model: string, providerId: string) => {
+    saveProviderModelSlot(providerId, slot, model);
     controller.setStatusHint(
       model
-        ? `task model · ${providerId} · ${role} → ${model}`
-        : `task model · ${providerId} · ${role} → default`,
+        ? `model slot · ${providerId} · ${slot} → ${model}`
+        : `model slot · ${providerId} · ${slot} → default (use provider default)`,
     );
   };
 
@@ -451,12 +445,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       return;
     }
     const fromProvider = config.meta.provider ?? "openrouter";
-    const patch = lastUsedPatchForProviderSwitch(fromProvider, activeModel, defaultCheapModel(fromProvider));
+    saveProviderModelSlot(fromProvider, "main", activeModel);
     controller.updateMeta({ provider });
-    saveConfig({
-      provider: { active: provider },
-      models: { lastUsed: patch },
-    });
+    saveConfig({ provider: { active: provider } });
     config.meta.provider = provider;
     // Preserve the running total across the switch by seeding from the live log.
     reinstallTelemetry(rebuildSessionCost(sessionPath(activeSessionId)));
@@ -635,7 +626,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
           onSetIsolation: setSubagentIsolation,
           onSetSessionIsolation: setSessionIsolation,
           onSetTelemetryCapture: setTelemetryCapture,
-          onSetRoleModel: setRoleModel,
+          onSetModelSlot: setModelSlot,
           onSetProvider: setProvider,
           onConfigureProvider: configureProvider,
           onConfigureE2b: configureE2b,

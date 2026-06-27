@@ -27,7 +27,6 @@ export const delegateReadTool: Tool<DelegateReadArgs> = {
       cwd: ctx.cwd,
       workspace: ctx.workspace,
       signal,
-      model: ctx.loopHost?.cheapModel,
       record: ctx.loopHost?.recordLlmCall,
     });
 

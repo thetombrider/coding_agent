@@ -24,7 +24,6 @@ export interface Message {
 export interface LoopHost {
   provider: StreamAssistantFn;
   model: string;
-  cheapModel?: string;
   sessionId?: string;
   onEvent?: SessionEventCallback;
   hooks: HookRegistryImpl;

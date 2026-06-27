@@ -1,4 +1,4 @@
-import { loadConfig } from "../config/config.js";
+import { resolveProviderSlot } from "../config/models.js";
 import {
   activeProviderId,
   getProvider,
@@ -65,7 +65,7 @@ export async function loadPickerModels(providerId?: string): Promise<string[]> {
 
 /**
  * Pick a model when switching providers: keep the current model when compatible,
- * otherwise restore last-used for the target, then fall back to bundled defaults.
+ * otherwise restore the target provider's main slot.
  */
 export function resolveModelOnProviderSwitch(
   _fromProviderId: string,
@@ -75,32 +75,10 @@ export function resolveModelOnProviderSwitch(
   const target = getProvider(toProviderId);
   if (!target) return { note: "" };
 
-  const cfg = loadConfig();
-  const lastUsed = cfg.models.lastUsed ?? {};
-
   if (modelLikelySupported(target, currentModel)) {
     return { note: "" };
   }
 
-  const restored = lastUsed[toProviderId]?.main;
-  if (restored && modelLikelySupported(target, restored)) {
-    return { model: restored, note: ` · model → ${restored}` };
-  }
-
-  const fallback = target.defaultModels.main;
+  const fallback = resolveProviderSlot(toProviderId, "main");
   return { model: fallback, note: ` · model → ${fallback}` };
-}
-
-/** Persist the current model under the outgoing provider before switching away. */
-export function lastUsedPatchForProviderSwitch(
-  fromProviderId: string,
-  currentModel: string,
-  currentCheap?: string,
-): Record<string, { main: string; cheap?: string }> {
-  return {
-    [fromProviderId]: {
-      main: currentModel,
-      ...(currentCheap ? { cheap: currentCheap } : {}),
-    },
-  };
 }

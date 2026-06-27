@@ -127,8 +127,8 @@ checkpoints all live under `~/.orin/` and survive upgrades.
 | Anthropic API key | `provider.anthropic.apiKey` | Native Messages API (`/providers anthropic`). |
 | Regolo API key | `provider.regolo.apiKey` | EU-hosted, OpenAI-compatible (`/providers regolo`). |
 | Active provider | `provider.active` | e.g. `openrouter`, `anthropic`, `regolo`. |
-| Main model | `models.main` | Default agent model (default `anthropic/claude-sonnet-4.6`). |
-| Cheap model | `models.cheap` | Used by `delegate_read` and compaction (default `deepseek/deepseek-v4-flash`). |
+| Main model | `models.providers.<id>.main` | Default agent model; set via `/model`. Bundled default per provider when unset. |
+| Task / delegate / compaction models | `models.providers.<id>.<slot>` | Optional per-slot overrides (`explore`, `review`, `implement`, `delegate_read`, `compaction`). Unset slots resolve from bundled `defaultSlots` in code. |
 | Approval mode | `approval.mode` | `normal` \| `auto-accept` \| `plan`. |
 | Subagent isolation | `subagent.isolation` | `shared` \| `worktree` \| `sandbox` floor for `task` subagents. |
 | Subagent concurrency | `subagent.maxParallel` | Max `task_parallel` children running at once (default `4`). |

@@ -11,6 +11,19 @@ export interface ModelPricing {
   cacheWritePerM?: number;
 }
 
+/** User overrides for a provider's model slots (absent key = no override). */
+export interface ProviderModelSlots {
+  main?: string;
+  explore?: string;
+  review?: string;
+  implement?: string;
+  delegate_read?: string;
+  compaction?: string;
+  pickerExtras?: string[];
+}
+
+export type ModelSlot = keyof Omit<ProviderModelSlots, "pickerExtras">;
+
 /** OTLP trace exporter settings. Resolved by `resolveOtelConfig()`. */
 export interface OtelConfig {
   /** When false, the OTel subtree is never loaded. Auto-enabled if an endpoint is present. */
@@ -42,20 +55,8 @@ export interface Config {
     opencode?: { apiKey?: string };
   };
   models: {
-    main: string;
-    cheap: string;
-    /**
-     * Per-provider, per-role model overrides for subagent presets, keyed
-     * `providerId → role → model`. Provider-scoping keeps a role pinned to a
-     * model the provider actually supports, so switching providers restores
-     * that provider's own choices instead of risking an unsupported id.
-     * Empty (per provider or overall) = use tier defaults.
-     */
-    roles: Record<string, Record<string, string>>;
-    /** Per-provider extras for the `/model` picker; bundled provider lists stay authoritative. */
-    picker: Record<string, string[]>;
-    /** Last main model used per provider — restored when switching back. */
-    lastUsed: Record<string, { main: string; cheap?: string }>;
+    /** Per-provider model slot overrides — only keys the user has set. */
+    providers: Record<string, Partial<ProviderModelSlots>>;
     contextWindows: Record<string, number>;
     pricing: Record<string, ModelPricing>;
   };
@@ -110,11 +111,7 @@ type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]>
 const DEFAULT_CONFIG: Config = {
   provider: { active: "openrouter" },
   models: {
-    main: "anthropic/claude-sonnet-4.6",
-    cheap: "deepseek/deepseek-v4-flash",
-    roles: {},
-    picker: {},
-    lastUsed: {},
+    providers: {},
     contextWindows: {
       "anthropic/claude-opus-4.8": 200000,
       "anthropic/claude-sonnet-4.6": 200000,
@@ -324,6 +321,67 @@ function dropLegacyPickerOverrides(picker: Record<string, string[]>): Record<str
   return rest;
 }
 
+function migrateModelsConfig(
+  raw: Record<string, unknown>,
+  activeProvider: string,
+): Record<string, Partial<ProviderModelSlots>> {
+  const rawModels = (raw.models ?? {}) as Record<string, unknown>;
+  const existing = (rawModels.providers ?? {}) as Record<string, Partial<ProviderModelSlots>>;
+  const providers: Record<string, Partial<ProviderModelSlots>> = structuredClone(existing);
+
+  const ensure = (id: string): Partial<ProviderModelSlots> => {
+    if (!providers[id]) providers[id] = {};
+    return providers[id]!;
+  };
+
+  const globalMain = typeof rawModels.main === "string" ? rawModels.main.trim() : "";
+  const globalCheap = typeof rawModels.cheap === "string" ? rawModels.cheap.trim() : "";
+
+  const roles = normalizeRolesConfig(rawModels.roles, activeProvider);
+  for (const [providerId, roleMap] of Object.entries(roles)) {
+    const slot = ensure(providerId);
+    for (const [role, model] of Object.entries(roleMap)) {
+      if (role === "explore" && !slot.explore) slot.explore = model;
+      else if (role === "review" && !slot.review) slot.review = model;
+      else if (role === "implement" && !slot.implement) slot.implement = model;
+    }
+  }
+
+  const picker = dropLegacyPickerOverrides(normalizePickerConfig(rawModels.picker));
+  for (const [providerId, extras] of Object.entries(picker)) {
+    if (extras.length && !ensure(providerId).pickerExtras?.length) {
+      ensure(providerId).pickerExtras = extras;
+    }
+  }
+
+  const lastUsed = (rawModels.lastUsed ?? {}) as Record<string, { main?: string; cheap?: string }>;
+  for (const [providerId, entry] of Object.entries(lastUsed)) {
+    if (!entry || typeof entry !== "object") continue;
+    const slot = ensure(providerId);
+    if (entry.main?.trim() && !slot.main) slot.main = entry.main.trim();
+    const cheap = entry.cheap?.trim() || globalCheap;
+    if (cheap) {
+      if (!slot.delegate_read) slot.delegate_read = cheap;
+      if (!slot.compaction) slot.compaction = cheap;
+    }
+  }
+
+  if (globalMain && !ensure(activeProvider).main) {
+    ensure(activeProvider).main = globalMain;
+  }
+  if (globalCheap) {
+    const slot = ensure(activeProvider);
+    if (!slot.delegate_read) slot.delegate_read = globalCheap;
+    if (!slot.compaction) slot.compaction = globalCheap;
+  }
+
+  for (const id of Object.keys(providers)) {
+    if (Object.keys(providers[id]!).length === 0) delete providers[id];
+  }
+
+  return providers;
+}
+
 function buildConfig(): Config {
   const raw = readRawConfig();
   const merged = deepMerge(
@@ -331,16 +389,7 @@ function buildConfig(): Config {
     raw,
   ) as unknown as Config;
 
-  merged.models.picker = dropLegacyPickerOverrides(
-    normalizePickerConfig(
-      (raw.models as { picker?: unknown } | undefined)?.picker ?? merged.models.picker,
-    ),
-  );
-
-  merged.models.roles = normalizeRolesConfig(
-    (raw.models as { roles?: unknown } | undefined)?.roles ?? merged.models.roles,
-    merged.provider.active,
-  );
+  merged.models.providers = migrateModelsConfig(raw, merged.provider.active);
 
   // A concurrency cap below 1 would deadlock the fan-out pool; clamp to a sane
   // floor. An explicit numeric value (including 0) clamps to 1; only a missing or
@@ -436,28 +485,40 @@ export function saveProviderConfig(providerId: string, values: Record<string, st
 }
 
 /**
- * Set or clear the preferred model for a subagent role (`implement` / `review` /
- * `explore`) on a specific provider, under `models.roles[providerId]`. Passing an
- * empty value or `"default"` removes the override so the role falls back to its
- * tier default. Replaces the whole `roles` map (rather than deep-merging) so
- * clearing actually deletes the key, and normalizes any legacy flat shape first.
+ * Set or clear a model slot override for a provider under `models.providers`.
+ * Passing an empty value or `"default"` removes the override so the slot falls
+ * back to bundled defaults via `resolveProviderSlot`.
  */
-export function saveRoleModel(providerId: string, role: string, model: string): void {
+export function saveProviderModelSlot(
+  providerId: string,
+  slot: ModelSlot,
+  model: string,
+): void {
   const path = configPath();
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const raw = readRawConfig();
   const current = deepMerge(
     DEFAULT_CONFIG as unknown as Record<string, unknown>,
-    readRawConfig(),
+    raw,
   ) as unknown as Config;
-  const roles = normalizeRolesConfig(current.models.roles, current.provider.active);
-  const providerRoles = { ...(roles[providerId] ?? {}) };
+  const providers = { ...migrateModelsConfig(raw, current.provider.active) };
+  const providerSlots = { ...(providers[providerId] ?? {}) };
   const trimmed = model.trim();
-  if (!trimmed || trimmed === "default") delete providerRoles[role];
-  else providerRoles[role] = trimmed;
-  if (Object.keys(providerRoles).length > 0) roles[providerId] = providerRoles;
-  else delete roles[providerId];
-  current.models.roles = roles;
+  if (!trimmed || trimmed === "default") delete providerSlots[slot];
+  else providerSlots[slot] = trimmed;
+  if (Object.keys(providerSlots).length > 0) providers[providerId] = providerSlots;
+  else delete providers[providerId];
+
+  const models = (current.models ?? {}) as Record<string, unknown>;
+  models.providers = providers;
+  delete models.main;
+  delete models.cheap;
+  delete models.roles;
+  delete models.picker;
+  delete models.lastUsed;
+  current.models = models as Config["models"];
+
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(current, null, 2) + "\n", "utf8");
   renameSync(tmp, path);

@@ -93,7 +93,7 @@ const GO_META_CFG: OpenAiCompatibleProviderConfig = {
   configSection: "opencode",
   baseURL: OPENCODE_GO_BASE_URL,
   pickerModels: [],
-  defaultModels: { main: "", cheap: "" },
+  defaultSlots: { main: "", explore: "", delegate_read: "", compaction: "" },
 };
 
 const opencodeGoMetadata: ModelMetadataProvider = {
@@ -148,7 +148,12 @@ export const opencodeGoProvider: Provider = {
 
   metadata: opencodeGoMetadata,
   pickerModels: OPENCODE_GO_PICKER_MODELS,
-  defaultModels: { main: "kimi-k2.7", cheap: "deepseek-v4-flash" },
+  defaultSlots: {
+    main: "kimi-k2.7",
+    explore: "deepseek-v4-flash",
+    delegate_read: "deepseek-v4-flash",
+    compaction: "deepseek-v4-flash",
+  },
 };
 
 // ── Opencode Zen ──────────────────────────────────────────────────────────────
@@ -174,5 +179,10 @@ export const opencodeZenProvider = createOpenAiCompatibleProvider({
   configSection: "opencode",
   baseURL: "https://opencode.ai/zen/v1",
   pickerModels: OPENCODE_ZEN_PICKER_MODELS,
-  defaultModels: { main: "kimi-k2", cheap: "glm-4.7-free" },
+  defaultSlots: {
+    main: "kimi-k2",
+    explore: "glm-4.7-free",
+    delegate_read: "glm-4.7-free",
+    compaction: "glm-4.7-free",
+  },
 });

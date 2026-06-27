@@ -25,8 +25,8 @@ describe("ensureConfigFile", () => {
     expect(ensureConfigFile()).toBe(true);
 
     const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
-    const parsed = JSON.parse(raw) as { models: { main: string }; provider: { active: string } };
-    expect(parsed.models.main).toBe("anthropic/claude-sonnet-4.6");
+    const parsed = JSON.parse(raw) as { models: { providers: Record<string, unknown> }; provider: { active: string } };
+    expect(parsed.models.providers).toEqual({});
     expect(parsed.provider.active).toBe("openrouter");
     expect(raw.length).toBeGreaterThan(10);
   });
@@ -42,7 +42,7 @@ describe("ensureConfigFile", () => {
 
     const raw = readFileSync(configPath, "utf8").trim();
     expect(raw).not.toBe("");
-    expect(JSON.parse(raw).models.main).toBe("anthropic/claude-sonnet-4.6");
+    expect(JSON.parse(raw).models.providers).toEqual({});
   });
 
   it("leaves a non-empty config file untouched", async () => {
@@ -51,11 +51,10 @@ describe("ensureConfigFile", () => {
     const configPath = join(configDir, "config.json");
     writeFileSync(configPath, JSON.stringify({ models: { main: "custom/model" } }) + "\n", "utf8");
 
-    const { ensureConfigFile } = await import("./config.js");
+    const { ensureConfigFile, loadConfig } = await import("./config.js");
     expect(ensureConfigFile()).toBe(false);
 
-    const raw = readFileSync(configPath, "utf8");
-    expect(JSON.parse(raw).models.main).toBe("custom/model");
+    expect(loadConfig().models.providers.openrouter?.main).toBe("custom/model");
   });
 
   it("migrates a legacy flat picker array to openrouter-scoped overrides", async () => {
@@ -69,9 +68,10 @@ describe("ensureConfigFile", () => {
     );
 
     const { loadConfig } = await import("./config.js");
-    expect(loadConfig().models.picker).toEqual({
-      openrouter: ["legacy/model-a", "legacy/model-b"],
-    });
+    expect(loadConfig().models.providers.openrouter?.pickerExtras).toEqual([
+      "legacy/model-a",
+      "legacy/model-b",
+    ]);
   });
 
   it("drops legacy bundled openrouter picker overrides so new defaults apply", async () => {
@@ -102,7 +102,7 @@ describe("ensureConfigFile", () => {
     );
 
     const { loadConfig } = await import("./config.js");
-    expect(loadConfig().models.picker).toEqual({});
+    expect(loadConfig().models.providers).toEqual({});
   });
 });
 

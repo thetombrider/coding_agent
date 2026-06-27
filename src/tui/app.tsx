@@ -37,9 +37,8 @@ import {
   parentWorkspaceMenuValue,
   serialSubagentPaletteHeader,
 } from "../agent/workspace-settings.js";
-import type { AgentPreset } from "../agent/presets.js";
-import { pickerModelsForProvider } from "../config/models.js";
-import { hasE2BApiKey, hasExaApiKey, loadConfig } from "../config/config.js";
+import { hasE2BApiKey, hasExaApiKey, loadConfig, type ModelSlot } from "../config/config.js";
+import { pickerModelsForProvider, resolveProviderSlot } from "../config/models.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { loadPickerModels, resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { getContextWindow } from "../provider/context-window.js";
@@ -91,7 +90,7 @@ type PaletteState =
   | { phase: "settings-session-isolation"; index: number }
   | { phase: "settings-serial-info"; index: number }
   | { phase: "settings-parallel-info"; index: number }
-  | { phase: "settings-role"; index: number; role: AgentPreset }
+  | { phase: "settings-model-slot"; index: number; slot: ModelSlot }
   | SessionsPaletteState
   | SkillsPaletteState;
 
@@ -103,11 +102,12 @@ function liveSessionIsolation(state: SessionState): SessionIsolationMode {
   return state.meta.sessionIsolation ?? loadConfig().session?.isolation ?? "shared";
 }
 
-/** Roles a user can pin a task-tool model to, in menu order. */
-const SETTINGS_ROLES: ReadonlyArray<{ role: AgentPreset; label: string }> = [
-  { role: "implement", label: "Task model · implement (coding)" },
-  { role: "review", label: "Task model · review" },
-  { role: "explore", label: "Task model · explore" },
+const SETTINGS_MODEL_SLOTS: ReadonlyArray<{ slot: ModelSlot; label: string }> = [
+  { slot: "implement", label: "Task model · implement (coding)" },
+  { slot: "review", label: "Task model · review" },
+  { slot: "explore", label: "Task model · explore" },
+  { slot: "delegate_read", label: "Delegate read model" },
+  { slot: "compaction", label: "Compaction model" },
 ];
 
 type SettingsItem =
@@ -117,7 +117,7 @@ type SettingsItem =
   | { kind: "isolation" }
   | { kind: "parallel-info" }
   | { kind: "telemetry-capture" }
-  | { kind: "role"; role: AgentPreset; label: string };
+  | { kind: "model-slot"; slot: ModelSlot; label: string };
 
 const SETTINGS_ITEMS: readonly SettingsItem[] = [
   { kind: "session-isolation" },
@@ -126,11 +126,11 @@ const SETTINGS_ITEMS: readonly SettingsItem[] = [
   { kind: "e2b" },
   { kind: "exa" },
   { kind: "telemetry-capture" },
-  ...SETTINGS_ROLES.map((r) => ({ kind: "role" as const, role: r.role, label: r.label })),
+  ...SETTINGS_MODEL_SLOTS.map((r) => ({ kind: "model-slot" as const, slot: r.slot, label: r.label })),
 ];
 
-/** Sentinel row in the role-model picker that clears the override. */
-const ROLE_MODEL_DEFAULT = "default (use tier model)";
+/** Sentinel row in the model-slot picker that clears the override. */
+const MODEL_SLOT_DEFAULT = "default (use provider default)";
 
 type ConfigPromptState = {
   providerId: string;
@@ -182,7 +182,7 @@ export function App(props: {
   onSetIsolation: (isolation: IsolationMode) => void;
   onSetSessionIsolation: (isolation: SessionIsolationMode) => void;
   onSetTelemetryCapture: (enabled: boolean) => void;
-  onSetRoleModel: (role: AgentPreset, model: string, providerId: string) => void;
+  onSetModelSlot: (slot: ModelSlot, model: string, providerId: string) => void;
   onSetProvider: (provider: string, model?: string) => void;
   onConfigureProvider: (
     provider: string,
@@ -340,7 +340,7 @@ export function App(props: {
 
   createEffect(() => {
     const p = palette();
-    if (p?.phase !== "model" && p?.phase !== "settings-role") return;
+    if (p?.phase !== "model" && p?.phase !== "settings-model-slot") return;
     const index = p.index;
     queueMicrotask(() => scrollModelIntoView(index));
   });
@@ -400,7 +400,7 @@ export function App(props: {
 
   // Role-model picker: the provider's curated models plus a leading sentinel
   // that clears the override back to the role's tier default.
-  const roleModelList = () => [ROLE_MODEL_DEFAULT, ...pickerModels()];
+  const modelSlotList = () => [MODEL_SLOT_DEFAULT, ...pickerModels()];
 
   // Pricing comes from the static config table, which doesn't change during a
   // session. Read it once here instead of calling loadConfig() (which re-reads
@@ -894,11 +894,11 @@ export function App(props: {
         setPalette({ phase: "settings", index: p.index });
         return;
       }
-      // role
-      const list = roleModelList();
-      const current = loadConfig().models.roles?.[roleProviderId()]?.[item.role]?.trim();
+      // model slot
+      const list = modelSlotList();
+      const current = loadConfig().models.providers?.[roleProviderId()]?.[item.slot]?.trim();
       const currentIdx = current ? list.indexOf(current) : 0;
-      setPalette({ phase: "settings-role", index: Math.max(0, currentIdx), role: item.role });
+      setPalette({ phase: "settings-model-slot", index: Math.max(0, currentIdx), slot: item.slot });
       return;
     }
 
@@ -928,14 +928,14 @@ export function App(props: {
       return;
     }
 
-    if (p.phase === "settings-role") {
-      const list = roleModelList();
+    if (p.phase === "settings-model-slot") {
+      const list = modelSlotList();
       const choice = list[p.index];
       if (choice === undefined) return;
-      const model = choice === ROLE_MODEL_DEFAULT ? "" : choice;
-      props.onSetRoleModel(p.role, model, roleProviderId());
-      const roleIdx = SETTINGS_ITEMS.findIndex((i) => i.kind === "role" && i.role === p.role);
-      setPalette({ phase: "settings", index: Math.max(0, roleIdx) });
+      const model = choice === MODEL_SLOT_DEFAULT ? "" : choice;
+      props.onSetModelSlot(p.slot, model, roleProviderId());
+      const slotIdx = SETTINGS_ITEMS.findIndex((i) => i.kind === "model-slot" && i.slot === p.slot);
+      setPalette({ phase: "settings", index: Math.max(0, slotIdx) });
       return;
     }
 
@@ -1248,8 +1248,8 @@ export function App(props: {
                         ? Math.max(0, ISOLATION_MODES.length - 1)
                         : p.phase === "settings-session-isolation"
                           ? Math.max(0, SESSION_ISOLATION_MODES.length - 1)
-                          : p.phase === "settings-role"
-                          ? Math.max(0, roleModelList().length - 1)
+                          : p.phase === "settings-model-slot"
+                          ? Math.max(0, modelSlotList().length - 1)
                           : APPROVAL_MODES.length - 1;
         setPalette({ ...p, index: Math.min(maxIdx, p.index + 1) });
         return;
@@ -1260,7 +1260,7 @@ export function App(props: {
           return;
         }
         // Settings submenus step back to the settings menu, not the command list.
-        if (p.phase === "settings-isolation" || p.phase === "settings-session-isolation" || p.phase === "settings-role" || p.phase === "settings-serial-info" || p.phase === "settings-parallel-info") {
+        if (p.phase === "settings-isolation" || p.phase === "settings-session-isolation" || p.phase === "settings-model-slot" || p.phase === "settings-serial-info" || p.phase === "settings-parallel-info") {
           setPalette({ phase: "settings", index: 0 });
           return;
         }
@@ -1619,7 +1619,7 @@ export function App(props: {
 
               <Show when={p().phase === "settings"}>
                 <text fg={theme.secondary}>
-                  Subagent workspace settings above. Task model overrides below apply to {roleProviderId()} only.
+                  Subagent workspace above. Task model rows below optionally pin a model per role for {roleProviderId()}.
                 </text>
                 <For each={SETTINGS_ITEMS}>
                   {(item, i) => {
@@ -1657,7 +1657,10 @@ export function App(props: {
                                 ? PARALLEL_SUBAGENT_MENU_VALUE
                                 : item.kind === "telemetry-capture"
                                   ? (cfg().telemetry.otel.captureContent ? "on" : "off")
-                                  : (cfg().models.roles?.[roleProviderId()]?.[item.role]?.trim() || "default");
+                                  : (() => {
+                                      const pin = cfg().models.providers?.[roleProviderId()]?.[item.slot]?.trim();
+                                      return pin || resolveProviderSlot(roleProviderId(), item.slot);
+                                    })();
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
@@ -1721,32 +1724,32 @@ export function App(props: {
                 <text fg={theme.fg}>  Enter to return</text>
               </Show>
 
-              <Show when={p().phase === "settings-role"}>
+              <Show when={p().phase === "settings-model-slot"}>
                 <text fg={theme.secondary}>
-                  {(p() as { phase: "settings-role"; role: AgentPreset }).role} subagent model — saved for {roleProviderId()} (use /providers to switch)
+                  {(p() as { phase: "settings-model-slot"; slot: ModelSlot }).slot} — pick a model for {roleProviderId()}, or default to use the provider default
                 </text>
                 <scrollbox
                   ref={modelListScrollRef}
-                  height={Math.min(roleModelList().length, MODEL_LIST_MAX_VISIBLE)}
+                  height={Math.min(modelSlotList().length, MODEL_LIST_MAX_VISIBLE)}
                   scrollY
                   contentOptions={{ flexDirection: "column" }}
                 >
-                  <For each={roleModelList()}>
+                  <For each={modelSlotList()}>
                     {(model, i) => {
-                      const sp = () => p() as { phase: "settings-role"; index: number; role: AgentPreset };
+                      const sp = () => p() as { phase: "settings-model-slot"; index: number; slot: ModelSlot };
                       const selected = () => sp().index === i();
                       const providerId = () => roleProviderId();
-                      const override = () => loadConfig().models.roles?.[providerId()]?.[sp().role]?.trim() ?? "";
+                      const override = () => loadConfig().models.providers?.[providerId()]?.[sp().slot]?.trim() ?? "";
                       const isCurrent = () =>
-                        model === ROLE_MODEL_DEFAULT ? override() === "" : model === override();
+                        model === MODEL_SLOT_DEFAULT ? override() === "" : model === override();
                       const pricingLabel = () =>
-                        model === ROLE_MODEL_DEFAULT
+                        model === MODEL_SLOT_DEFAULT
                           ? ""
                           : formatModelPricingLabel(
                               resolveDisplayModelPricing(model, providerId(), modelPricing),
                             );
                       const contextLabel = () =>
-                        model === ROLE_MODEL_DEFAULT
+                        model === MODEL_SLOT_DEFAULT
                           ? ""
                           : formatContextWindowLabel(modelContextWindows()[model]);
                       return (

@@ -59,10 +59,21 @@ export interface ModelMetadataProvider {
   listModelIds(): Promise<string[]>;
 }
 
-/** Default main/cheap models when switching to or starting with a provider. */
-export interface ProviderDefaultModels {
+/** Named model slots resolved per provider (config override or bundled default). */
+export type ModelSlot =
+  | "main"
+  | "explore"
+  | "review"
+  | "implement"
+  | "delegate_read"
+  | "compaction";
+
+/** Bundled per-slot defaults when config has no override for that slot. */
+export interface ProviderDefaultSlots {
   main: string;
-  cheap: string;
+  explore: string;
+  delegate_read: string;
+  compaction: string;
 }
 
 /** How a provider authenticates (API key from config). */
@@ -120,9 +131,9 @@ export interface Provider {
   readonly metadata: ModelMetadataProvider;
   /**
    * Curated model ids shown in the `/model` picker when this provider is active.
-   * Users can append extras via `models.picker.<id>` in config.
+   * Users can append extras via `models.providers.<id>.pickerExtras` in config.
    */
   readonly pickerModels: readonly string[];
-  /** Sensible main/cheap defaults when no model is set for this provider. */
-  readonly defaultModels: ProviderDefaultModels;
+  /** Bundled defaults when config has no override for a slot. Not stored in config. */
+  readonly defaultSlots: ProviderDefaultSlots;
 }

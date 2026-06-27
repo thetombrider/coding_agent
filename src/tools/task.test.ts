@@ -497,7 +497,12 @@ describe("runSubagentTask", () => {
     expect(childEvents.every((e) => Boolean(e.subagentId))).toBe(true);
   });
 
-  it("runs the child loop on the role-resolved model (explore→cheap, review→main)", async () => {
+  it("runs the child loop on the role-resolved model (explore→explore slot, review→main slot)", async () => {
+    const { saveProviderModelSlot, __testClearCache } = await import("../config/config.js");
+    saveProviderModelSlot("openrouter", "main", "z-ai/glm-5.1");
+    saveProviderModelSlot("openrouter", "explore", "minimax/minimax-m3");
+    __testClearCache();
+
     async function modelsForAgent(agent: "explore" | "review"): Promise<string[]> {
       const provider = createStatefulFauxProvider([{ text: ["done"] }]);
       const parentHooks = createHookRegistry();
@@ -525,7 +530,6 @@ describe("runSubagentTask", () => {
         loopHost: {
           provider,
           model: "main:test",
-          cheapModel: "cheap:test",
           hooks: parentHooks,
           approval,
         },
@@ -543,11 +547,11 @@ describe("runSubagentTask", () => {
 
     const exploreTurns = await modelsForAgent("explore");
     expect(exploreTurns.length).toBeGreaterThanOrEqual(1);
-    expect(exploreTurns.every((m) => m === "cheap:test")).toBe(true);
+    expect(exploreTurns.every((m) => m === "minimax/minimax-m3")).toBe(true);
 
     const reviewTurns = await modelsForAgent("review");
     expect(reviewTurns.length).toBeGreaterThanOrEqual(1);
-    expect(reviewTurns.every((m) => m === "main:test")).toBe(true);
+    expect(reviewTurns.every((m) => m === "z-ai/glm-5.1")).toBe(true);
   });
 
   it("subagent LLM turns reach the parent accumulator tagged as subagent", async () => {
@@ -576,12 +580,15 @@ describe("runSubagentTask", () => {
       hooks: parentHooks,
       sinks: [sink],
       sessionId: "s-sub",
-      pricing: { "faux:test": { inputPerM: 1, outputPerM: 1 } },
+      pricing: { "deepseek/deepseek-v4-flash": { inputPerM: 1, outputPerM: 1 } },
     });
 
+    const { saveProviderModelSlot, __testClearCache } = await import("../config/config.js");
+    saveProviderModelSlot("openrouter", "explore", "deepseek/deepseek-v4-flash");
+    __testClearCache();
+
     const ctx = baseCtx({
-      // Pin cheapModel so the explore preset (cheap tier) still routes to faux:test.
-      loopHost: { provider, model: "faux:test", cheapModel: "faux:test", hooks: parentHooks, approval },
+      loopHost: { provider, model: "faux:test", hooks: parentHooks, approval },
     });
 
     await runSubagentTask(
@@ -597,7 +604,7 @@ describe("runSubagentTask", () => {
     expect(turns.length).toBeGreaterThanOrEqual(2);
     expect(turns.every((t) => t.source === "subagent")).toBe(true);
     expect(summary?.sourceMix.subagent).toBe(turns.length);
-    expect(summary?.modelMix["faux:test"]?.turns).toBe(turns.length);
+    expect(summary?.modelMix["deepseek/deepseek-v4-flash"]?.turns).toBe(turns.length);
   });
 });
 

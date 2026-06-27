@@ -22,7 +22,12 @@ function makeFakeProvider(overrides: Partial<Provider> = {}): Provider {
       listModelIds: async () => ["fake/model-a", "fake/model-b"],
     },
     pickerModels: ["fake/model-a", "fake/model-b"],
-    defaultModels: { main: "fake/model-a", cheap: "fake/model-b" },
+    defaultSlots: {
+      main: "fake/model-a",
+      explore: "fake/model-b",
+      delegate_read: "fake/model-b",
+      compaction: "fake/model-b",
+    },
     ...overrides,
   };
 }
@@ -138,7 +143,7 @@ describe("provider registry", () => {
     const { saveConfig } = await import("../config/config.js");
     saveConfig({
       provider: { active: "openrouter" },
-      models: { picker: { openrouter: ["custom/model-a", "custom/model-b"] } },
+      models: { providers: { openrouter: { pickerExtras: ["custom/model-a", "custom/model-b"] } } },
     });
     const { resolvePickerModels } = await import("./registry.js");
     const { OPENROUTER_PICKER_MODELS } = await import("./providers/openrouter.js");
@@ -165,7 +170,7 @@ describe("provider registry", () => {
           ],
         },
       },
-    });
+    } as Parameters<typeof saveConfig>[0]);
     const { resolvePickerModels } = await import("./registry.js");
     const { OPENROUTER_PICKER_MODELS } = await import("./providers/openrouter.js");
     expect(resolvePickerModels()).toEqual(OPENROUTER_PICKER_MODELS);

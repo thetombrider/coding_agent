@@ -5,7 +5,8 @@ import type { StreamAssistantFn } from "../provider/types.js";
 import { enrichAssistantMessage, formatToolValidationErrors } from "../provider/tool-call-parser.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { AgentContext, Message, SessionEventCallback } from "../types.js";
-import { defaultCheapModel } from "../config/models.js";
+import { activeProviderId } from "../provider/registry.js";
+import { resolveProviderSlot } from "../config/models.js";
 import { resolvePath } from "../util/paths.js";
 import {
   compactMessages,
@@ -22,8 +23,6 @@ export interface RunLoopOptions {
   provider: StreamAssistantFn;
   tools: AnyTool[];
   model: string;
-  /** Cheap model used for context compaction summarisation. */
-  cheapModel?: string;
   system?: string;
   signal?: AbortSignal;
   /** OpenRouter session id for sticky routing across turns and tool rounds. */
@@ -238,10 +237,10 @@ export async function runLoop(
 
     if (shouldCompact(ctx.messages, contextWindow, lastKnownInputTokens || undefined)) {
       await hooks.fireHook("before_compact", { messages: ctx.messages }, ctx, options.signal);
-      const cheapModel = options.cheapModel ?? defaultCheapModel();
+      const compactionModel = resolveProviderSlot(activeProviderId(), "compaction");
       ctx.messages = await compactMessages(
         ctx.messages,
-        cheapModel,
+        compactionModel,
         contextWindow,
         undefined,
         undefined,

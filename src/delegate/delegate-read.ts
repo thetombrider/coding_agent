@@ -5,8 +5,8 @@
  */
 import { relative } from "node:path";
 import { generateText } from "ai";
-import { defaultCheapModel } from "../config/models.js";
-import { resolveLanguageModel } from "../provider/registry.js";
+import { activeProviderId, resolveLanguageModel } from "../provider/registry.js";
+import { resolveProviderSlot } from "../config/models.js";
 import { resolvePath } from "../util/paths.js";
 import { findMatchingFiles } from "../tools/find.js";
 import { aiSdkUsageToUsage, type AiSdkUsage } from "../telemetry/cost.js";
@@ -124,7 +124,7 @@ export async function runDelegateRead(
   }
 
   const corpus = buildDelegateReadCorpus(files, contents);
-  const model = options.model ?? defaultCheapModel();
+  const model = options.model ?? resolveProviderSlot(activeProviderId(), "delegate_read");
 
   const { text, usage } = await generate({
     model,

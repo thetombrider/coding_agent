@@ -244,5 +244,10 @@ export const anthropicProvider = createAnthropicCompatibleProvider({
   supportsPromptCaching: (normalizedId) => normalizedId.startsWith("claude-"),
   metadata,
   pickerModels: ANTHROPIC_PICKER_MODELS,
-  defaultModels: { main: ANTHROPIC_DEFAULT_MAIN, cheap: ANTHROPIC_DEFAULT_CHEAP },
+  defaultSlots: {
+    main: ANTHROPIC_DEFAULT_MAIN,
+    explore: ANTHROPIC_DEFAULT_CHEAP,
+    delegate_read: ANTHROPIC_DEFAULT_CHEAP,
+    compaction: ANTHROPIC_DEFAULT_CHEAP,
+  },
 });

@@ -80,8 +80,8 @@ describe("opencode providers", () => {
     });
 
     it("has sensible defaults", () => {
-      expect(opencodeGoProvider.defaultModels.main).toBe("kimi-k2.7");
-      expect(opencodeGoProvider.defaultModels.cheap).toBe("deepseek-v4-flash");
+      expect(opencodeGoProvider.defaultSlots.main).toBe("kimi-k2.7");
+      expect(opencodeGoProvider.defaultSlots.explore).toBe("deepseek-v4-flash");
     });
 
     it("is registered in the provider registry", async () => {
@@ -118,8 +118,8 @@ describe("opencode providers", () => {
     });
 
     it("has sensible defaults", () => {
-      expect(opencodeZenProvider.defaultModels.main).toBe("kimi-k2");
-      expect(opencodeZenProvider.defaultModels.cheap).toBe("glm-4.7-free");
+      expect(opencodeZenProvider.defaultSlots.main).toBe("kimi-k2");
+      expect(opencodeZenProvider.defaultSlots.explore).toBe("glm-4.7-free");
     });
 
     it("is registered in the provider registry", async () => {

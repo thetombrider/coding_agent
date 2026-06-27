@@ -5,7 +5,7 @@ import { resolvePreset, type PresetDefinition } from "../agent/presets.js";
 import { maxIsolation, resolveIsolationMode, type IsolationMode } from "../agent/isolation.js";
 import { lastAssistantText, runLoop } from "../agent/loop.js";
 import { hasE2BApiKey, loadConfig } from "../config/config.js";
-import { defaultCheapModel, resolvePresetModel } from "../config/models.js";
+import { resolvePresetModel } from "../config/models.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
 import { loadToolDescription } from "../util/load-txt.js";
@@ -170,10 +170,10 @@ export async function runSubagentTask(
   // Single resolution point for the subagent's model (read by both the span
   // attribute and the spawn below). Per-subagent routing (#134): explore runs
   // on the cheap tier, implement on a code-tuned model, review on main; an
-  // explicit models.roles override wins when the active provider supports it.
+  // Per-subagent routing (#134): explore/review/implement resolve via slot pins
+  // and bundled defaults in resolvePresetModel.
   // Resolved before the subagent_start span opens so #86 can tag the chosen model.
-  const hostCheap = host.cheapModel ?? defaultCheapModel();
-  const subagentModel = resolvePresetModel(preset.agent, host.model, hostCheap);
+  const subagentModel = resolvePresetModel(preset.agent);
 
   const subagentId = randomUUID();
   const createSandbox = deps.createSandbox ?? createE2BWorkspace;
@@ -258,7 +258,6 @@ export async function runSubagentTask(
         provider: host.provider,
         tools: preset.tools,
         model: subagentModel,
-        cheapModel: hostCheap,
         system: preset.system,
         signal,
         sessionId: host.sessionId,

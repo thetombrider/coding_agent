@@ -440,8 +440,10 @@ export const openRouterProvider: Provider = {
   },
   metadata,
   pickerModels: OPENROUTER_PICKER_MODELS,
-  defaultModels: {
+  defaultSlots: {
     main: OPENROUTER_DEFAULT_MAIN,
-    cheap: OPENROUTER_DEFAULT_CHEAP,
+    explore: OPENROUTER_DEFAULT_CHEAP,
+    delegate_read: OPENROUTER_DEFAULT_CHEAP,
+    compaction: OPENROUTER_DEFAULT_CHEAP,
   },
 };

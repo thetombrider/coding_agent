@@ -13,7 +13,7 @@ vi.mock("node:os", async () => {
   };
 });
 
-describe("loadModelConfig", () => {
+describe("resolveProviderSlot", () => {
   let env: NodeJS.ProcessEnv;
   let home: string;
 
@@ -31,27 +31,29 @@ describe("loadModelConfig", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("uses fallbacks when config is unset", async () => {
-    const { loadModelConfig } = await import("./models.js");
-    expect(loadModelConfig()).toEqual({
-      main: "anthropic/claude-sonnet-4.6",
-      cheap: "deepseek/deepseek-v4-flash",
-    });
+  it("uses bundled defaults when config is unset", async () => {
+    const { resolveProviderSlot } = await import("./models.js");
+    expect(resolveProviderSlot("openrouter", "main")).toBe("anthropic/claude-sonnet-4.6");
+    expect(resolveProviderSlot("openrouter", "explore")).toBe("deepseek/deepseek-v4-flash");
+    expect(resolveProviderSlot("openrouter", "delegate_read")).toBe("deepseek/deepseek-v4-flash");
+    expect(resolveProviderSlot("openrouter", "compaction")).toBe("deepseek/deepseek-v4-flash");
   });
 
-  it("reads main and cheap models from config", async () => {
+  it("reads slot pins from config", async () => {
     const { saveConfig } = await import("./config.js");
     saveConfig({
       models: {
-        main: "openai/gpt-4o",
-        cheap: "meta-llama/llama-3.1-8b-instruct",
+        providers: {
+          openrouter: {
+            main: "openai/gpt-4o",
+            delegate_read: "meta-llama/llama-3.1-8b-instruct",
+          },
+        },
       },
     });
-    const { loadModelConfig } = await import("./models.js");
-    expect(loadModelConfig()).toEqual({
-      main: "openai/gpt-4o",
-      cheap: "meta-llama/llama-3.1-8b-instruct",
-    });
+    const { resolveProviderSlot } = await import("./models.js");
+    expect(resolveProviderSlot("openrouter", "main")).toBe("openai/gpt-4o");
+    expect(resolveProviderSlot("openrouter", "delegate_read")).toBe("meta-llama/llama-3.1-8b-instruct");
   });
 
   it("scopes picker models to the active provider", async () => {
@@ -62,14 +64,29 @@ describe("loadModelConfig", () => {
     expect(pickerModelsForProvider()).toEqual(REGOLO_PICKER_MODELS);
   });
 
-  it("uses provider defaults when the global main model is incompatible", async () => {
+  it("uses provider defaults when a pin is incompatible", async () => {
     const { saveConfig } = await import("./config.js");
     saveConfig({
       provider: { active: "regolo" },
-      models: { main: "anthropic/claude-sonnet-4" },
+      models: { providers: { regolo: { main: "anthropic/claude-sonnet-4" } } },
     });
-    const { defaultMainModel } = await import("./models.js");
-    expect(defaultMainModel()).toBe("Llama-3.3-70B-Instruct");
+    const { resolveProviderSlot } = await import("./models.js");
+    expect(resolveProviderSlot("regolo", "main")).toBe("Llama-3.3-70B-Instruct");
+  });
+
+  it("migrates legacy main into providers on load", async () => {
+    const { saveConfig, loadConfig } = await import("./config.js");
+    saveConfig({ models: { main: "custom/model" } } as Parameters<typeof saveConfig>[0]);
+    expect(loadConfig().models.providers.openrouter?.main).toBe("custom/model");
+  });
+
+  it("keeps delegate_read and compaction independent", async () => {
+    const { saveProviderModelSlot } = await import("./config.js");
+    saveProviderModelSlot("openrouter", "delegate_read", "model/a");
+    saveProviderModelSlot("openrouter", "compaction", "model/b");
+    const { resolveProviderSlot } = await import("./models.js");
+    expect(resolveProviderSlot("openrouter", "delegate_read")).toBe("model/a");
+    expect(resolveProviderSlot("openrouter", "compaction")).toBe("model/b");
   });
 });
 
@@ -91,84 +108,89 @@ describe("resolvePresetModel", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("routes explore to the host cheap model by default", async () => {
+  it("routes explore to the explore slot default", async () => {
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("cheap:test");
+    expect(resolvePresetModel("explore")).toBe("deepseek/deepseek-v4-flash");
   });
 
-  it("routes review to the host main model by default", async () => {
+  it("routes review to the main slot", async () => {
+    const { saveProviderModelSlot } = await import("./config.js");
+    saveProviderModelSlot("openrouter", "main", "z-ai/glm-5.1");
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("review", "main:test", "cheap:test")).toBe("main:test");
+    expect(resolvePresetModel("review")).toBe("z-ai/glm-5.1");
   });
 
-  it("routes implement to the code-tuned model by default when the provider supports it", async () => {
+  it("routes implement to the code-tuned model when the provider supports it", async () => {
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("implement", "main:test", "cheap:test")).toBe("moonshotai/kimi-k2.7-code");
+    expect(resolvePresetModel("implement")).toBe("moonshotai/kimi-k2.7-code");
   });
 
-  it("falls implement back to the main tier when the code model is unsupported", async () => {
+  it("falls implement back to main when the code model is unsupported", async () => {
     const { saveConfig } = await import("./config.js");
     saveConfig({ provider: { active: "regolo" } });
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("implement", "main:test", "cheap:test")).toBe("main:test");
+    expect(resolvePresetModel("implement")).toBe("Llama-3.3-70B-Instruct");
   });
 
   it("lets a provider-supported config override win over the role default", async () => {
     const { saveConfig } = await import("./config.js");
-    saveConfig({ models: { roles: { openrouter: { explore: "z-ai/glm-5.1", implement: "qwen/qwen3.7-plus" } } } });
+    saveConfig({
+      models: {
+        providers: {
+          openrouter: { explore: "z-ai/glm-5.1", implement: "qwen/qwen3.7-plus" },
+        },
+      },
+    });
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("z-ai/glm-5.1");
-    expect(resolvePresetModel("implement", "main:test", "cheap:test")).toBe("qwen/qwen3.7-plus");
+    expect(resolvePresetModel("explore")).toBe("z-ai/glm-5.1");
+    expect(resolvePresetModel("implement")).toBe("qwen/qwen3.7-plus");
   });
 
-  it("falls back to the tier default when the override is unsupported by the provider", async () => {
+  it("falls back to slot defaults when the override is unsupported by the provider", async () => {
     const { saveConfig } = await import("./config.js");
     saveConfig({
       provider: { active: "regolo" },
-      models: { roles: { regolo: { explore: "anthropic/claude-sonnet-4" } } },
+      models: { providers: { regolo: { explore: "anthropic/claude-sonnet-4" } } },
     });
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("explore", "main:test", "cheap:test")).toBe("cheap:test");
+    expect(resolvePresetModel("explore")).toBe("qwen3.5-9b");
   });
 
   it("applies a provider-scoped override only on its own provider", async () => {
     const { saveConfig } = await import("./config.js");
-    saveConfig({ models: { roles: { openrouter: { explore: "z-ai/glm-5.1" } } } });
+    saveConfig({ models: { providers: { openrouter: { explore: "z-ai/glm-5.1" } } } });
     const { resolvePresetModel } = await import("./models.js");
-    // The override is scoped to openrouter, so it applies there.
-    expect(resolvePresetModel("explore", "main:test", "cheap:test", "openrouter")).toBe("z-ai/glm-5.1");
-    // Regolo has no override of its own, so it stays on the tier default.
-    expect(resolvePresetModel("explore", "main:test", "cheap:test", "regolo")).toBe("cheap:test");
+    expect(resolvePresetModel("explore", "openrouter")).toBe("z-ai/glm-5.1");
+    expect(resolvePresetModel("explore", "regolo")).toBe("qwen3.5-9b");
   });
 
   it("keeps independent overrides per provider", async () => {
-    const { saveRoleModel } = await import("./config.js");
-    saveRoleModel("openrouter", "explore", "z-ai/glm-5.1");
-    saveRoleModel("regolo", "explore", "Llama-3.3-70B-Instruct");
+    const { saveProviderModelSlot } = await import("./config.js");
+    saveProviderModelSlot("openrouter", "explore", "z-ai/glm-5.1");
+    saveProviderModelSlot("regolo", "explore", "Llama-3.3-70B-Instruct");
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("explore", "main:test", "cheap:test", "openrouter")).toBe("z-ai/glm-5.1");
-    expect(resolvePresetModel("explore", "main:test", "cheap:test", "regolo")).toBe("Llama-3.3-70B-Instruct");
+    expect(resolvePresetModel("explore", "openrouter")).toBe("z-ai/glm-5.1");
+    expect(resolvePresetModel("explore", "regolo")).toBe("Llama-3.3-70B-Instruct");
   });
 
-  it("migrates a legacy flat override onto the active provider", async () => {
+  it("migrates a legacy flat roles override onto the active provider", async () => {
     const { saveConfig, loadConfig } = await import("./config.js");
-    // Deliberately write the pre-provider-scoping flat shape (role → model),
-    // which the typed API no longer permits, to assert it is migrated on read.
     saveConfig({
       provider: { active: "regolo" },
-      models: { roles: { explore: "Llama-3.3-70B-Instruct" } as unknown as Record<string, Record<string, string>> },
-    });
-    // loadConfig normalizes the legacy flat shape under the active provider.
-    expect(loadConfig().models.roles).toEqual({ regolo: { explore: "Llama-3.3-70B-Instruct" } });
+      models: { roles: { explore: "Llama-3.3-70B-Instruct" } },
+    } as Parameters<typeof saveConfig>[0]);
+    expect(loadConfig().models.providers.regolo?.explore).toBe("Llama-3.3-70B-Instruct");
     const { resolvePresetModel } = await import("./models.js");
-    expect(resolvePresetModel("explore", "main:test", "cheap:test", "regolo")).toBe("Llama-3.3-70B-Instruct");
+    expect(resolvePresetModel("explore", "regolo")).toBe("Llama-3.3-70B-Instruct");
   });
 
   it("clears a provider's override without touching another provider's", async () => {
-    const { saveRoleModel, loadConfig } = await import("./config.js");
-    saveRoleModel("openrouter", "explore", "z-ai/glm-5.1");
-    saveRoleModel("regolo", "explore", "Llama-3.3-70B-Instruct");
-    saveRoleModel("openrouter", "explore", "default");
-    expect(loadConfig().models.roles).toEqual({ regolo: { explore: "Llama-3.3-70B-Instruct" } });
+    const { saveProviderModelSlot, loadConfig } = await import("./config.js");
+    saveProviderModelSlot("openrouter", "explore", "z-ai/glm-5.1");
+    saveProviderModelSlot("regolo", "explore", "Llama-3.3-70B-Instruct");
+    saveProviderModelSlot("openrouter", "explore", "default");
+    expect(loadConfig().models.providers).toEqual({
+      regolo: { explore: "Llama-3.3-70B-Instruct" },
+    });
   });
 });

@@ -13,7 +13,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import type { ModelMessage } from "ai";
 import { loadConfig, type Config } from "../config/config.js";
-import type { ModelMetadataProvider, Provider, ProviderDefaultModels } from "./types.js";
+import type { ModelMetadataProvider, Provider, ProviderDefaultSlots } from "./types.js";
 
 export interface AnthropicCompatibleProviderConfig {
   id: string;
@@ -33,7 +33,7 @@ export interface AnthropicCompatibleProviderConfig {
   apiKeyLabel?: string;
   metadata: ModelMetadataProvider;
   pickerModels: readonly string[];
-  defaultModels: ProviderDefaultModels;
+  defaultSlots: ProviderDefaultSlots;
 }
 
 const EPHEMERAL_CACHE = { type: "ephemeral" as const };
@@ -134,6 +134,6 @@ export function createAnthropicCompatibleProvider(cfg: AnthropicCompatibleProvid
     },
     metadata: cfg.metadata,
     pickerModels: cfg.pickerModels,
-    defaultModels: cfg.defaultModels,
+    defaultSlots: cfg.defaultSlots,
   };
 }

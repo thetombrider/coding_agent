@@ -4,7 +4,7 @@
  */
 import { createOpenAI } from "@ai-sdk/openai";
 import { loadConfig, type Config } from "../config/config.js";
-import type { ModelMetadataProvider, Provider, ProviderDefaultModels } from "./types.js";
+import type { ModelMetadataProvider, Provider, ProviderDefaultSlots } from "./types.js";
 
 export interface OpenAiCompatibleProviderConfig {
   id: string;
@@ -17,7 +17,7 @@ export interface OpenAiCompatibleProviderConfig {
   modelsListUrl?: string;
   /** Curated ids for the `/model` picker when this provider is active. */
   pickerModels: readonly string[];
-  defaultModels: ProviderDefaultModels;
+  defaultSlots: ProviderDefaultSlots;
 }
 
 const CATALOG_TTL_MS = 60 * 60 * 1000;
@@ -234,6 +234,6 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
     },
     metadata,
     pickerModels: cfg.pickerModels,
-    defaultModels: cfg.defaultModels,
+    defaultSlots: cfg.defaultSlots,
   };
 }

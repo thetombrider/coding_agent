@@ -23,7 +23,12 @@ const testCfg = {
   baseURL: "https://api.regolo.ai/v1",
   idPrefix: "regolo:",
   pickerModels: ["Llama-3.3-70B-Instruct", "Llama-3.1-8B-Instruct"],
-  defaultModels: { main: "Llama-3.3-70B-Instruct", cheap: "Llama-3.1-8B-Instruct" },
+  defaultSlots: {
+    main: "Llama-3.3-70B-Instruct",
+    explore: "Llama-3.1-8B-Instruct",
+    delegate_read: "Llama-3.1-8B-Instruct",
+    compaction: "Llama-3.1-8B-Instruct",
+  },
 };
 
 function mockFetch(handlers: Record<string, { ok?: boolean; status?: number; body: unknown }>) {
