@@ -1,5 +1,7 @@
 import { askUserTool } from "./askuser.js";
 import { bashTool } from "./bash.js";
+import { bashKillTool } from "./bash-kill.js";
+import { bashStatusTool } from "./bash-status.js";
 import { delegateReadTool } from "./delegate-read.js";
 import { editTool } from "./edit.js";
 import { fetchTool } from "./fetch.js";
@@ -23,6 +25,8 @@ const ALL_TOOLS: AnyTool[] = [
   writeTool,
   editTool,
   bashTool,
+  bashStatusTool,
+  bashKillTool,
   grepTool,
   findTool,
   lsTool,

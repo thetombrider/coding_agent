@@ -136,6 +136,8 @@ const TOOL_VERBS: Record<string, string> = {
   write: "Writing",
   edit: "Editing",
   bash: "Running",
+  bash_status: "Checking",
+  bash_kill: "Stopping",
   grep: "Searching",
   find: "Finding",
   ls: "Listing",
@@ -156,7 +158,7 @@ function toolStatusHint(name: string, args: unknown, subagentAgent?: string): st
   let detail = "";
   if (args && typeof args === "object") {
     const r = args as Record<string, unknown>;
-    for (const key of ["path", "command", "pattern", "task", "description"] as const) {
+    for (const key of ["path", "command", "pattern", "task", "description", "job_id"] as const) {
       if (typeof r[key] === "string") {
         detail = r[key] as string;
         break;

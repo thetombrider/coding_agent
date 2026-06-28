@@ -1,10 +1,13 @@
 Run a shell command in the workspace. Use for builds, tests, git, and curl — not for reading files (use read).
 
-Do not run long-lived foreground processes (uvicorn, npm run dev, rails s, docker compose up, watch mode). They block this tool until stopped and you cannot continue.
+Foreground commands time out after 120 seconds by default. Pass a larger `timeout` (seconds) for slow builds, or use `background: true` for dev servers.
+
+Long-lived processes (uvicorn, npm run dev, rails s, docker compose up, watch mode) must use background mode:
+
+  bash({ command: "uvicorn main:app --port 8000", background: true, wait_ms: 2000 })
+
+Then probe with curl in foreground bash, check logs with bash_status, and stop with bash_kill.
 
 Prefer automated tests (pytest, TestClient, npm test) over manually starting a server.
 
-If you must verify a live server: background it, redirect output away from the shell, probe with curl, then kill it. Example:
-  uvicorn main:app --port 8000 >/tmp/server.log 2>&1 & sleep 2 && curl -s http://127.0.0.1:8000/health; kill $!
-
-Use curl for localhost HTTP checks — fetch refuses loopback hosts. Ask the user to verify in a browser when that is enough.
+Use curl or fetch for localhost HTTP checks. fetch blocks loopback by default — set `tools.fetch.allowLocalhost: true` in ~/.orin/config.json to use fetch against local dev servers. Ask the user to verify in a browser when that is enough.

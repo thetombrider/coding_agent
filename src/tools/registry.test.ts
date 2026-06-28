@@ -18,6 +18,11 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "task_parallel")).toBe(true);
   });
 
+  it("includes bash_status and bash_kill in core tools", () => {
+    expect(getCoreTools().some((t) => t.name === "bash_status")).toBe(true);
+    expect(getCoreTools().some((t) => t.name === "bash_kill")).toBe(true);
+  });
+
   it("excludes todowrite, task, task_parallel, file_op, askuser, and skill_write from child tool presets", () => {
     expect(getChildTools().some((t) => t.name === "todowrite")).toBe(false);
     expect(getChildTools().some((t) => t.name === "task")).toBe(false);

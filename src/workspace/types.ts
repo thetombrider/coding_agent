@@ -25,7 +25,7 @@ export interface Workspace {
     command: string,
     cwd: string,
     opts: WorkspaceExecOptions,
-  ): Promise<{ exitCode: number | null; truncated?: boolean }>;
+  ): Promise<{ exitCode: number | null; truncated?: boolean; timedOut?: boolean }>;
 
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;

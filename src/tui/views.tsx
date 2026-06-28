@@ -227,7 +227,10 @@ export function toolSummary(
     }
 
     if (typeof record.path === "string") return record.path;
-    if (typeof record.command === "string") return clip(record.command);
+    if (typeof record.command === "string") {
+      const bg = record.background === true ? "[bg] " : "";
+      return clip(bg + record.command);
+    }
     if (typeof record.task === "string") return clip(record.task);
     if (typeof record.description === "string") return clip(record.description);
     if (typeof record.pattern === "string") return record.pattern;

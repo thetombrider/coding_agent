@@ -573,7 +573,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       controller.setStatusHint(seedMessage);
     } catch (err) {
       await config.ctx.workspace.dispose().catch(() => {});
-      config.ctx.workspace = createLocalWorkspace();
+      config.ctx.workspace = createLocalWorkspace({ sessionId: activeSessionId });
       config.ctx.cwd = config.meta.cwd;
       controller.updateMeta({ sandbox: "local", cwd: config.ctx.cwd });
       const message = err instanceof Error ? err.message : String(err);
