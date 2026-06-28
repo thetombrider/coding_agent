@@ -70,6 +70,7 @@ describe("installDelegateReadGate", () => {
       reason: expect.stringContaining("delegate_read"),
     });
     expect((result as { reason: string }).reason).toContain("big.txt");
+    expect((result as { reason: string }).reason).toContain("search_symbols");
   });
 
   it("allows targeted reads of large files", async () => {

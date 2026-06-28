@@ -5,10 +5,12 @@ the rest of a file instead of pulling it all into context at once.
 
 Files above ~500 lines (or 64 KB) block broad reads on the main agent — use
 delegate_read for summaries and cross-file questions instead. Targeted reads with
-a small limit or an offset still work (grep first, then read the matching section).
+a small limit or an offset still work (search_symbols or grep first, then read the
+matching section).
 
 Efficient workflow:
-- grep first to find the line number where a symbol is defined
+- search_symbols (mode=definitions) to get the start line for a named function/class
+- grep for string/regex patterns when search_symbols is not enough
 - Then read with offset=<line> limit=40 to see only that section
 - Never re-read a file already in context — use grep with context=N instead
 - For whole-file understanding on large paths, use delegate_read rather than read

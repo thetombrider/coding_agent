@@ -26,10 +26,11 @@ function blockReason(path: string, lines: number, bytes: number): string {
   const sizeKb = Math.ceil(bytes / 1024);
   return (
     `File "${path}" is too large for a direct read (${lines} lines, ${sizeKb} KB). `
-    + `Use delegate_read with paths: ["${path}"] and a focused task instead — `
+    + `Use delegate_read with paths: ["${path}"] and a focused task for summaries — `
     + `raw file contents stay out of your context. `
-    + `To inspect a specific section, grep for the symbol first, then read with `
-    + `offset and limit (≤${MAX_TARGETED_READ_LINES} lines).`
+    + `To inspect a specific symbol, use search_symbols (mode=definitions) to get the `
+    + `start line, then read with offset and limit (≤${MAX_TARGETED_READ_LINES} lines). `
+    + `For string/regex patterns, grep first, then read the matching section the same way.`
   );
 }
 
