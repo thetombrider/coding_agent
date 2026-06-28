@@ -159,7 +159,7 @@ async function runInteractive(opts: {
     sessionMeta?.isolation ?? sessionIsolation;
 
   const sandboxPref = loadConfig().sandbox?.active;
-  const workspace = createLocalWorkspace();
+  const workspace = createLocalWorkspace({ sessionId });
   const ctx: AgentContext = { cwd: hostCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
   attachSymbolService(ctx, createSymbolService());
   const hooks = createSessionHooks();

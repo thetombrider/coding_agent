@@ -103,6 +103,8 @@ export interface Config {
   };
   tools?: {
     exa?: { apiKey?: string };
+    /** When true, fetch may reach loopback hosts on the local workspace only. */
+    fetch?: { allowLocalhost?: boolean };
   };
 }
 
@@ -467,6 +469,11 @@ export function saveE2BApiKey(apiKey: string): void {
   if (!trimmed) return;
   saveConfig({ sandbox: { e2b: { apiKey: trimmed } } });
   cachedConfig = undefined;
+}
+
+/** True when fetch may reach loopback hosts (local workspace only; see fetch tool). */
+export function isFetchLocalhostAllowed(): boolean {
+  return loadConfig().tools?.fetch?.allowLocalhost === true;
 }
 
 /** Persist an Exa API key under `tools.exa.apiKey` in config.json. */

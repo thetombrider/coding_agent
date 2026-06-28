@@ -1,0 +1,1 @@
+List background shell jobs started with bash (background: true). Omit job_id to list all jobs, or pass one to tail its log.

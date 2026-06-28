@@ -1,0 +1,1 @@
+Terminate a background shell job started with bash (background: true).

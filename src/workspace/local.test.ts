@@ -50,6 +50,27 @@ describe("createLocalWorkspace", () => {
     await ws.dispose();
   });
 
+  it("times out long-running commands", async () => {
+    const ws = createLocalWorkspace();
+    const { timedOut, exitCode } = await ws.exec("exec sleep 30", process.cwd(), {
+      onData: () => {},
+      timeout: 1,
+    });
+    expect(timedOut).toBe(true);
+    expect(exitCode).not.toBe(0);
+    await ws.dispose();
+  }, 10_000);
+
+  it("resolves when a background child holds stdout after shell exits", async () => {
+    const ws = createLocalWorkspace();
+    const chunks: string[] = [];
+    const { exitCode } = await ws.exec("sleep 2 & sleep 0.1", process.cwd(), {
+      onData: (c) => chunks.push(c.toString()),
+    });
+    expect(exitCode).toBe(0);
+    await ws.dispose();
+  }, 10_000);
+
   it("caps output at maxBuffer and terminates a runaway command", async () => {
     const ws = createLocalWorkspace();
     let bytes = 0;

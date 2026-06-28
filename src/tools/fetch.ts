@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { isFetchLocalhostAllowed } from "../config/config.js";
 import { loadToolDescription } from "../util/load-txt.js";
+import type { AgentContext } from "../types.js";
 import type { Tool } from "./types.js";
 
 /** Output is capped so a large page cannot blow up the model's context. */
@@ -15,12 +17,34 @@ const schema = z.object({
 
 export type FetchArgs = z.infer<typeof schema>;
 
+export interface HostBlockOptions {
+  /** When true, loopback hosts (127.x, localhost, ::1) are allowed. RFC1918 still blocked. */
+  allowLocalhost?: boolean;
+}
+
+/** Loopback-only hosts that may be allowed when `allowLocalhost` is set. */
+export function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1") return true;
+
+  const ipv4 = host.startsWith("::ffff:") ? host.slice("::ffff:".length) : host;
+  const m = ipv4.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m && Number(m[1]) === 127) return true;
+  return false;
+}
+
 /**
  * Block SSRF targets: loopback, unspecified, RFC-1918 private ranges, and
  * link-local (which covers cloud metadata endpoints). Hostname-string based,
  * matching nanocoder's `fetch_url` guard — DNS rebinding is out of scope.
+ *
+ * When `allowLocalhost` is true, loopback hosts (127.x, localhost, ::1) are
+ * permitted; private ranges and link-local remain blocked.
  */
-export function isBlockedHost(hostname: string): boolean {
+export function isBlockedHost(hostname: string, opts?: HostBlockOptions): boolean {
+  if (opts?.allowLocalhost && isLoopbackHost(hostname)) return false;
+
   const host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   if (host === "" || host === "::" || host === "::1") return true;
@@ -39,12 +63,19 @@ export function isBlockedHost(hostname: string): boolean {
   return false;
 }
 
+function hostBlockOptions(ctx: AgentContext): HostBlockOptions {
+  const allowLocalhost = ctx.workspace.kind === "local" && isFetchLocalhostAllowed();
+  return { allowLocalhost };
+}
+
 export const fetchTool: Tool<FetchArgs> = {
   name: "fetch",
   description: loadToolDescription("fetch"),
   schema,
   needsApproval: () => false,
-  async execute({ url, format }, _ctx, signal) {
+  async execute({ url, format }, ctx, signal) {
+    const blockOpts = hostBlockOptions(ctx);
+
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -54,7 +85,7 @@ export const fetchTool: Tool<FetchArgs> = {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return { output: `Refusing non-http(s) URL scheme: ${parsed.protocol}`, isError: true };
     }
-    if (isBlockedHost(parsed.hostname)) {
+    if (isBlockedHost(parsed.hostname, blockOpts)) {
       return {
         output: `Refusing to fetch private/loopback host: ${parsed.hostname}`,
         isError: true,
@@ -74,7 +105,7 @@ export const fetchTool: Tool<FetchArgs> = {
     // Re-check after redirects so a public URL can't bounce us to a private host.
     if (res.url) {
       try {
-        if (isBlockedHost(new URL(res.url).hostname)) {
+        if (isBlockedHost(new URL(res.url).hostname, blockOpts)) {
           return {
             output: `Refusing redirect to private/loopback host: ${res.url}`,
             isError: true,
