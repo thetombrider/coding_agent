@@ -62,6 +62,24 @@ describe("classifyMcpFailure", () => {
     expect(result.status).toBe("needs_auth");
     expect(result.hint).toMatch(/valid/i);
   });
+
+  it("hints at stdio args when npx cannot find an executable", () => {
+    const result = classifyMcpFailure(
+      new Error("could not determine executable to run"),
+      { type: "stdio", command: "npx", args: ["-y", "server"] },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.hint).toMatch(/server-filesystem/i);
+  });
+
+  it("hints at stdio command when the process exits immediately", () => {
+    const result = classifyMcpFailure(
+      new Error("MCP error -32000: Connection closed"),
+      { type: "stdio", command: "npx", args: ["-y", "server"] },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.hint).toMatch(/exited/i);
+  });
 });
 
 describe("shortMcpError", () => {
