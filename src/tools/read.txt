@@ -3,8 +3,14 @@ Returns up to 2000 lines by default; large files are truncated with a note telli
 you the next offset. Use `offset` (1-based start line) and `limit` to page through
 the rest of a file instead of pulling it all into context at once.
 
+Files above ~500 lines (or 64 KB) block broad reads on the main agent — use
+delegate_read for summaries and cross-file questions instead. On large files,
+targeted reads must include limit ≤ 200 (offset optional; search_symbols or grep
+first to find the line, then read that section).
+
 Efficient workflow:
-- grep first to find the line number where a symbol is defined
-- Then read with offset=<line> limit=40 to see only that section
+- search_symbols (mode=definitions) to get the start line for a named function/class
+- grep for string/regex patterns when search_symbols is not enough
+- Then read with offset=<line> limit=40 (always set both offset and a small limit)
 - Never re-read a file already in context — use grep with context=N instead
-- Only read the full file when you genuinely need the whole picture
+- For whole-file understanding on large paths, use delegate_read rather than read
