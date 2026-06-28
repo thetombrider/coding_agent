@@ -85,6 +85,23 @@ export function classifyMcpFailure(
     };
   }
 
+  if (config.type === "stdio") {
+    if (/could not determine executable/i.test(message)) {
+      return {
+        status: "failed",
+        reason,
+        hint: `Check stdio args for "${config.command}" — e.g. npx -y @modelcontextprotocol/server-filesystem .`,
+      };
+    }
+    if (/connection closed/i.test(message)) {
+      return {
+        status: "failed",
+        reason,
+        hint: `Stdio server "${config.command}" exited — check command and args in /mcp → edit.`,
+      };
+    }
+  }
+
   return { status: "failed", reason };
 }
 
