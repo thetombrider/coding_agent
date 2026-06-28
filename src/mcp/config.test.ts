@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -41,7 +41,11 @@ describe("loadMcpConfig", () => {
       join(home, ".orin", "mcp.json"),
       JSON.stringify({
         servers: {
-          fs: { type: "stdio", command: "npx", args: ["-y", "server"] },
+          fs: {
+            type: "stdio",
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
+          },
           github: { type: "http", url: "https://mcp.example.com/github" },
         },
       }),
@@ -52,12 +56,41 @@ describe("loadMcpConfig", () => {
     expect(config.servers.fs).toEqual({
       type: "stdio",
       command: "npx",
-      args: ["-y", "server"],
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
     });
     expect(config.servers.github).toEqual({
       type: "http",
       url: "https://mcp.example.com/github",
     });
+  });
+
+  it("auto-repairs npx -y server placeholder to the filesystem MCP package", async () => {
+    mkdirSync(join(home, ".orin"), { recursive: true });
+    const path = join(home, ".orin", "mcp.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        servers: {
+          fs: { type: "stdio", command: "npx", args: ["-y", "server"] },
+        },
+      }),
+    );
+    const { loadMcpConfig } = await import("./config.js");
+    const { config, warnings } = loadMcpConfig();
+    expect(config.servers.fs?.args).toEqual([
+      "-y",
+      "@modelcontextprotocol/server-filesystem",
+      ".",
+    ]);
+    expect(warnings.some((w) => w.includes("repaired stdio args"))).toBe(true);
+    const saved = JSON.parse(readFileSync(path, "utf8")) as {
+      servers: { fs: { args: string[] } };
+    };
+    expect(saved.servers.fs.args).toEqual([
+      "-y",
+      "@modelcontextprotocol/server-filesystem",
+      ".",
+    ]);
   });
 
   it("skips invalid server entries with warnings", async () => {

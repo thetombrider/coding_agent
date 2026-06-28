@@ -119,6 +119,54 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
   return { warning: `MCP server "${name}": unknown transport type "${String(type)}", skipping.` };
 }
 
+/** Common misconfig: wizard/tests placeholder `npx -y server` instead of the filesystem package. */
+export const FILESYSTEM_MCP_NPX_ARGS = ["-y", "@modelcontextprotocol/server-filesystem", "."] as const;
+
+export function repairFilesystemStdioConfig(config: McpStdioConfig): {
+  config: McpStdioConfig;
+  repaired: boolean;
+} {
+  if (
+    config.command === "npx" &&
+    config.args?.length === 2 &&
+    config.args[0] === "-y" &&
+    config.args[1] === "server"
+  ) {
+    return {
+      config: { ...config, args: [...FILESYSTEM_MCP_NPX_ARGS] },
+      repaired: true,
+    };
+  }
+  return { config, repaired: false };
+}
+
+function repairLoadedServers(servers: Record<string, McpServerConfig>): {
+  servers: Record<string, McpServerConfig>;
+  warnings: string[];
+  changed: boolean;
+} {
+  const warnings: string[] = [];
+  let changed = false;
+  const next: Record<string, McpServerConfig> = {};
+
+  for (const [name, server] of Object.entries(servers)) {
+    if (server.type !== "stdio") {
+      next[name] = server;
+      continue;
+    }
+    const { config, repaired } = repairFilesystemStdioConfig(server);
+    next[name] = config;
+    if (repaired) {
+      changed = true;
+      warnings.push(
+        `MCP server "${name}": repaired stdio args from "npx -y server" to @modelcontextprotocol/server-filesystem .`,
+      );
+    }
+  }
+
+  return { servers: next, warnings, changed };
+}
+
 /** Global MCP config path: `~/.orin/mcp.json`. */
 export function mcpConfigPath(): string {
   return join(homedir(), ".orin", "mcp.json");
@@ -159,7 +207,13 @@ export function loadMcpConfig(): { config: McpConfig; warnings: string[] } {
     else if (result.config) servers[name] = result.config;
   }
 
-  return { config: { servers }, warnings };
+  const repaired = repairLoadedServers(servers);
+  warnings.push(...repaired.warnings);
+  if (repaired.changed) {
+    saveMcpConfig({ servers: repaired.servers });
+  }
+
+  return { config: { servers: repaired.servers }, warnings };
 }
 
 /** Persist MCP config to `~/.orin/mcp.json`. */
