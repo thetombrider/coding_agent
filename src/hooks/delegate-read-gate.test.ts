@@ -23,7 +23,11 @@ describe("isBroadRead", () => {
   it("allows targeted reads", () => {
     expect(isBroadRead({ path: "a.ts", limit: MAX_TARGETED_READ_LINES })).toBe(false);
     expect(isBroadRead({ path: "a.ts", offset: 100, limit: 50 })).toBe(false);
-    expect(isBroadRead({ path: "a.ts", offset: 500 })).toBe(false);
+  });
+
+  it("treats offset-only and oversized limits as broad", () => {
+    expect(isBroadRead({ path: "a.ts", offset: 500 })).toBe(true);
+    expect(isBroadRead({ path: "a.ts", offset: 100, limit: MAX_TARGETED_READ_LINES + 1 })).toBe(true);
   });
 });
 
@@ -85,6 +89,12 @@ describe("installDelegateReadGate", () => {
 
     const paged = await fireRead({ path: "big.txt", offset: 100, limit: 40 });
     expect(paged).toBeUndefined();
+
+    const offsetOnly = await fireRead({ path: "big.txt", offset: 100 });
+    expect(offsetOnly).toEqual({
+      block: true,
+      reason: expect.stringContaining("delegate_read"),
+    });
   });
 
   it("blocks broad reads of byte-heavy files", async () => {
@@ -92,6 +102,20 @@ describe("installDelegateReadGate", () => {
     await writeTool.execute({ path: "chunk.js", content: body }, ctx, new AbortController().signal);
 
     const result = await fireRead({ path: "chunk.js" });
+    expect(result).toEqual({
+      block: true,
+      reason: expect.stringContaining("delegate_read"),
+    });
+  });
+
+  it("uses UTF-8 byte size for the byte threshold", async () => {
+    const emoji = "🎉";
+    const body = emoji.repeat(Math.ceil((DELEGATE_READ_BYTE_THRESHOLD + 1) / Buffer.byteLength(emoji, "utf8")));
+    expect(body.length).toBeLessThan(DELEGATE_READ_BYTE_THRESHOLD);
+    expect(Buffer.byteLength(body, "utf8")).toBeGreaterThan(DELEGATE_READ_BYTE_THRESHOLD);
+    await writeTool.execute({ path: "wide.txt", content: body }, ctx, new AbortController().signal);
+
+    const result = await fireRead({ path: "wide.txt" });
     expect(result).toEqual({
       block: true,
       reason: expect.stringContaining("delegate_read"),

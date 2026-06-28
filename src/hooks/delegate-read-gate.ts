@@ -6,7 +6,7 @@ import type { HookRegistry } from "./types.js";
 export const DELEGATE_READ_LINE_THRESHOLD = 500;
 /** Same for byte-heavy files (e.g. minified bundles). */
 export const DELEGATE_READ_BYTE_THRESHOLD = 64 * 1024;
-/** Small limit-only reads from the start of a file stay allowed on large files. */
+/** Reads with limit ≤ this cap stay allowed on large files (offset optional). */
 export const MAX_TARGETED_READ_LINES = 200;
 
 function countLines(content: string): number {
@@ -17,7 +17,6 @@ function countLines(content: string): number {
 
 /** True when the read would pull a large unbounded slice into the main context. */
 export function isBroadRead(args: ReadArgs): boolean {
-  if (args.offset !== undefined) return false;
   if (args.limit !== undefined && args.limit <= MAX_TARGETED_READ_LINES) return false;
   return true;
 }
@@ -54,7 +53,7 @@ export function installDelegateReadGate(hooks: HookRegistry): void {
     }
 
     const lines = countLines(content);
-    const bytes = content.length;
+    const bytes = Buffer.byteLength(content, "utf8");
     if (lines <= DELEGATE_READ_LINE_THRESHOLD && bytes <= DELEGATE_READ_BYTE_THRESHOLD) {
       return;
     }
