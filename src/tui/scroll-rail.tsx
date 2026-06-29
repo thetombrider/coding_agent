@@ -35,7 +35,14 @@ export function ScrollRail(props: {
   };
 
   return (
-    <Show when={layout()}>
+    <Show
+      when={layout()}
+      // Truthy 0-width placeholder. The server/test renderer's no-fallback <Show>
+      // yields "" (an orphan text node in the surrounding <box>); a no-op
+      // 1×0 element sidesteps that without changing real-renderer behavior,
+      // since a 0-wide flex item renders no pixels.
+      fallback={<box flexShrink={0} width={0} />}
+    >
       {(m) => (
         // No explicit height: stretch to the flex row instead. Pinning the box to
         // a fixed `m().track` (read on a lagging revision) let the rail overflow

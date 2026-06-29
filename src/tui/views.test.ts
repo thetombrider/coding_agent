@@ -10,6 +10,7 @@ import {
   showTodoSidebar,
   shouldWrapToolSummary,
   toolSummary,
+  wrapLineCount,
   TOOL_SUMMARY_INLINE_MAX,
 } from "./views.js";
 import type { TodoItem } from "../todos/types.js";
@@ -149,5 +150,29 @@ describe("shouldWrapToolSummary", () => {
     const long = "x".repeat(TOOL_SUMMARY_INLINE_MAX + 1);
     expect(shouldWrapToolSummary(long)).toBe(true);
     expect(shouldWrapToolSummary("x".repeat(TOOL_SUMMARY_INLINE_MAX))).toBe(false);
+  });
+});
+
+describe("wrapLineCount", () => {
+  it("fits a short prompt on one row", () => {
+    expect(wrapLineCount("allow bash?  ls -la  —  y / n", 71)).toBe(1);
+  });
+
+  it("wraps a long single token char-by-char across many rows", () => {
+    // A 760-char token with no spaces wraps one width-chunk per row.
+    expect(wrapLineCount("x".repeat(760), 56)).toBe(Math.ceil(760 / 56));
+  });
+
+  it("packs words with single separating spaces until the row is full", () => {
+    // 11 words of 5 chars + 10 spaces = 65 chars fits in exactly one 65-wide row.
+    expect(wrapLineCount(Array.from({ length: 11 }, () => "word.").join(" "), 65)).toBe(1);
+    // One column narrower and the last word wraps to a second row.
+    expect(wrapLineCount(Array.from({ length: 11 }, () => "word.").join(" "), 64)).toBe(2);
+  });
+
+  it("handles degenerate widths without throwing", () => {
+    expect(wrapLineCount("anything", 0)).toBe(1);
+    expect(wrapLineCount("", 40)).toBe(1);
+    expect(wrapLineCount("   ", 40)).toBe(1);
   });
 });

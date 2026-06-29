@@ -350,6 +350,9 @@ export function App(props: {
   let sessionListScrollRef: ScrollBoxRenderable | undefined;
   let modelListScrollRef: ScrollBoxRenderable | undefined;
   let skillsListScrollRef: ScrollBoxRenderable | undefined;
+  let approvalScrollRef: ScrollBoxRenderable | undefined;
+  const [approvalRailRevision, setApprovalRailRevision] = createSignal(0);
+  const bumpApprovalRail = () => setApprovalRailRevision((n) => n + 1);
   let inputRef: InputRenderable | undefined;
 
   const scrollSessionIntoView = (index: number) => {
@@ -1361,9 +1364,54 @@ export function App(props: {
     }
 
     if (phase === "approval") {
-      if (key.name === "y") props.controller.respondApproval(true);
-      if (key.name === "n") props.controller.respondApproval(false);
-      if (key.name === "escape" && !renderer.hasSelection) props.controller.respondApproval(false);
+      // preventDefault keeps the (still-focused) input renderable from also
+      // capturing the keystroke — without it pressing "y" to approve would
+      // both answer the prompt and type a stray "y" into the input box.
+      key.preventDefault();
+      if (key.name === "y") {
+        props.controller.respondApproval(true);
+        return;
+      }
+      if (key.name === "n") {
+        props.controller.respondApproval(false);
+        return;
+      }
+      if (key.name === "escape" && !renderer.hasSelection) {
+        props.controller.respondApproval(false);
+        return;
+      }
+      // Scroll a large (scrollbox) approval prompt. Short prompts render as
+      // plain text and leave approvalScrollRef unset, so these are no-ops.
+      const ref = approvalScrollRef;
+      if (ref) {
+        const page = Math.max(3, Math.floor(ref.viewport.height / 2));
+        switch (key.name) {
+          case "up":
+            ref.scrollBy({ x: 0, y: -2 });
+            bumpApprovalRail();
+            return;
+          case "down":
+            ref.scrollBy({ x: 0, y: 2 });
+            bumpApprovalRail();
+            return;
+          case "pageup":
+            ref.scrollBy({ x: 0, y: -page });
+            bumpApprovalRail();
+            return;
+          case "pagedown":
+            ref.scrollBy({ x: 0, y: page });
+            bumpApprovalRail();
+            return;
+          case "home":
+            ref.scrollTo({ x: 0, y: 0 });
+            bumpApprovalRail();
+            return;
+          case "end":
+            ref.scrollTo({ x: 0, y: ref.scrollHeight });
+            bumpApprovalRail();
+            return;
+        }
+      }
       return;
     }
 
@@ -1693,7 +1741,15 @@ export function App(props: {
       <Show when={state().pendingApproval}>
         {(pending) => (
           <box flexShrink={0}>
-            <ApprovalBar name={pending().name} args={pending().args} />
+            <ApprovalBar
+              name={pending().name}
+              args={pending().args}
+              scrollRef={(r) => {
+                approvalScrollRef = r;
+              }}
+              railRevision={approvalRailRevision}
+              onScroll={bumpApprovalRail}
+            />
           </box>
         )}
       </Show>

@@ -1,4 +1,5 @@
-import { createTextAttributes } from "@opentui/core";
+import { createTextAttributes, type ScrollBoxRenderable } from "@opentui/core";
+import { useTerminalDimensions } from "@opentui/solid";
 import { formatMcpToolLabel, isMcpTool } from "../mcp/names.js";
 import type { ModelPricing } from "../config/config.js";
 import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
@@ -7,10 +8,11 @@ import type { TodoItem, TodoStatus } from "../todos/types.js";
 import { countCompletedTodos, hasActiveTodos } from "../todos/store.js";
 import type { SessionPhase } from "./controller.js";
 import { DiffView } from "./diff.js";
-import { ToolOutputView, ReasoningOutputView } from "./expandable.js";
+import { ReasoningOutputView, stopToolOutputScrollBubble, ToolOutputView } from "./expandable.js";
 import { Markdown } from "./markdown.js";
+import { ScrollRail } from "./scroll-rail.js";
 import { spinnerFrame } from "./spinner.js";
-import { surfaceSelection, theme } from "./theme.js";
+import { hiddenNativeScrollbar, scrollbars, surfaceSelection, theme } from "./theme.js";
 import { useToolExpand } from "./tool-expand.js";
 import { outputExpandHint } from "./tool-output.js";
 
@@ -181,6 +183,48 @@ export function formatContextWindowLabel(tokens?: number): string {
 
 const TOOL_SUMMARY_MAX = 56;
 const READ_SUMMARY_MAX = 60;
+
+/** Tallest the approval prompt can grow before it scrolls instead of expanding. */
+const APPROVAL_MAX_ROWS = 12;
+
+/**
+ * Estimate how many terminal rows `text` occupies once word-wrapped to `width`.
+ * Matches OpenTUI's word-wrap closely enough to decide whether the approval
+ * prompt needs a scrollbox: long tokens that exceed the width wrap char-by-char,
+ * just like the rendered `<text wrapMode="word">`.
+ */
+export function wrapLineCount(text: string, width: number): number {
+  if (width <= 0) return 1;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 1;
+  let lines = 1;
+  let col = 0;
+  for (const rawWord of words) {
+    let word = rawWord;
+    while (word.length > 0) {
+      if (col === 0) {
+        // Place up to `width` chars of the word on the current line. If
+        // anything is left, it begins a new line at column 0 — no leading
+        // space, since we're continuing the same token across the wrap.
+        const take = Math.min(word.length, width);
+        word = word.slice(take);
+        if (word.length > 0) {
+          lines++;
+          col = 0;
+        } else {
+          col = take;
+        }
+      } else if (col + 1 + word.length <= width) {
+        col += 1 + word.length;
+        word = "";
+      } else {
+        lines++;
+        col = 0;
+      }
+    }
+  }
+  return lines;
+}
 
 /** Summaries longer than this wrap to a second line once the tool completes. */
 export const TOOL_SUMMARY_INLINE_MAX = TOOL_SUMMARY_MAX;
@@ -565,8 +609,48 @@ export function Header(props: {
   );
 }
 
-export function ApprovalBar(props: { name: string; args: unknown }) {
+export function ApprovalBar(props: {
+  name: string;
+  args: unknown;
+  /** Receives the inner scrollbox ref so the host can drive keyboard scrolling. */
+  scrollRef?: (ref: ScrollBoxRenderable | undefined) => void;
+  /** Re-read scroll geometry when this changes (mouse or keyboard scrolling). */
+  railRevision: () => number;
+  /** Bumped by the scrollbox on wheel scroll so the rail thumb refreshes. */
+  onScroll: () => void;
+}) {
   const label = () => (isMcpTool(props.name) ? formatMcpToolLabel(props.name) : props.name);
+  const summary = () => toolSummary(props.name, props.args, { truncate: false });
+  // The prompt is one logical line; "—  y / n" is appended so the affordance
+  // stays visible even when the command scrolls past it.
+  const prompt = () => `allow ${label()}?  ${summary()}  —  y / n`;
+
+  const dims = useTerminalDimensions();
+  // Cap the prompt so a huge bash command can't eat the whole screen — leave
+  // room for the header, input, and conversation context. Grows with the
+  // terminal but never above APPROVAL_MAX_ROWS.
+  const maxRows = () =>
+    Math.max(4, Math.min(APPROVAL_MAX_ROWS, Math.floor(dims().height * 0.4)));
+  // Inner text width: app padding (2+2) + bar border (2) + bar padding (1+1).
+  // When the rail is shown it claims one column, so the scrollable case wraps
+  // one column narrower — use that narrower width for the line-count estimate
+  // so we switch to the scrollbox before the rendered text would clip.
+  const textWidth = () => Math.max(1, dims().width - 9);
+  const scrollable = () => wrapLineCount(prompt(), textWidth()) > maxRows();
+
+  let scrollRef: ScrollBoxRenderable | undefined;
+
+  // Report the scrollbox ref to the host only while the scrollbox is mounted,
+  // and clear it when the prompt shrinks back to plain text or the bar unmounts
+  // — otherwise the host would drive keyboard scroll against a destroyed box.
+  // The mount report lives in the ref callback (runs in both the real and the
+  // server/test renderer, unlike createEffect); the effect below only covers
+  // the terminal-resize flip from scrollable back to plain text in the real app.
+  createEffect(() => {
+    props.scrollRef?.(scrollable() ? scrollRef : undefined);
+  });
+  onCleanup(() => props.scrollRef?.(undefined));
+
   return (
     <box
       flexShrink={0}
@@ -581,9 +665,42 @@ export function ApprovalBar(props: { name: string; args: unknown }) {
       borderColor={theme.border}
       backgroundColor={theme.codeBg}
     >
-      <text fg={theme.approval} attributes={BOLD} wrapMode="word" flexGrow={1}>
-        allow {label()}?  {toolSummary(props.name, props.args, { truncate: false })}  —  y / n
-      </text>
+      <Show
+        when={scrollable()}
+        fallback={
+          <text fg={theme.approval} attributes={BOLD} wrapMode="word" flexGrow={1}>
+            {prompt()}
+          </text>
+        }
+      >
+        <box flexDirection="row" height={maxRows()}>
+          <scrollbox
+            ref={(r: ScrollBoxRenderable) => {
+              scrollRef = r;
+              props.scrollRef?.(r);
+            }}
+            flexGrow={1}
+            height={maxRows()}
+            scrollY
+            contentOptions={{ flexDirection: "column" }}
+            {...hiddenNativeScrollbar}
+            onMouseScroll={(event) => {
+              stopToolOutputScrollBubble(scrollRef, event);
+              props.onScroll();
+            }}
+          >
+            <text fg={theme.approval} attributes={BOLD} wrapMode="word" flexGrow={1}>
+              {prompt()}
+            </text>
+          </scrollbox>
+          <ScrollRail
+            scrollRef={() => scrollRef}
+            revision={props.railRevision()}
+            trackColor={scrollbars.toolOutput.track}
+            thumbColor={scrollbars.toolOutput.thumb}
+          />
+        </box>
+      </Show>
     </box>
   );
 }
