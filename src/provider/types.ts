@@ -79,7 +79,9 @@ export interface ProviderDefaultSlots {
 /** How a provider authenticates (API key from config). */
 export type AuthStrategy = "api-key";
 
-/** A user-editable config field persisted under `provider.<id>.<key>`. */
+/** A user-editable config field persisted under `provider.<section>.<key>`.
+ *  `section` defaults to the provider's `id` unless overridden by `configSection`.
+ */
 export interface ProviderConfigField {
   key: string;
   label: string;
@@ -106,6 +108,12 @@ export interface Provider {
    * persist to `~/.orin/config.json`.
    */
   readonly configFields?: readonly ProviderConfigField[];
+  /**
+   * Config section key under `provider.<section>` where this provider's fields
+   * are stored. Defaults to the provider's `id`. Used when multiple providers
+   * share credentials (e.g. opencode-go and opencode-zen both use `opencode`).
+   */
+  readonly configSection?: string;
   /** True when credentials are available in config. */
   isConfigured(): boolean;
   /** Map our internal model id to the provider-native id. */

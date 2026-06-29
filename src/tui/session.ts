@@ -537,8 +537,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     values: Record<string, string>,
     activate: boolean,
   ) => {
-    saveProviderConfig(providerId, values);
-    const display = getProvider(providerId)?.displayName ?? providerId;
+    const provider = getProvider(providerId);
+    saveProviderConfig(providerId, values, provider?.configSection);
+    const display = provider?.displayName ?? providerId;
     controller.updateMeta({ providerConfigured: true });
     if (activate) {
       const fromProvider = config.meta.provider ?? "openrouter";

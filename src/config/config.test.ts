@@ -165,6 +165,18 @@ describe("API key onboarding", () => {
     expect(JSON.parse(raw).provider.openrouter.apiKey).toBe("sk-trimmed");
   });
 
+  it("saveProviderConfig writes to an overridden config section", async () => {
+    const { saveProviderConfig, loadConfig } = await import("./config.js");
+    saveProviderConfig("opencode-go", { apiKey: "sk-opencode" }, "opencode");
+
+    expect(loadConfig().provider.opencode?.apiKey).toBe("sk-opencode");
+
+    const raw = readFileSync(join(home, ".orin", "config.json"), "utf8");
+    const parsed = JSON.parse(raw) as { provider?: Record<string, unknown> };
+    expect(parsed.provider?.opencode).toEqual({ apiKey: "sk-opencode" });
+    expect(parsed.provider?.["opencode-go"]).toBeUndefined();
+  });
+
   it("reports no E2B key when config does not provide one", async () => {
     const { hasE2BApiKey } = await import("./config.js");
     expect(hasE2BApiKey()).toBe(false);

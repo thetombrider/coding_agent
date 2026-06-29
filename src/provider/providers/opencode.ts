@@ -123,6 +123,7 @@ export const opencodeGoProvider: Provider = {
   displayName: "Opencode Go",
   authStrategy: "api-key",
   configFields: OPENCODE_GO_CONFIG_FIELDS,
+  configSection: "opencode",
 
   isConfigured() {
     return Boolean(getOpencodeApiKey());

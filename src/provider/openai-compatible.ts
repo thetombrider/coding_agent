@@ -223,6 +223,7 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
         secret: true,
       },
     ],
+    configSection: cfg.configSection,
     isConfigured() {
       return Boolean(resolveApiKey());
     },

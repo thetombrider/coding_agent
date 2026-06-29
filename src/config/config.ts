@@ -484,14 +484,21 @@ export function saveExaApiKey(apiKey: string): void {
   cachedConfig = undefined;
 }
 
-/** Persist provider-specific settings under `provider.<id>.<key>` in config.json. */
-export function saveProviderConfig(providerId: string, values: Record<string, string>): void {
+/**
+ * Persist provider-specific settings under `provider.<section>.<key>` in
+ * config.json. `section` defaults to `providerId` when omitted.
+ */
+export function saveProviderConfig(
+  providerId: string,
+  values: Record<string, string>,
+  configSection?: string,
+): void {
   const section: Record<string, string> = {};
   for (const [key, value] of Object.entries(values)) {
     const trimmed = value.trim();
     if (trimmed) section[key] = trimmed;
   }
-  saveConfig({ provider: { [providerId]: section } } as DeepPartial<Config>);
+  saveConfig({ provider: { [configSection ?? providerId]: section } } as DeepPartial<Config>);
   cachedConfig = undefined;
 }
 

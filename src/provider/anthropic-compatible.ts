@@ -132,6 +132,7 @@ export function createAnthropicCompatibleProvider(cfg: AnthropicCompatibleProvid
     markCacheBreakpoints(aiMessages, modelId) {
       if (cachingEnabledFor(modelId)) markAnthropicCacheBreakpoints(aiMessages);
     },
+    configSection: cfg.configSection,
     metadata: cfg.metadata,
     pickerModels: cfg.pickerModels,
     defaultSlots: cfg.defaultSlots,

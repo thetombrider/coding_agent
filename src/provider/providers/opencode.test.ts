@@ -35,10 +35,23 @@ describe("opencode providers", () => {
     expect(zen.isConfigured()).toBe(true);
   });
 
+  it("saveProviderConfig for opencode-go writes to the shared opencode section", async () => {
+    const { saveProviderConfig } = await import("../../config/config.js");
+    saveProviderConfig("opencode-go", { apiKey: "sk-opencode-shared" }, "opencode");
+    vi.resetModules();
+    const { opencodeGoProvider: go, opencodeZenProvider: zen } = await import("./opencode.js");
+    expect(go.isConfigured()).toBe(true);
+    expect(zen.isConfigured()).toBe(true);
+  });
+
   describe("opencode-go", () => {
     it("has correct provider id and display name", () => {
       expect(opencodeGoProvider.id).toBe("opencode-go");
       expect(opencodeGoProvider.displayName).toBe("Opencode Go");
+    });
+
+    it("shares the opencode config section", () => {
+      expect(opencodeGoProvider.configSection).toBe("opencode");
     });
 
     it("exposes api key config field", () => {
@@ -95,6 +108,10 @@ describe("opencode providers", () => {
     it("has correct provider id and display name", () => {
       expect(opencodeZenProvider.id).toBe("opencode-zen");
       expect(opencodeZenProvider.displayName).toBe("Opencode Zen");
+    });
+
+    it("shares the opencode config section", () => {
+      expect(opencodeZenProvider.configSection).toBe("opencode");
     });
 
     it("exposes api key config field", () => {
