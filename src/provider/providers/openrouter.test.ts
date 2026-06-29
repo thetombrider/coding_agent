@@ -90,12 +90,13 @@ describe("openrouter-models", () => {
     const fetchImpl = mockFetch({
       "/api/v1/model/unknown/model": { ok: false, status: 404, body: {} },
       "/api/v1/models": { body: SAMPLE_CATALOG },
+      "models.dev/api.json": { body: { openrouter: { models: {} } } },
     });
 
     await expect(lookupOpenRouterContextWindow("unknown/model", fetchImpl)).resolves.toBeUndefined();
-    const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls;
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(String(calls[1]?.[0])).toContain("/api/v1/models");
+    const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(calls.filter((u) => u.includes("/api/v1/models"))).toHaveLength(1);
+    expect(calls.filter((u) => u.includes("models.dev/api.json"))).toHaveLength(1);
   });
 
   it("loads and caches the full catalog", async () => {

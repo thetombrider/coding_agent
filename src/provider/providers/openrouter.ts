@@ -14,6 +14,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { ModelMessage } from "ai";
 import { loadConfig } from "../../config/config.js";
 import type { ModelPricing } from "../../config/config.js";
+import { lookupModelsDevContextWindow } from "../modelsdev.js";
 import type { ModelMetadataProvider, Provider } from "../types.js";
 
 // ── Client & credentials ─────────────────────────────────────────────────────
@@ -267,6 +268,18 @@ export async function lookupOpenRouterContextWindow(
     if (match !== undefined) {
       lookupCache.set(key, { value: match, fetchedAt: Date.now() });
       return match;
+    }
+  }
+
+  // Final fallback: consult the cross-provider models.dev catalog. Picks up
+  // newly-listed or recently-renamed models before the openrouter catalog
+  // resyncs. The helper never throws; `lookupCache` stays unpopulated so
+  // we don't shadow a future openrouter hit with a stale 0/undefined.
+  for (const key of lookupKeys(modelId)) {
+    const fromCatalog = await lookupModelsDevContextWindow("openrouter", key, fetchImpl);
+    if (fromCatalog !== undefined) {
+      lookupCache.set(key, { value: fromCatalog, fetchedAt: Date.now() });
+      return fromCatalog;
     }
   }
 

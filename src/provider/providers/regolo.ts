@@ -1,4 +1,5 @@
 import { createOpenAiCompatibleProvider } from "../openai-compatible.js";
+import { lookupModelsDevContextWindow } from "../modelsdev.js";
 
 /** Curated Regolo models for the `/model` picker (native ids, not OpenRouter slugs). */
 export const REGOLO_PICKER_MODELS = [
@@ -25,4 +26,9 @@ export const regoloProvider = createOpenAiCompatibleProvider({
     delegate_read: "qwen3.5-9b",
     compaction: "qwen3.5-9b",
   },
+  // Regolo's /v1/models endpoint omits context windows. Source them from
+  // models.dev instead — the regolo-ai provider entry there uses lowercase
+  // model ids, so the helper's case-insensitive lookup handles our mixed-
+  // case picker ids (e.g. `Llama-3.3-70B-Instruct`).
+  getContextWindow: (modelId) => lookupModelsDevContextWindow("regolo", modelId),
 });

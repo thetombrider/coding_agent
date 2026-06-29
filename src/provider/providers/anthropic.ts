@@ -7,6 +7,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { loadConfig } from "../../config/config.js";
 import { createAnthropicCompatibleProvider } from "../anthropic-compatible.js";
+import { lookupModelsDevContextWindow } from "../modelsdev.js";
 import type { ModelMetadataProvider } from "../types.js";
 
 // Re-export cache helpers that tests import from this module path.
@@ -185,6 +186,16 @@ export async function lookupAnthropicContextWindow(
     }
   } catch {
     // Fall through to config defaults.
+  }
+
+  // Cross-provider fallback: models.dev picks up newly-released or
+  // recently-renamed Anthropic models before our native catalog resyncs.
+  for (const key of lookupKeys(modelId)) {
+    const fromCatalog = await lookupModelsDevContextWindow("anthropic", key, fetchImpl);
+    if (fromCatalog !== undefined) {
+      lookupCache.set(key, { value: fromCatalog, fetchedAt: Date.now() });
+      return fromCatalog;
+    }
   }
 
   const fromConfig = loadConfig().models.contextWindows[modelId]

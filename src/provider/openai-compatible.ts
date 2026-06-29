@@ -18,6 +18,16 @@ export interface OpenAiCompatibleProviderConfig {
   /** Curated ids for the `/model` picker when this provider is active. */
   pickerModels: readonly string[];
   defaultSlots: ProviderDefaultSlots;
+  /**
+   * Override the metadata's `getContextWindow` resolver. Most OpenAI-compatible
+   * gateways publish only model ids on their `/v1/models` endpoint (no
+   * `context_length`), so the factory's default is rarely useful. Providers
+   * with a real context-window source (e.g. models.dev) plug it in here.
+   */
+  getContextWindow?: (
+    modelId: string,
+    fetchImpl?: FetchModelsCatalog,
+  ) => Promise<number | undefined>;
 }
 
 const CATALOG_TTL_MS = 60 * 60 * 1000;
@@ -205,6 +215,7 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
       return !normalized.includes("/");
     },
     getContextWindow(modelId) {
+      if (cfg.getContextWindow) return cfg.getContextWindow(modelId);
       return lookupOpenAiCompatibleContextWindow(cfg, modelId);
     },
     listModelIds() {
