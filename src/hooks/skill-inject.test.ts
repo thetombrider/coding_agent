@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createHookRegistry } from "./registry.js";
 import { installSkillInject, sanitizeSkillField } from "./skill-inject.js";
 import { testAgentContext } from "../test-helpers.js";
+import { __testClearCache, saveConfig } from "../config/config.js";
 
 describe("sanitizeSkillField", () => {
   it("strips newlines and angle brackets", () => {
@@ -11,6 +12,9 @@ describe("sanitizeSkillField", () => {
 
 describe("installSkillInject", () => {
   it("sanitizes skill metadata in injected blocks", async () => {
+    saveConfig({ ratel: { enabled: false } });
+    __testClearCache();
+
     const hooks = createHookRegistry();
     installSkillInject(hooks);
     const ctx = testAgentContext("/tmp", [

@@ -12,20 +12,17 @@ vi.mock("./client.js", () => ({
 describe("loadMcpServers", () => {
   let home: string;
   let prevHome: string | undefined;
-  let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "orin-mcp-loader-"));
     prevHome = process.env.HOME;
     process.env.HOME = home;
     connectServer.mockReset();
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    warnSpy.mockRestore();
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -59,7 +56,6 @@ describe("loadMcpServers", () => {
     expect(result.statusHint).toContain("good (1 tools)");
     expect(result.statusHint).toContain("bad failed");
     expect(result.servers.find((s) => s.name === "bad")?.status).toBe("failed");
-    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("classifies auth failures as needs_auth", async () => {

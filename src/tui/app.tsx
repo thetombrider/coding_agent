@@ -22,6 +22,7 @@ import {
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
 import { sanitizePromptInput, selectionCopyHint } from "./terminal-env.js";
+import { forceFullRepaint } from "./terminal.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { ISOLATION_MODES, ISOLATION_LABELS, type IsolationMode } from "../agent/isolation.js";
@@ -360,6 +361,46 @@ export function App(props: {
   const bumpApprovalRail = () => setApprovalRailRevision((n) => n + 1);
   let inputRef: InputRenderable | undefined;
 
+  /** /mcp is keyboard-driven — blur the prompt so hover mouse reports cannot leak in. */
+  const inputFocused = createMemo(() => {
+    if (state().phase === "approval") return false;
+    if (palette()?.phase === "mcp") return false;
+    return true;
+  });
+
+  const scrubLeakedPromptInput = () => {
+    if (!inputRef) return;
+    const raw = inputRef.value;
+    const cleaned = sanitizePromptInput(raw);
+    if (cleaned !== raw) {
+      inputRef.value = cleaned;
+      props.controller.setInput(cleaned);
+      forceFullRepaint(renderer);
+    }
+  };
+
+  createEffect(() => {
+    if (palette()?.phase !== "mcp") return;
+    let raf = 0;
+    const loop = () => {
+      scrubLeakedPromptInput();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    onCleanup(() => cancelAnimationFrame(raf));
+  });
+
+  createEffect(() => {
+    const p = palette();
+    if (p?.phase === "mcp") {
+      queueMicrotask(() => inputRef?.blur());
+      return;
+    }
+    if (inputFocused()) {
+      queueMicrotask(() => inputRef?.focus());
+    }
+  });
+
   const scrollSessionIntoView = (index: number) => {
     sessionListScrollRef?.scrollChildIntoView(`session-row-${index}`);
   };
@@ -511,7 +552,10 @@ export function App(props: {
   };
 
   const openMcpPalette = () => {
-    if (inputRef) inputRef.value = "";
+    if (inputRef) {
+      inputRef.value = "";
+      inputRef.blur();
+    }
     props.controller.clearInput();
     setMcpServers(props.mcpHost.getServers());
     setPalette({ phase: "mcp", menu: "list", index: 0, servers: props.mcpHost.getServers() });
@@ -519,9 +563,19 @@ export function App(props: {
 
   const reloadMcpConnections = async (previous?: McpPaletteState) => {
     props.controller.setStatusHint("Reloading MCP servers…");
+    props.controller.clearInput();
+    if (inputRef) inputRef.value = "";
+
     const result = await props.mcpHost.reload();
     setMcpServers(result.servers);
-    props.controller.setStatusHint(result.statusHint ?? "MCP servers reloaded");
+    props.controller.setStatusHint(
+      result.warnings[0] ?? result.statusHint ?? "MCP servers reloaded",
+    );
+
+    scrubLeakedPromptInput();
+    props.controller.clearInput();
+    forceFullRepaint(renderer);
+
     if (previous) {
       setPalette(mcpPaletteAfterReload(result.servers, previous));
     }
@@ -723,6 +777,8 @@ export function App(props: {
     setPalette(null);
     if (inputRef) inputRef.value = "";
     props.controller.clearInput();
+    scrubLeakedPromptInput();
+    if (inputRef && state().phase !== "approval") inputRef.focus();
   };
 
   const openSessionsPalette = (state: SessionsPaletteState) => {
@@ -1482,6 +1538,13 @@ export function App(props: {
 
     const p = palette();
     if (p !== null) {
+      // Palette selection normally fires via the input's onSubmit, but /mcp blurs
+      // the prompt (mouse-report leak fix) so Enter must be handled here instead.
+      if ((key.name === "enter" || key.name === "return") && !inputFocused()) {
+        handlePaletteSelect();
+        return;
+      }
+
       if (p.phase === "sessions") {
         if (p.menu === "delete") {
           if (key.name === "left" || key.name === "escape") {
@@ -2350,7 +2413,7 @@ export function App(props: {
           <input
             ref={inputRef}
             flexGrow={1}
-            focused={state().phase !== "approval"}
+            focused={inputFocused()}
             textColor={theme.fg}
             focusedTextColor={theme.fg}
             backgroundColor={theme.bg}

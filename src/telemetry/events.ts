@@ -88,4 +88,11 @@ export type MetricEvent =
       isError?: boolean;
       subagentId?: string;
     }
+  | {
+      type: "ratel";
+      sessionId: string;
+      ts: string;
+      name: string;
+      attributes: Record<string, string | number | boolean>;
+    }
   | { type: "session"; sessionId: string; ts: string; summary: SessionCostSummary };

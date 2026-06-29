@@ -83,7 +83,6 @@ export async function loadMcpServers(): Promise<McpLoadResult> {
       const failure = classifyMcpFailure(result.reason, serverConfig, serverName);
       const message = failure.reason;
       warnings.push(`MCP server "${serverName}" failed to connect: ${message}`);
-      console.warn(`MCP server failed to connect (${serverName}): ${message}`);
       summaryParts.push(mcpSummaryPart(serverName, failure.status, 0));
       servers.push({
         name: serverName,

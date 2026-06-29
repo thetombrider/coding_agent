@@ -5,6 +5,7 @@ import { resolvePreset, type PresetDefinition } from "../agent/presets.js";
 import { maxIsolation, resolveIsolationMode, type IsolationMode } from "../agent/isolation.js";
 import { augmentSystemWithParentTodos } from "../agent/presets.js";
 import { lastAssistantText, runLoop } from "../agent/loop.js";
+import { buildChildRatelBundle, loopTools } from "../ratel/session.js";
 import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { resolvePresetModel } from "../config/models.js";
 import { createHookRegistry } from "../hooks/registry.js";
@@ -231,10 +232,13 @@ export async function runSubagentTask(
       messages: [{ role: "user", content: [{ type: "text", text: args.prompt }] }],
     };
 
+    const childRatel = buildChildRatelBundle(preset.tools, childCwd);
+    const childLoopTools = loopTools(preset.tools, childRatel);
+
     const childHooks = createHookRegistry();
     installCoreHooks(childHooks, {
       ...host.approval,
-      tools: preset.tools,
+      tools: childLoopTools,
     });
 
     // Forward child LLM + tool events to the parent registry, tagged with
@@ -261,7 +265,8 @@ export async function runSubagentTask(
     try {
       await runLoop(childCtx, childHooks, {
         provider: host.provider,
-        tools: preset.tools,
+        tools: childLoopTools,
+        ratel: childRatel,
         model: subagentModel,
         // Inject the parent's current todos (and a propose_todo reminder) so the
         // subagent can build a coherent replacement list. The child has no plan

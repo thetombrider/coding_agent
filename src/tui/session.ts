@@ -25,6 +25,9 @@ import type { LlmCallRecorder } from "../telemetry/events.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import type { AnyTool } from "../tools/registry.js";
 import { getCoreTools } from "../tools/registry.js";
+import type { OrinRatelBundle } from "../ratel/catalog.js";
+import { reloadOrinTooling } from "../ratel/session.js";
+import { installRatelTelemetry } from "../ratel/telemetry.js";
 import type { McpServerConfig } from "../mcp/config.js";
 import { removeMcpServer, upsertMcpServer } from "../mcp/config.js";
 import { loadMcpServers, type McpServerStatus } from "../mcp/loader.js";
@@ -80,6 +83,8 @@ export interface TuiSessionConfig {
   ctx: AgentContext;
   provider: StreamAssistantFn;
   tools: AnyTool[];
+  /** Ratel bundle when `ratel.enabled` is set in config (issue #295). */
+  ratel?: OrinRatelBundle;
   /** MCP tools merged into `tools`; kept separately for refreshTools(). */
   mcpTools?: AnyTool[];
   mcpDispose?: () => Promise<void>;
@@ -220,8 +225,24 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   const telemetrySinks = createDefaultSinks({
     sessionWrite: (event) => log.write({ type: "metric", ts: new Date().toISOString(), event }),
   });
+  let activeTools = config.tools;
+  let ratelBundle = config.ratel;
+  let currentMcpTools = config.mcpTools ?? [];
+  let currentMcpDispose = config.mcpDispose;
+  let mcpServers = config.mcpServers ?? [];
   let disposeTelemetry: () => void = () => {};
+  let disposeRatelTelemetry: () => void = () => {};
   let recordSideLlmCall: LlmCallRecorder = () => {};
+  const reinstallRatelTelemetry = () => {
+    disposeRatelTelemetry();
+    if (!ratelBundle) return;
+    disposeRatelTelemetry = installRatelTelemetry({
+      hooks: config.hooks,
+      sessionId: activeSessionId,
+      sinks: telemetrySinks,
+      getBundle: () => ratelBundle,
+    });
+  };
   // Each (re)install can be seeded with a prebuilt accumulator so the running
   // header total survives resume / provider switch instead of resetting to zero.
   const reinstallTelemetry = (seed?: SessionCostAccumulator) => {
@@ -242,6 +263,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     if (config.ctx.loopHost) config.ctx.loopHost.recordLlmCall = recordSideLlmCall;
     // Reflect the seeded (or reset) total in the header before the next turn.
     controller.setSessionCost(accumulator.snapshot());
+    reinstallRatelTelemetry();
   };
 
   const onResume = (resumeSessionId: string) => {
@@ -356,26 +378,47 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     if (rec) controller.setStatusHint(`checkpoint ${rec.id} — /restore ${rec.id} to undo`);
   });
 
+  config.hooks.on("after_tool", ({ name }, ctx) => {
+    if (name === "skill_write" && ratelBundle) {
+      ratelBundle.refreshSkills(ctx.cwd);
+    }
+  });
+
   reinstallTelemetry();
 
-  let activeTools = config.tools;
-  let currentMcpTools = config.mcpTools ?? [];
-  let currentMcpDispose = config.mcpDispose;
-  let mcpServers = config.mcpServers ?? [];
-
   const refreshTools = () => {
-    activeTools = [...getCoreTools(), ...currentMcpTools];
+    if (ratelBundle) {
+      void applyMcpLoad();
+      return;
+    }
+    const flatTools = [...getCoreTools(), ...currentMcpTools];
+    activeTools = flatTools;
     approvalRef.tools = activeTools;
   };
 
   const applyMcpLoad = async (): Promise<McpReloadResult> => {
     await currentMcpDispose?.();
+    if (ratelBundle) {
+      const tooling = await reloadOrinTooling(config.ctx.cwd, activeSessionId);
+      ratelBundle = tooling.ratel;
+      activeTools = tooling.tools;
+      currentMcpTools = tooling.mcpTools;
+      currentMcpDispose = tooling.mcpDispose;
+      mcpServers = tooling.mcpServers;
+      approvalRef.tools = activeTools;
+      reinstallRatelTelemetry();
+      return {
+        servers: tooling.mcpServers,
+        statusHint: tooling.mcpStatusHint,
+        warnings: tooling.mcpWarnings,
+      };
+    }
     const mcp = await loadMcpServers();
     currentMcpTools = mcp.tools;
     currentMcpDispose = mcp.dispose;
     mcpServers = mcp.servers;
-    refreshTools();
-    for (const warning of mcp.warnings) console.warn(warning);
+    activeTools = [...getCoreTools(), ...currentMcpTools];
+    approvalRef.tools = activeTools;
     return { servers: mcp.servers, statusHint: mcp.statusHint, warnings: mcp.warnings };
   };
 
@@ -626,6 +669,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       await runLoop(config.ctx, config.hooks, {
         provider: config.provider,
         tools: activeTools,
+        ratel: ratelBundle,
         model: activeModel,
         system: config.system,
         sessionId: activeSessionId,
