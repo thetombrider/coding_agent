@@ -3,6 +3,7 @@ import { z } from "zod";
 import { currentTurnCount } from "../agent/compaction.js";
 import { resolvePreset, type PresetDefinition } from "../agent/presets.js";
 import { maxIsolation, resolveIsolationMode, type IsolationMode } from "../agent/isolation.js";
+import { augmentSystemWithParentTodos } from "../agent/presets.js";
 import { lastAssistantText, runLoop } from "../agent/loop.js";
 import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { resolvePresetModel } from "../config/models.js";
@@ -240,13 +241,17 @@ export async function runSubagentTask(
     // subagentId, so one accumulator and one trace capture subagent cost. The
     // OTel exporter (6/8) nests these spans under the subagent span keyed by
     // subagentId; llm_start is forwarded so generation spans pair by id.
+    // `todo_proposal` is also forwarded so the parent session can apply the
+    // child's plan update to its own `ctx.todos` (issue #149) — the child
+    // never mutates its own todo list, only proposes to the host.
     childHooks.observe((event) => {
       if (
         event.type === "tool_start" ||
         event.type === "tool_end" ||
         event.type === "assistant_message" ||
         event.type === "llm_start" ||
-        event.type === "reasoning_delta"
+        event.type === "reasoning_delta" ||
+        event.type === "todo_proposal"
       ) {
         host.hooks.emit({ ...event, subagentId });
       }
@@ -258,7 +263,11 @@ export async function runSubagentTask(
         provider: host.provider,
         tools: preset.tools,
         model: subagentModel,
-        system: preset.system,
+        // Inject the parent's current todos (and a propose_todo reminder) so the
+        // subagent can build a coherent replacement list. The child has no plan
+        // ownership — propose_todo forwards to the parent, which applies the
+        // update on its next turn (issue #149).
+        system: augmentSystemWithParentTodos(preset.system, ctx.todos),
         signal,
         sessionId: host.sessionId,
         maxTurns: MAX_SUBAGENT_TURNS,

@@ -6,6 +6,11 @@ describe("tool registry", () => {
     expect(getCoreTools().some((t) => t.name === "todowrite")).toBe(true);
   });
 
+  it("keeps propose_todo out of the parent catalog — it's a child-only plan proposer (#149)", () => {
+    expect(getCoreTools().some((t) => t.name === "propose_todo")).toBe(false);
+    expect(getChildTools().some((t) => t.name === "propose_todo")).toBe(true);
+  });
+
   it("includes askuser in core tools", () => {
     expect(getCoreTools().some((t) => t.name === "askuser")).toBe(true);
   });
@@ -30,7 +35,9 @@ describe("tool registry", () => {
     expect(getChildTools().some((t) => t.name === "file_op")).toBe(false);
     expect(getChildTools().some((t) => t.name === "askuser")).toBe(false);
     expect(getChildTools().some((t) => t.name === "skill_write")).toBe(false);
-    expect(getChildTools().length).toBe(getCoreTools().length - 6);
+    // Child preset is core (5 child-only not counted) minus the 6 excluded tools.
+    // propose_todo is child-only, so it does not appear in getCoreTools().length.
+    expect(getChildTools().length).toBe(getCoreTools().length - 6 + 1);
   });
 
   it("includes the read-only fetch tool in child tool presets", () => {

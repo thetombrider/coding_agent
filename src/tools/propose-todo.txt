@@ -1,0 +1,7 @@
+Propose a replacement task list for the parent loop (issue #149). The child has no
+plan ownership — its own `ctx.todos` stays untouched; the parent applies the proposal
+and re-emits a canonical `todo_update` so the session UI and reminders reflect it.
+
+Schema mirrors `todowrite` (full list replace) so the subagent can build the new list
+from whatever context it has. The parent has its own todos injected into the subagent
+system prompt, so the proposal can be a coherent merge rather than a blind guess.
