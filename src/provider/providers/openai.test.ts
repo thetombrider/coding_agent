@@ -2,28 +2,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { normalizeOpenAiModelId, openaiProvider } from "./openai.js";
+import { OPENAI_PICKER_MODELS, normalizeOpenAiModelId, openaiProvider } from "./openai.js";
 import { resetOpenAiCompatibleModelsCache } from "../openai-compatible.js";
+import { resetModelsDevCache } from "../modelsdev.js";
 
-function mockModelsFetch(body: unknown) {
+function mockFetch(handlers: Record<string, { ok?: boolean; status?: number; body: unknown }>) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.includes("api.openai.com/v1/models")) {
-      expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-openai" });
+    const handler = Object.entries(handlers).find(([pattern]) => url.includes(pattern))?.[1];
+    if (!handler) {
       return {
-        ok: true,
-        status: 200,
-        statusText: "OK",
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
         headers: { get: () => null },
-        json: async () => body,
+        json: async () => ({}),
       };
     }
+    const ok = handler.ok ?? true;
+    const status = handler.status ?? (ok ? 200 : 500);
     return {
-      ok: false,
-      status: 404,
-      statusText: "Not Found",
+      ok,
+      status,
+      statusText: ok ? "OK" : "Error",
       headers: { get: () => null },
-      json: async () => ({}),
+      json: async () => handler.body,
     };
   }) as unknown as typeof fetch;
 }
@@ -42,6 +45,7 @@ describe("openai provider", () => {
     process.env.HOME = home;
     originalFetch = globalThis.fetch;
     resetOpenAiCompatibleModelsCache();
+    resetModelsDevCache();
     vi.resetModules();
   });
 
@@ -52,7 +56,15 @@ describe("openai provider", () => {
     else process.env.OPENAI_API_KEY = prevOpenAiKey;
     globalThis.fetch = originalFetch;
     resetOpenAiCompatibleModelsCache();
+    resetModelsDevCache();
     rmSync(home, { recursive: true, force: true });
+  });
+
+  it("lists current flagship models in the picker", () => {
+    expect(OPENAI_PICKER_MODELS[0]).toBe("gpt-5.5");
+    expect(OPENAI_PICKER_MODELS).toContain("gpt-5.4-mini");
+    expect(OPENAI_PICKER_MODELS).toContain("o3");
+    expect(OPENAI_PICKER_MODELS).toContain("o4-mini");
   });
 
   it("reports unconfigured without credentials", () => {
@@ -86,16 +98,16 @@ describe("openai provider", () => {
 
   it("strips the openai: prefix", () => {
     expect(normalizeOpenAiModelId("openai:gpt-4o")).toBe("gpt-4o");
-    expect(normalizeOpenAiModelId("gpt-4.1")).toBe("gpt-4.1");
+    expect(normalizeOpenAiModelId("gpt-5.5")).toBe("gpt-5.5");
   });
 
   it("maps legacy OpenRouter-style openai/slug ids", () => {
     expect(normalizeOpenAiModelId("openai/gpt-4o")).toBe("gpt-4o");
-    expect(normalizeOpenAiModelId("openai/gpt-4.1-mini")).toBe("gpt-4.1-mini");
+    expect(normalizeOpenAiModelId("openai/gpt-5.4-mini")).toBe("gpt-5.4-mini");
   });
 
   it("treats native and legacy openai ids as supported", () => {
-    expect(openaiProvider.metadata.supportsModel("gpt-4o")).toBe(true);
+    expect(openaiProvider.metadata.supportsModel("gpt-5.5")).toBe(true);
     expect(openaiProvider.metadata.supportsModel("openai/gpt-4o")).toBe(true);
     expect(openaiProvider.metadata.supportsModel("anthropic/claude-sonnet-4")).toBe(false);
   });
@@ -105,7 +117,7 @@ describe("openai provider", () => {
     saveConfig({ provider: { openai: { apiKey: "sk-openai" } } });
     vi.resetModules();
     const { openaiProvider: provider } = await import("./openai.js");
-    const model = provider.languageModel("openai/gpt-4o");
+    const model = provider.languageModel("openai/gpt-5.5");
     expect(model).toBeDefined();
     expect(typeof model).toBe("object");
   });
@@ -116,12 +128,19 @@ describe("openai provider", () => {
     expect(providerSummaries().some((p) => p.id === "openai")).toBe(true);
   });
 
-  it("resolves context windows from GET /v1/models", async () => {
-    globalThis.fetch = mockModelsFetch({
-      data: [
-        { id: "gpt-4o", context_length: 128000 },
-        { id: "gpt-4.1-mini", context_window: 32000 },
-      ],
+  it("resolves context windows from models.dev", async () => {
+    globalThis.fetch = mockFetch({
+      "/api.json": {
+        body: {
+          openai: {
+            id: "openai",
+            models: {
+              "gpt-5.5": { id: "gpt-5.5", limit: { context: 1050000, output: 128000 } },
+              "gpt-5.4-mini": { id: "gpt-5.4-mini", limit: { context: 400000, output: 128000 } },
+            },
+          },
+        },
+      },
     });
 
     const { saveConfig } = await import("../../config/config.js");
@@ -129,8 +148,40 @@ describe("openai provider", () => {
     vi.resetModules();
     const { openaiProvider: provider } = await import("./openai.js");
 
-    await expect(provider.metadata.getContextWindow("gpt-4o")).resolves.toBe(128000);
-    await expect(provider.metadata.getContextWindow("openai/gpt-4o")).resolves.toBe(128000);
-    await expect(provider.metadata.getContextWindow("gpt-4.1-mini")).resolves.toBe(32000);
+    await expect(provider.metadata.getContextWindow("gpt-5.5")).resolves.toBe(1_050_000);
+    await expect(provider.metadata.getContextWindow("openai/gpt-5.5")).resolves.toBe(1_050_000);
+    await expect(provider.metadata.getContextWindow("gpt-5.4-mini")).resolves.toBe(400_000);
+  });
+
+  it("falls back to offline picker defaults when models.dev is unreachable", async () => {
+    globalThis.fetch = mockFetch({
+      "/api.json": { ok: false, status: 503, body: {} },
+    });
+
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { openai: { apiKey: "sk-openai" } } });
+    vi.resetModules();
+    const { openaiProvider: provider } = await import("./openai.js");
+
+    await expect(provider.metadata.getContextWindow("gpt-5.5")).resolves.toBe(1_050_000);
+    await expect(provider.metadata.getContextWindow("o4-mini")).resolves.toBe(200_000);
+  });
+
+  it("falls back to GET /v1/models when models.dev and offline table miss", async () => {
+    globalThis.fetch = mockFetch({
+      "/api.json": { ok: false, status: 503, body: {} },
+      "/v1/models": {
+        body: {
+          data: [{ id: "custom-model", context_length: 64000 }],
+        },
+      },
+    });
+
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { openai: { apiKey: "sk-openai" } } });
+    vi.resetModules();
+    const { openaiProvider: provider } = await import("./openai.js");
+
+    await expect(provider.metadata.getContextWindow("custom-model")).resolves.toBe(64000);
   });
 });

@@ -34,7 +34,7 @@ describe("picker-models", () => {
   it("accepts native and legacy openai ids for openai", async () => {
     const { openaiProvider } = await import("./providers/openai.js");
     expect(modelLikelySupported(openaiProvider, "openai/gpt-4o")).toBe(true);
-    expect(modelLikelySupported(openaiProvider, "gpt-4.1")).toBe(true);
+    expect(modelLikelySupported(openaiProvider, "gpt-5.5")).toBe(true);
     expect(modelLikelySupported(openaiProvider, "anthropic/claude-sonnet-4")).toBe(false);
   });
 
