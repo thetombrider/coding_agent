@@ -155,6 +155,24 @@ describe("API key onboarding", () => {
     expect(loadConfig().provider.regolo?.apiKey).toBe("sk-regolo");
   });
 
+  it("reads OpenAI key from env and config", async () => {
+    const { hasOpenAiApiKey } = await import("./config.js");
+    expect(hasOpenAiApiKey()).toBe(false);
+
+    process.env.OPENAI_API_KEY = " sk-env ";
+    vi.resetModules();
+    const mod = await import("./config.js");
+    expect(mod.hasOpenAiApiKey()).toBe(true);
+    expect(mod.loadConfig().provider.openai?.apiKey).toBe("sk-env");
+
+    delete process.env.OPENAI_API_KEY;
+    vi.resetModules();
+    const { saveConfig, hasOpenAiApiKey: hasKey, loadConfig: loadCfg } = await import("./config.js");
+    saveConfig({ provider: { openai: { apiKey: "sk-config" } } });
+    expect(hasKey()).toBe(true);
+    expect(loadCfg().provider.openai?.apiKey).toBe("sk-config");
+  });
+
   it("saveProviderConfig writes provider-specific fields", async () => {
     const { saveProviderConfig, loadConfig } = await import("./config.js");
     saveProviderConfig("openrouter", { apiKey: "  sk-trimmed  " });

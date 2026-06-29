@@ -36,6 +36,7 @@ const ctx: CommandContext = {
 
 const providers: ProviderSummary[] = [
   { id: "openrouter", displayName: "OpenRouter", authStrategy: "api-key", active: true, configured: true },
+  { id: "openai", displayName: "OpenAI", authStrategy: "api-key", active: false, configured: false },
   { id: "anthropic", displayName: "Anthropic", authStrategy: "api-key", active: false, configured: false },
   { id: "regolo", displayName: "Regolo", authStrategy: "api-key", active: false, configured: false },
 ];
@@ -47,11 +48,13 @@ const provCtx: CommandContext = {
   providerConfigFields: (id) =>
     id === "openrouter"
       ? [{ key: "apiKey", label: "OpenRouter API key", secret: true }]
-      : id === "regolo"
-        ? [{ key: "apiKey", label: "Regolo AI API key", secret: true }]
-        : id === "anthropic"
-          ? [{ key: "apiKey", label: "Anthropic API key", secret: true }]
-          : [],
+      : id === "openai"
+        ? [{ key: "apiKey", label: "OpenAI API key", secret: true }]
+        : id === "regolo"
+          ? [{ key: "apiKey", label: "Regolo AI API key", secret: true }]
+          : id === "anthropic"
+            ? [{ key: "apiKey", label: "Anthropic API key", secret: true }]
+            : [],
 };
 
 describe("processCommand", () => {
@@ -209,7 +212,7 @@ describe("processCommand", () => {
     it("switches by explicit id when configured", () => {
       expect(processCommand("/providers regolo", {
         ...provCtx,
-        providers: [{ ...providers[2]!, configured: true }],
+        providers: providers.map((p) => (p.id === "regolo" ? { ...p, configured: true } : p)),
       })).toMatchObject({
         type: "set-provider",
         provider: "regolo",
@@ -230,7 +233,7 @@ describe("processCommand", () => {
     it("switches configured anthropic by explicit id", () => {
       expect(processCommand("/providers anthropic", {
         ...provCtx,
-        providers: [{ ...providers[1]!, configured: true }],
+        providers: providers.map((p) => (p.id === "anthropic" ? { ...p, configured: true } : p)),
       })).toMatchObject({
         type: "set-provider",
         provider: "anthropic",
@@ -240,7 +243,7 @@ describe("processCommand", () => {
     it("switches by numeric index", () => {
       expect(processCommand("/providers 2", provCtx)).toMatchObject({
         type: "set-provider",
-        provider: "anthropic",
+        provider: "openai",
       });
     });
 
@@ -300,6 +303,19 @@ describe("processCommand", () => {
       });
     });
 
+    it("points unconfigured openai switches at /providers configure", () => {
+      const r = processCommand("/providers openai", provCtx);
+      if (r.type === "set-provider") expect(r.message).toMatch(/\/providers configure openai/);
+    });
+
+    it("starts configure flow for openai", () => {
+      expect(processCommand("/providers configure openai", provCtx)).toMatchObject({
+        type: "configure-provider",
+        provider: "openai",
+        activateOnComplete: false,
+      });
+    });
+
     it("rejects removed oauth subcommand", () => {
       expect(processCommand("/providers oauth anthropic", provCtx).type).toBe("error");
     });
@@ -307,7 +323,7 @@ describe("processCommand", () => {
     it("auto-swaps model when moving to regolo with an OpenRouter-style model id", () => {
       const r = processCommand("/providers regolo", {
         ...provCtx,
-        providers: [{ ...providers[2]!, configured: true }],
+        providers: providers.map((p) => (p.id === "regolo" ? { ...p, configured: true } : p)),
       });
       expect(r).toMatchObject({
         type: "set-provider",
@@ -316,6 +332,22 @@ describe("processCommand", () => {
       });
       if (r.type === "set-provider") {
         expect(r.message).toMatch(/model → Llama-3\.3-70B-Instruct/);
+      }
+    });
+
+    it("keeps OpenRouter-style openai ids when switching to openai", () => {
+      const r = processCommand("/providers openai", {
+        ...provCtx,
+        currentModel: "openai/gpt-4o",
+        providers: providers.map((p) => (p.id === "openai" ? { ...p, configured: true } : p)),
+      });
+      expect(r).toMatchObject({
+        type: "set-provider",
+        provider: "openai",
+      });
+      if (r.type === "set-provider") {
+        expect(r.model).toBeUndefined();
+        expect(r.message).not.toMatch(/model →/);
       }
     });
   });
