@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyTerminalEnvOverrides,
   blocksNativeCopyShortcut,
+  consumeMouseReports,
   consumeTerminalCapabilityLeak,
   containsMouseSequence,
   containsTerminalCapabilityLeak,
@@ -123,5 +124,31 @@ describe("mouse report leak handling", () => {
     const normal = "my-secret-api-key-value";
     expect(sanitizePromptInput(normal)).toBe(normal);
     expect(sanitizePromptInput("arr[<idx>]")).toBe("arr[<idx>]");
+  });
+});
+
+describe("consumeMouseReports (stdin-layer handler)", () => {
+  const PRESS = "\x1b[<0;36;19M";
+  const MOVE = "\x1b[<35;40;12M";
+  const RELEASE = "\x1b[<0;36;19m";
+
+  it("consumes a stdin chunk that is purely mouse reports", () => {
+    expect(consumeMouseReports(PRESS)).toBe(true);
+    expect(consumeMouseReports(MOVE)).toBe(true);
+    expect(consumeMouseReports(RELEASE)).toBe(true);
+    // Multiple reports pile up in one chunk during rapid movement.
+    expect(consumeMouseReports(`${MOVE}${MOVE}${RELEASE}`)).toBe(true);
+    // ESC-stripped residue (some terminals drop the control byte).
+    expect(consumeMouseReports("[<35;40;12M")).toBe(true);
+  });
+
+  it("does not consume a chunk carrying real keystrokes", () => {
+    expect(consumeMouseReports(`${PRESS}hello`)).toBe(false);
+    expect(consumeMouseReports(`hello${MOVE}`)).toBe(false);
+    expect(consumeMouseReports(`${MOVE}\r`)).toBe(false);
+    expect(consumeMouseReports("hello world")).toBe(false);
+    expect(consumeMouseReports("")).toBe(false);
+    // Code that looks like a mouse report but isn't one.
+    expect(consumeMouseReports("arr[<idx>]")).toBe(false);
   });
 });

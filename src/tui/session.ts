@@ -41,6 +41,7 @@ import { messagesToTurns } from "./messages-to-turns.js";
 import { forceFullRepaint, restoreTerminal } from "./terminal.js";
 import {
   blocksNativeCopyShortcut,
+  consumeMouseReports,
   consumeTerminalCapabilityLeak,
   terminalStartupCopyHint,
 } from "./terminal-env.js";
@@ -680,7 +681,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       forwardEnvKeys: ["OPENTUI_GRAPHICS"],
       // Belt-and-suspenders: if a terminal ever feeds OpenTUI's leaked Kitty
       // graphics probe back on stdin, drop it before it reaches the prompt.
-      prependInputHandlers: [consumeTerminalCapabilityLeak],
+      prependInputHandlers: [consumeTerminalCapabilityLeak, consumeMouseReports],
     });
 
     const startupCopyHint = terminalStartupCopyHint();
