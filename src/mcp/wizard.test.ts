@@ -111,4 +111,21 @@ describe("MCP wizard", () => {
     const step = currentWizardStep(state)!;
     expect(validateWizardStep(state, step, "bad name")).toMatch(/name must/);
   });
+
+  it("hints that ${env:VAR} is supported in the token step", () => {
+    let state = beginAddWizard();
+    for (const [stepId, value] of [
+      ["name", "github"],
+      ["transport", "http"],
+      ["url", "https://api.githubcopilot.com/mcp/"],
+      ["authMode", "bearer"],
+    ] as const) {
+      const step = currentWizardStep(state)!;
+      expect(step.id).toBe(stepId);
+      state = applyWizardStep(state, step, value);
+    }
+    const tokenStep = currentWizardStep(state)!;
+    expect(tokenStep.id).toBe("token");
+    expect(tokenStep.hint).toMatch(/\$\{env:VAR\}/);
+  });
 });
