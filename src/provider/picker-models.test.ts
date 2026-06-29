@@ -130,6 +130,38 @@ describe("picker-models", () => {
     await expect(loadPicker("fake-catalog")).resolves.toEqual(["good/model"]);
   });
 
+  it("appends live catalog models for opencode providers", async () => {
+    const { registerProvider } = await import("./registry.js");
+    const { loadPickerModels: loadPicker } = await import("./picker-models.js");
+    const fake: Provider = {
+      id: "opencode-go",
+      displayName: "Fake Opencode Go",
+      authStrategy: "api-key",
+      isConfigured: () => true,
+      normalizeModelId: (id) => id,
+      languageModel: () => ({}) as never,
+      metadata: {
+        id: "opencode-go",
+        supportsModel: () => true,
+        getContextWindow: async () => 1000,
+        listModelIds: async () => ["featured/model", "extra/model-b", "extra/model-a"],
+      },
+      pickerModels: ["featured/model"],
+      defaultSlots: {
+        main: "featured/model",
+        explore: "featured/model",
+        delegate_read: "featured/model",
+        compaction: "featured/model",
+      },
+    };
+    registerProvider(fake);
+    await expect(loadPicker("opencode-go")).resolves.toEqual([
+      "featured/model",
+      "extra/model-a",
+      "extra/model-b",
+    ]);
+  });
+
   it("keeps curated alias ids that match dated catalog snapshots", async () => {
     const { registerProvider } = await import("./registry.js");
     const { loadPickerModels: loadPicker } = await import("./picker-models.js");

@@ -25,6 +25,9 @@ function catalogContains(catalogIds: Iterable<string>, normalized: string, origi
   return false;
 }
 
+/** Providers whose picker merges the live /models catalog after featured ids. */
+const FULL_CATALOG_PICKER_PROVIDERS = new Set(["opencode-go", "opencode-zen"]);
+
 /** Validate a model id against the provider's live catalog when configured. */
 export async function modelSupportedByCatalog(
   provider: Provider,
@@ -57,7 +60,20 @@ export async function loadPickerModels(providerId?: string): Promise<string[]> {
     const validated = curated.filter((id) =>
       catalogContains(catalogIds, provider.normalizeModelId(id), id),
     );
-    return validated.length > 0 ? validated : curated;
+    const base = validated.length > 0 ? validated : curated;
+
+    if (!FULL_CATALOG_PICKER_PROVIDERS.has(provider.id)) return base;
+
+    const seen = new Set(base.map((id) => provider.normalizeModelId(id)));
+    const extras = catalogIds
+      .filter((id) => {
+        const normalized = provider.normalizeModelId(id);
+        if (seen.has(normalized)) return false;
+        seen.add(normalized);
+        return true;
+      })
+      .sort((a, b) => a.localeCompare(b));
+    return extras.length > 0 ? [...base, ...extras] : base;
   } catch {
     return curated;
   }
