@@ -405,13 +405,6 @@ function buildConfig(): Config {
     ? Math.max(1, Math.floor(maxParallel))
     : DEFAULT_CONFIG.subagent.maxParallel;
 
-  if (process.env.OPENAI_API_KEY?.trim()) {
-    merged.provider.openai = {
-      ...merged.provider.openai,
-      apiKey: process.env.OPENAI_API_KEY.trim(),
-    };
-  }
-
   return merged;
 }
 
@@ -444,9 +437,9 @@ export function hasRegoloApiKey(): boolean {
   return Boolean(loadConfig().provider.regolo?.apiKey?.trim());
 }
 
-/** True when an OpenAI API key is set in env or config. */
+/** True when an OpenAI API key is set in config. */
 export function hasOpenAiApiKey(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY?.trim() || loadConfig().provider.openai?.apiKey?.trim());
+  return Boolean(loadConfig().provider.openai?.apiKey?.trim());
 }
 
 /** True when an Anthropic API key is set in config. */

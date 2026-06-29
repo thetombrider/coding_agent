@@ -124,7 +124,7 @@ checkpoints all live under `~/.orin/` and survive upgrades.
 | Setting | Config key | Notes |
 | --- | --- | --- |
 | OpenRouter API key | `provider.openrouter.apiKey` | Default backend. Set with `/providers configure openrouter`. |
-| OpenAI API key | `provider.openai.apiKey` | Native Platform API (`/providers openai`). Env `OPENAI_API_KEY` overrides config. |
+| OpenAI API key | `provider.openai.apiKey` | Native Platform API (`/providers configure openai`). |
 | Anthropic API key | `provider.anthropic.apiKey` | Native Messages API (`/providers anthropic`). |
 | Regolo API key | `provider.regolo.apiKey` | EU-hosted, OpenAI-compatible (`/providers regolo`). |
 | Active provider | `provider.active` | e.g. `openrouter`, `openai`, `anthropic`, `regolo`. |

@@ -34,13 +34,10 @@ function mockFetch(handlers: Record<string, { ok?: boolean; status?: number; bod
 describe("openai provider", () => {
   let home: string;
   let prevHome: string | undefined;
-  let prevOpenAiKey: string | undefined;
   let originalFetch: typeof fetch;
 
   beforeEach(() => {
     prevHome = process.env.HOME;
-    prevOpenAiKey = process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_API_KEY;
     home = mkdtempSync(join(tmpdir(), "orin-openai-test-"));
     process.env.HOME = home;
     originalFetch = globalThis.fetch;
@@ -52,8 +49,6 @@ describe("openai provider", () => {
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = prevOpenAiKey;
     globalThis.fetch = originalFetch;
     resetOpenAiCompatibleModelsCache();
     resetModelsDevCache();
@@ -74,13 +69,6 @@ describe("openai provider", () => {
   it("reports configured when the config key is set", async () => {
     const { saveConfig } = await import("../../config/config.js");
     saveConfig({ provider: { openai: { apiKey: "sk-openai" } } });
-    vi.resetModules();
-    const { openaiProvider: provider } = await import("./openai.js");
-    expect(provider.isConfigured()).toBe(true);
-  });
-
-  it("reports configured when OPENAI_API_KEY env is set", async () => {
-    process.env.OPENAI_API_KEY = " sk-env-key ";
     vi.resetModules();
     const { openaiProvider: provider } = await import("./openai.js");
     expect(provider.isConfigured()).toBe(true);
