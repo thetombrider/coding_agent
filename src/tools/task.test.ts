@@ -497,6 +497,75 @@ describe("runSubagentTask", () => {
     expect(childEvents.every((e) => Boolean(e.subagentId))).toBe(true);
   });
 
+  it("forwards a subagent's propose_todo to the parent hooks (issue #149)", async () => {
+    // Implement a small provider that calls propose_todo on its first turn and
+    // wraps up on the second. The forwarded todo_proposal should land on the
+    // parent registry tagged with the subagent id, ready for the session to
+    // apply to the parent's todos.
+    const proposed = [
+      { id: "p1", content: "Surface blocker", status: "in_progress" as const },
+      { id: "p2", content: "Add regression test", status: "pending" as const },
+    ];
+
+    const provider: StreamAssistantFn = (messages, options, emit) => {
+      const sawToolResult = messages.some((m) => m.role === "tool");
+      if (!sawToolResult) {
+        return createFauxProvider({
+          toolCalls: [
+            { id: "prop1", name: "propose_todo", arguments: { todos: proposed } },
+          ],
+          model: options.model,
+        })(messages, options, emit);
+      }
+      return createFauxProvider({ text: ["Proposed plan update"], model: options.model })(
+        messages,
+        options,
+        emit,
+      );
+    };
+
+    const parentHooks = createHookRegistry();
+    const approval: ApprovalGateRef = {
+      mode: "auto-accept",
+      autoAcceptCli: true,
+      tools: getChildTools(),
+    };
+    installCoreHooks(parentHooks, approval);
+
+    const proposals: Array<{ todos: unknown; subagentId?: string }> = [];
+    parentHooks.observe((event) => {
+      if (event.type === "todo_proposal") proposals.push(event);
+    });
+
+    // Pre-seed the parent with its own list — the subagent should not see this
+    // touched. The proposal is the *new* list the parent should adopt.
+    const parentTodos = [{ id: "orig", content: "Original parent task", status: "pending" as const }];
+
+    const ctx = baseCtx({
+      loopHost: {
+        provider,
+        model: "faux:test",
+        hooks: parentHooks,
+        approval,
+      },
+    });
+    ctx.todos = parentTodos;
+
+    const result = await runSubagentTask(
+      { description: "discover work", prompt: "investigate and propose a plan update", agent: "implement" },
+      ctx,
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]?.todos).toEqual(proposed);
+    expect(proposals[0]?.subagentId).toBeTruthy();
+    // Child must not have mutated the parent's list — the proposal is a forward
+    // event only. The parent session is responsible for applying it.
+    expect(ctx.todos).toBe(parentTodos);
+  });
+
   it("runs the child loop on the role-resolved model (explore→explore slot, review→main slot)", async () => {
     const { saveProviderModelSlot, __testClearCache } = await import("../config/config.js");
     saveProviderModelSlot("openrouter", "main", "z-ai/glm-5.1");

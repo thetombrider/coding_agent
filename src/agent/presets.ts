@@ -1,5 +1,7 @@
 import { getChildTools, pickTools } from "../tools/registry.js";
 import type { AnyTool } from "../tools/registry.js";
+import { formatRemindersBlock } from "../todos/store.js";
+import type { TodoItem } from "../todos/types.js";
 import type { IsolationMode } from "./isolation.js";
 
 export type { IsolationMode } from "./isolation.js";
@@ -30,6 +32,28 @@ export const IMPLEMENT_SYSTEM = (
   + "tools available to you — read, edit, and run code as needed — then summarize what "
   + "you changed and the outcome. Keep the summary focused on results the parent agent needs."
 );
+
+const PARENT_PLAN_INSTRUCTIONS = (
+  "\n\nIf your work surfaces new requirements (missing dependencies, follow-up steps, "
+  + "blockers the parent should track), call `propose_todo` with a full replacement list "
+  + "for the parent. The parent owns the session plan; your proposal is applied "
+  + "as-is on its next turn. Skip propose_todo for trivial work or when the existing "
+  + "parent list still tracks reality."
+);
+
+/**
+ * Prepend the parent's current task list to a preset's system prompt so the
+ * subagent can build a coherent proposal. Empty parent list ⇒ no augmentation.
+ */
+export function augmentSystemWithParentTodos(
+  base: string,
+  parentTodos: TodoItem[] | undefined,
+): string {
+  if (!parentTodos || parentTodos.length === 0) {
+    return base + PARENT_PLAN_INSTRUCTIONS;
+  }
+  return `${base}\n\nPARENT PLAN (read-only; you may replace it via propose_todo):\n${formatRemindersBlock(parentTodos)}${PARENT_PLAN_INSTRUCTIONS}`;
+}
 
 const READ_ONLY_TOOL_NAMES = ["read", "grep", "find", "ls", "search_symbols"] as const;
 

@@ -35,6 +35,7 @@ export type AgentEvent =
   | { type: "tool_end"; id: string; name: string; output: string; isError?: boolean; subagentId?: string }
   | { type: "approval_required"; id: string; name: string; args: unknown; subagentId?: string }
   | { type: "todo_update"; todos: TodoItem[] }
+  | { type: "todo_proposal"; todos: TodoItem[]; subagentId?: string }
   | { type: "subagent_start"; id: string; description: string; prompt?: string; agent: string; isolation?: "shared" | "worktree" | "sandbox"; model?: string }
   | { type: "subagent_end"; id: string; agent: string; turns: number; summary: string }
   | { type: "loop_end"; reason: "complete" | "terminate" | "error" | "cancelled" };

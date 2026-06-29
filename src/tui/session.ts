@@ -111,6 +111,16 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     controller.loadHistory(messagesToTurns(config.ctx.messages));
   }
   config.hooks.observe(controller.handleEvent);
+  // A subagent can `propose_todo` to push a replacement list to the parent
+  // (issue #149). The child's own `ctx.todos` is never touched — the proposal
+  // is forwarded to the host's hooks, we apply it to the parent context here
+  // and re-emit a canonical `todo_update` so every observer (controller UI,
+  // reminders, telemetry) sees a single source of truth.
+  config.hooks.observe((event) => {
+    if (event.type !== "todo_proposal") return;
+    config.ctx.todos = event.todos;
+    config.hooks.emit({ type: "todo_update", todos: event.todos });
+  });
   await config.hooks.fireHook("session_start", { cwd: config.ctx.cwd }, config.ctx);
 
   let activeSessionId = config.sessionId;
