@@ -437,6 +437,11 @@ export function hasRegoloApiKey(): boolean {
   return Boolean(loadConfig().provider.regolo?.apiKey?.trim());
 }
 
+/** True when an OpenAI API key is set in config. */
+export function hasOpenAiApiKey(): boolean {
+  return Boolean(loadConfig().provider.openai?.apiKey?.trim());
+}
+
 /** True when an Anthropic API key is set in config. */
 export function hasAnthropicApiKey(): boolean {
   return Boolean(loadConfig().provider.anthropic?.apiKey?.trim());

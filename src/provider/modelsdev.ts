@@ -52,6 +52,7 @@ export type ModelsDevCatalog = Record<string, ModelsDevProvider | undefined>;
  */
 export const MODELSDEV_PROVIDER_ID_MAP: Readonly<Record<string, string>> = {
   openrouter: "openrouter",
+  openai: "openai",
   regolo: "regolo-ai",
   anthropic: "anthropic",
   "opencode-go": "opencode-go",

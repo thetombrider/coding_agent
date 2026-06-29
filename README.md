@@ -124,9 +124,10 @@ checkpoints all live under `~/.orin/` and survive upgrades.
 | Setting | Config key | Notes |
 | --- | --- | --- |
 | OpenRouter API key | `provider.openrouter.apiKey` | Default backend. Set with `/providers configure openrouter`. |
+| OpenAI API key | `provider.openai.apiKey` | Native Platform API (`/providers configure openai`). |
 | Anthropic API key | `provider.anthropic.apiKey` | Native Messages API (`/providers anthropic`). |
 | Regolo API key | `provider.regolo.apiKey` | EU-hosted, OpenAI-compatible (`/providers regolo`). |
-| Active provider | `provider.active` | e.g. `openrouter`, `anthropic`, `regolo`. |
+| Active provider | `provider.active` | e.g. `openrouter`, `openai`, `anthropic`, `regolo`. |
 | Main model | `models.providers.<id>.main` | Default agent model; set via `/model`. Bundled default per provider when unset. |
 | Task / delegate / compaction models | `models.providers.<id>.<slot>` | Optional per-slot overrides (`explore`, `review`, `implement`, `delegate_read`, `compaction`). Unset slots resolve from bundled `defaultSlots` in code. |
 | Approval mode | `approval.mode` | `normal` \| `auto-accept` \| `plan`. |
@@ -278,7 +279,7 @@ src/
   cli-args.ts     # CLI flag parsing
   types.ts        # message + content-block data model
   agent/          # the loop, compaction, presets, isolation, mutation queue
-  provider/       # streamAssistant, registry, providers/ (openrouter, anthropic, regolo) + faux
+  provider/       # streamAssistant, registry, providers/ (openrouter, openai, anthropic, regolo) + faux
   tools/          # read, write, edit, bash, grep, find, ls, fetch, file_op, delegate_read, task, task_parallel, todowrite, askuser (+ .txt descriptions)
   approval/       # approval modes + policy
   edit/           # fuzzy replacer chain for the edit tool

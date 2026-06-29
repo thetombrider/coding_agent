@@ -49,14 +49,16 @@ describe("provider registry", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("registers OpenRouter and Regolo providers", async () => {
+  it("registers OpenRouter, OpenAI, and Regolo providers", async () => {
     const { getProvider, listProviders, metadataProviders } = await import("./registry.js");
     const openrouter = getProvider("openrouter");
     expect(openrouter?.id).toBe("openrouter");
     expect(openrouter?.authStrategy).toBe("api-key");
     expect(listProviders().some((p) => p.id === "openrouter")).toBe(true);
+    expect(listProviders().some((p) => p.id === "openai")).toBe(true);
     expect(listProviders().some((p) => p.id === "regolo")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openrouter")).toBe(true);
+    expect(metadataProviders().some((m) => m.id === "openai")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "regolo")).toBe(true);
   });
 
@@ -118,6 +120,14 @@ describe("provider registry", () => {
     expect(getProvider("regolo")?.isConfigured()).toBe(true);
   });
 
+  it("reports OpenAI configured when the config key is set", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ provider: { openai: { apiKey: "sk-openai-test" } } });
+    vi.resetModules();
+    const { getProvider } = await import("./registry.js");
+    expect(getProvider("openai")?.isConfigured()).toBe(true);
+  });
+
   it("exposes config fields for api-key providers", async () => {
     const { providerConfigFields } = await import("./registry.js");
     const fields = providerConfigFields("openrouter");
@@ -137,6 +147,14 @@ describe("provider registry", () => {
     const { resolvePickerModels } = await import("./registry.js");
     const { REGOLO_PICKER_MODELS } = await import("./providers/regolo.js");
     expect(resolvePickerModels()).toEqual(REGOLO_PICKER_MODELS);
+  });
+
+  it("returns openai picker models when openai is active", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ provider: { active: "openai" } });
+    const { resolvePickerModels } = await import("./registry.js");
+    const { OPENAI_PICKER_MODELS } = await import("./providers/openai.js");
+    expect(resolvePickerModels()).toEqual(OPENAI_PICKER_MODELS);
   });
 
   it("appends config picker extras after bundled defaults", async () => {
