@@ -22,6 +22,8 @@ export type LlmCallRecorder = (call: {
 /** Per-call cost + token breakdown produced by `calcCost`, tagged with its source. */
 export interface TurnCost {
   model: string;
+  /** Provider id (e.g. "anthropic", "openrouter") when known. */
+  provider?: string;
   usage: Usage;
   /** USD cost for this call, or `null` when no pricing is known for the model. */
   costUsd: number | null;
