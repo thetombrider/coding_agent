@@ -15,27 +15,121 @@ work in a loop, streaming every step to an interactive UI. It's safe by default
 (nothing is written or run without your approval) and cheap by design (the
 expensive model thinks; a cheap one does the grunt work).
 
+## Where Orin wins
+
+Compared to the closest alternatives — [opencode](https://opencode.ai) (SST),
+[pi.dev](https://pi.dev), and [Claude Code](https://claude.ai/code) — Orin makes
+different trade-offs that pay off in cost, safety, and observability.
+
+### BM25 tool pre-filtering per turn
+
+Every turn, Orin runs a **BM25 retrieval pass** (via [Ratel](https://ratel.ai)) over
+the full tool catalog — including MCP tools and skills — and exposes only the most
+relevant tools to the model. The expensive model never sees a bloated catalog;
+it sees the tools that match the current task. This cuts per-turn token cost and
+reduces distraction-induced tool misuse. opencode, pi.dev, and Claude Code all use
+static allow/deny lists — process-level configuration, not per-turn relevance
+ranking. Built-in **A/B testing** (`tool_pool=ratel` vs `tool_pool=default`) lets
+you measure the impact directly in your telemetry.
+
+### E2B OS-level sandboxing
+
+opencode, pi.dev, and Claude Code enforce safety through permission rules and
+allow/deny lists — process-level controls that still run on your host. Orin's
+`sandbox` isolation mode runs subagents in **E2B ephemeral cloud VMs**: the
+subagent is fully isolated from your filesystem regardless of what it executes.
+For untrusted tasks, that's a real isolation boundary, not a policy.
+
+### Shadow-git `/undo` with broader bash coverage
+
+opencode ships a git-backed `/undo` that has multiple open critical bugs and does
+not track files modified directly by bash commands. Claude Code's checkpoint system
+also does not capture bash-modified files. pi.dev's rewind is an extension, not a
+built-in. Orin's **shadow-git snapshots** fire before every tool execution —
+including bash — at the git level, so rollback coverage is broader and the
+mechanism has no known gaps.
+
+### Two-model cost split at the tool level
+
+pi.dev and opencode route all work through a single model on every turn. Orin's
+`delegate_read` tool hands read-heavy work — file reads, grep, find, ls — to a
+**cheap model** in an isolated call. The cheap model never gets write tools; it
+only returns a distilled summary. The main model stays focused on decisions. This
+isn't a config option — it's wired into the tool set so the agent uses it
+automatically. Claude Code has a related concept (Opus for planning, Sonnet for
+execution via `opusplan`), but the split happens at the planning phase rather than
+at individual tool calls.
+
+### Native OTLP without plugins
+
+pi.dev requires a Braintrust or Raindrop extension for OTLP. opencode requires a
+community plugin. Orin ships **OTLP export natively** — every turn produces a trace
+with child LLM spans (model, tokens, cost), tool spans (duration, ok/error), and
+subagent spans, readable in Langfuse, Grafana Tempo, Arize Phoenix, or any OTLP
+backend. Claude Code also ships OTLP natively; the difference is that Orin's local
+metrics (`~/.orin/metrics.jsonl`) are always on with no environment variable
+required, and content capture defaults are the same: off unless you opt in.
+
+### Offline demo + EU provider
+
+`orin --faux` runs the full TUI with scripted responses — no API key, no network.
+None of the three competitors have an equivalent. Orin also ships **Regolo** as a
+built-in provider: EU-hosted, OpenAI-compatible, and the only native EU option among
+the four for GDPR-sensitive workloads.
+
+### Comparison at a glance
+
+| | Orin | opencode | pi.dev | Claude Code |
+|---|:---:|:---:|:---:|:---:|
+| Per-turn BM25 tool ranking | ✅ | ❌ | ❌ | ❌ |
+| OS-level sandbox (E2B) | ✅ | ❌ | ❌ | ❌ |
+| `/undo` incl. bash-modified files | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| Two-model cost split | ✅ | ❌ | ❌ | ✅ |
+| Native OTLP (no plugin) | ✅ | ❌ | ❌ | ✅ |
+| Parallel subagents (worktree-isolated) | ✅ | ❌ | ❌ | ✅ |
+| MCP server support | ✅ | ✅ | ⚠️ | ✅ |
+| Offline demo mode | ✅ | ❌ | ❌ | ❌ |
+| EU provider (Regolo) | ✅ | ❌ | ❌ | ❌ |
+| Local / self-hosted models | ❌ | ✅ | ✅ | ❌ |
+| LSP diagnostics fed back to model | ❌ | ✅ | ❌ | ❌ |
+| IDE extensions | ❌ | ✅ | ❌ | ✅ |
+
+⚠️ = partial or extension-only
+
+---
+
 ## Highlights
 
 - **Autonomous, with a seatbelt** — Orin drives the tools itself, but stops for
   approval before any file write or shell command. Flip between `normal`,
-  `allow-all`, and read-only `plan` on the fly.
+  `allow-all`, and read-only `plan` on the fly with `/mode`.
 - **An undo button for the agent** — every change is snapshotted to a shadow git
   history, so `/undo` rolls your working tree back to any point in the session.
 - **A genuine terminal UI** — streaming markdown, live unified diffs, a
-  slash-command palette, a session browser, and a context-window meter.
+  slash-command palette, a session browser, and a context-window meter, all in a
+  reactive SolidJS component tree.
 - **Cheap where it counts** — a capable main model reasons and edits; a cheap
-  model handles read-heavy and exploratory work, so most tokens never touch your
-  expensive context.
-- **Parallel subagents** — hand scoped work (`explore`, `implement`, `review`) to
-  isolated subagents that run in the shared tree, a throwaway git worktree, or a
-  cloud sandbox. `task_parallel` fans independent units of work out concurrently,
-  each mutating child in its own worktree so siblings can't collide.
-- **Bring your own model** — OpenRouter, Anthropic, and EU-hosted Regolo ship
-  today; switch provider or model mid-session with `/providers` and `/model`.
-- **Never loses the thread** — sessions are resumable logs, context auto-compacts
-  as the window fills, and a project `AGENTS.md` is picked up automatically.
-- **Try it with no API key** — `orin --faux` runs the whole UI offline with
+  model handles read-heavy and exploratory work via `delegate_read`, so most tokens
+  never touch your expensive context.
+- **Parallel subagents** — `task_parallel` fans independent units of work out
+  concurrently, each child in its own git worktree so siblings can't collide.
+  Individual subagents can run in a shared tree, an isolated worktree, or an E2B
+  cloud sandbox.
+- **BM25 tool pre-filtering** — Ratel narrows the tool catalog to the most relevant
+  tools per turn, cutting context bloat and per-turn cost. A/B testing is built in.
+- **Full OTLP observability** — export traces to Langfuse, Grafana Tempo, Jaeger, or
+  any OTLP backend. GenAI semantic conventions. Content capture is opt-in.
+- **Bring your own model** — OpenRouter, Anthropic, OpenAI, and EU-hosted Regolo
+  ship today; switch provider or model mid-session with `/providers` and `/model`.
+  Per-role model slots (`explore`, `review`, `implement`) can each use different models.
+- **MCP server support** — connect external MCP servers (GitHub, databases, etc.);
+  their tools flow through the same approval gate and BM25 filter as native tools.
+- **Tree-sitter symbol indexing** — `search_symbols` does structural codebase search
+  (functions, classes, imports) backed by a persistent, cross-session cache.
+- **Never loses the thread** — sessions are resumable append-only logs, context
+  auto-compacts as the window fills, and a project `AGENTS.md` is picked up
+  automatically.
+- **Try it with no API key** — `orin --faux` runs the whole TUI offline with
   scripted responses.
 
 ## Quick start
@@ -288,9 +382,11 @@ src/
   todos/          # session task-list store (todowrite)
   prompt/         # system prompt + AGENTS.md / SYSTEM.md discovery + environment
   hooks/          # lifecycle hook registry + core hooks (incl. RTK rewrite)
+  ratel/          # BM25 tool pre-filtering, tool catalog, MCP bridge, A/B telemetry
   session/        # append-only JSONL session log
+  symbols/        # Tree-sitter indexing, persistent cache, search_symbols tool
   telemetry/      # cost/token metrics + sinks; otel/ OTLP trace export (gen_ai spans)
-  workspace/      # Workspace backends: local + E2B sandbox
+  workspace/      # Workspace backends: local, worktree, E2B sandbox
   tui/            # SolidJS/@opentui terminal UI, slash commands, views
   config/         # config.json loading, model + init config
   util/           # paths, shell, .txt loading, secret prompts
@@ -324,5 +420,3 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contributor workflow, and
 ## License
 
 [MIT](./LICENSE)
-</content>
-</invoke>
