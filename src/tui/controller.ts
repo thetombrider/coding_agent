@@ -93,6 +93,8 @@ export interface SessionState {
   pendingQuestion: PendingQuestion | null;
   input: string;
   statusHint: string;
+  /** Skills loaded via skill_use during this session. */
+  activeSkills: Array<{ name: string; version?: string }>;
 }
 
 export type SessionListener = (state: SessionState) => void;
@@ -144,6 +146,9 @@ const TOOL_VERBS: Record<string, string> = {
   delegate_read: "Delegating read of",
   task: "Subagent",
   todowrite: "Updating tasks",
+  skill_list: "Listing skills",
+  skill_use: "Loading skill",
+  skill_write: "Writing skill",
 };
 
 function todosFromToolArgs(args: unknown): TodoItem[] | undefined {
@@ -252,6 +257,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     pendingQuestion: null,
     input: "",
     statusHint: IDLE_STATUS_HINT,
+    activeSkills: [],
   };
 
   const listeners = new Set<SessionListener>();
@@ -572,6 +578,16 @@ export function createSessionController(meta: SessionMeta): SessionController {
             status: event.isError ? "error" : "done",
             output: event.output,
           });
+          if (event.name === "skill_use" && !event.isError) {
+            const toolArgs = state.currentTools.find((t) => t.id === event.id)?.args;
+            const skillName =
+              toolArgs && typeof toolArgs === "object"
+                ? (toolArgs as Record<string, unknown>).name
+                : undefined;
+            if (typeof skillName === "string") {
+              update({ activeSkills: [...state.activeSkills, { name: skillName }] });
+            }
+          }
           break;
         case "todo_update":
           update({ todos: event.todos });

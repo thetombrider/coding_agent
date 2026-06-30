@@ -269,6 +269,18 @@ export function toolSummary(
       return clip(record.pattern + suffix);
     }
 
+    if (name === "skill_list") return "";
+
+    if (name === "skill_use" && typeof record.name === "string") {
+      const file = typeof record.file === "string" ? ` / ${record.file}` : "";
+      return clip(record.name + file);
+    }
+
+    if (name === "skill_write" && typeof record.action === "string" && typeof record.name === "string") {
+      const scope = typeof record.scope === "string" ? ` (${record.scope})` : "";
+      return clip(`${record.action} ${record.name}${scope}`);
+    }
+
     if (typeof record.path === "string") return record.path;
     if (typeof record.command === "string") {
       const bg = record.background === true ? "[bg] " : "";

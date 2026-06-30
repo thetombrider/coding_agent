@@ -140,6 +140,40 @@ describe("toolSummary", () => {
   });
 });
 
+describe("toolSummary — skill tools", () => {
+  it("shows skill name for skill_use", () => {
+    expect(toolSummary("skill_use", { name: "git-workflow" })).toBe("git-workflow");
+  });
+
+  it("appends the file path for skill_use with a file", () => {
+    expect(toolSummary("skill_use", { name: "git-workflow", file: "references/api.md" })).toBe(
+      "git-workflow / references/api.md",
+    );
+  });
+
+  it("returns empty string for skill_list", () => {
+    expect(toolSummary("skill_list", {})).toBe("");
+  });
+
+  it("shows action and name for skill_write", () => {
+    expect(toolSummary("skill_write", { action: "create", name: "git-workflow" })).toBe(
+      "create git-workflow",
+    );
+  });
+
+  it("includes scope for skill_write when present", () => {
+    expect(toolSummary("skill_write", { action: "create", name: "git-workflow", scope: "global" })).toBe(
+      "create git-workflow (global)",
+    );
+  });
+
+  it("truncates long skill_use names", () => {
+    const long = "a".repeat(80);
+    const summary = toolSummary("skill_use", { name: long });
+    expect(summary).toMatch(/…$/);
+  });
+});
+
 describe("shouldWrapToolSummary", () => {
   it("keeps short summaries on the header row", () => {
     expect(shouldWrapToolSummary("src/hooks/registry.ts")).toBe(false);
