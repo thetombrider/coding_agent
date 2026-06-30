@@ -232,7 +232,8 @@ export async function runSubagentTask(
       messages: [{ role: "user", content: [{ type: "text", text: args.prompt }] }],
     };
 
-    const childRatel = buildChildRatelBundle(preset.tools, childCwd);
+    const childSkillCwd = isolationResult.mode === "sandbox" ? ctx.cwd : childCwd;
+    const childRatel = buildChildRatelBundle(preset.tools, childSkillCwd);
     const childLoopTools = loopTools(preset.tools, childRatel);
 
     const childHooks = createHookRegistry();

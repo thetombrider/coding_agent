@@ -37,7 +37,8 @@ describe("installSkillInject with Ratel", () => {
       );
       expect(result).toBeUndefined();
     } finally {
-      process.env.HOME = prevHome;
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
       __testClearCache();
     }
   });

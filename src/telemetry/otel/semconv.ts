@@ -129,6 +129,7 @@ export function ratelGatewayToolAttributes(): SpanAttributes {
 /** Ratel pre-filter metadata on LLM generation spans when replace mode is active. */
 export function ratelResolutionAttributes(
   snap: NonNullable<LlmRequestSnapshot["ratel"]>,
+  captureContent = false,
 ): SpanAttributes {
   const attrs: SpanAttributes = {
     "ratel.replace_mode": snap.replaceMode,
@@ -141,7 +142,7 @@ export function ratelResolutionAttributes(
     "ratel.skill_catalog_size": snap.skillCatalogSize,
   };
   if (snap.topHitScore !== undefined) attrs["ratel.top_hit_score"] = snap.topHitScore;
-  if (snap.query) attrs["ratel.query"] = snap.query.slice(0, 200);
+  if (captureContent && snap.query) attrs["ratel.query"] = snap.query.slice(0, 200);
   return attrs;
 }
 

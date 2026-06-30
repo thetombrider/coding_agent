@@ -288,7 +288,7 @@ class SpanConsumer implements OtelSpanConsumer {
           kind: rt.api.SpanKind.CLIENT,
           attributes: {
             ...llmRequestAttributes({ requestModel: model, providerId: this.opts.providerId }),
-            ...(request?.ratel ? ratelResolutionAttributes(request.ratel) : {}),
+            ...(request?.ratel ? ratelResolutionAttributes(request.ratel, this.cfg.captureContent) : {}),
             ...contentAttrs,
           },
         },

@@ -20,7 +20,7 @@ function parseFrontmatterList(fm: string, key: string): string[] | undefined {
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]!;
     if (!/^\s+-\s+/.test(line)) break;
-    const item = line.match(/^\s+-\s+(.+)$/)?.[1]?.trim();
+    const item = line.match(/^\s+-\s+(.+)$/)?.[1]?.trim().replace(/^['"]|['"]$/g, "");
     if (item) items.push(item);
   }
   return items.length > 0 ? items : undefined;

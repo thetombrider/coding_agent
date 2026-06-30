@@ -136,7 +136,7 @@ export class OrinRatelBundle {
     registerDiscoveredSkills((skill) => skillCatalog.register(skill), cwd);
 
     const upstreamServers: UpstreamServerInfo[] = mcp.servers
-      .filter((s) => s.status === "connected" && s.toolCount > 0)
+      .filter((s) => (s.status === "connected" || s.status === "needs_auth") && s.toolCount > 0)
       .map((s) => ({
         name: s.name,
         toolCount: s.toolCount,
@@ -164,18 +164,22 @@ export class OrinRatelBundle {
   /** Sync build for tests and subagent child loops (no MCP upstream registration). */
   static build(opts: OrinRatelBuildOptions): OrinRatelBundle {
     const settings = opts.settings ?? resolveRatelSettings();
-    const toolCatalog = new ToolCatalog();
+    const toolCatalog = opts.toolCatalog ?? new ToolCatalog();
     const skillCatalog = new SkillCatalog();
     const orinTools = new Map<string, AnyTool>();
 
     for (const tool of opts.tools) {
-      registerOrinTool(toolCatalog, tool, orinTools);
+      if (opts.toolCatalog) {
+        orinTools.set(tool.name, tool);
+      } else {
+        registerOrinTool(toolCatalog, tool, orinTools);
+      }
     }
 
     registerDiscoveredSkills((skill) => skillCatalog.register(skill), opts.cwd);
 
-    const upstreamServers: UpstreamServerInfo[] = (opts.mcp?.servers ?? [])
-      .filter((s) => s.status === "connected" && s.toolCount > 0)
+    const upstreamServers: UpstreamServerInfo[] = opts.upstreamServers ?? (opts.mcp?.servers ?? [])
+      .filter((s) => (s.status === "connected" || s.status === "needs_auth") && s.toolCount > 0)
       .map((s) => ({
         name: s.name,
         toolCount: s.toolCount,

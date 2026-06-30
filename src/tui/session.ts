@@ -823,8 +823,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         new Promise((resolve) => setTimeout(resolve, TURN_STOP_TIMEOUT_MS)),
       ]);
     }
+    disposeRatelTelemetry();
     await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
-    await config.mcpDispose?.();
+    await currentMcpDispose?.();
     disposeTelemetry();
     await config.ctx.workspace.dispose();
     await log.close();

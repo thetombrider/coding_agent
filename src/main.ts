@@ -163,7 +163,9 @@ async function runInteractive(opts: {
   const ctx: AgentContext = { cwd: hostCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
   attachSymbolService(ctx, createSymbolService());
   const hooks = createSessionHooks();
-  const tooling = await bootstrapOrinTooling(hostCwd, sessionId);
+  // For resumed worktree sessions the stored cwd is the worktree path; use it
+  // so skill discovery runs against the right workspace, not the host repo.
+  const tooling = await bootstrapOrinTooling(sessionMeta?.cwd ?? hostCwd, sessionId);
   for (const warning of tooling.mcpWarnings) console.warn(warning);
 
   await runTuiSession({
