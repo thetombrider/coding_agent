@@ -1,7 +1,7 @@
 import type { InputRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { createTextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/solid";
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show } from "solid-js";
 import { IDLE_STATUS_HINT, type SessionController, type SessionState, type Turn } from "./controller.js";
 import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
@@ -232,6 +232,11 @@ export function App(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [questionIndex, setQuestionIndex] = createSignal(0);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
+  const mcpPaletteRows = createMemo(() => {
+    const pal = palette();
+    if (!pal || pal.phase !== "mcp" || pal.menu !== "list") return [];
+    return mcpListRows(pal.servers);
+  });
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
   const [mcpWizard, setMcpWizard] = createSignal<McpWizardState | null>(null);
   const [e2bPrompt, setE2bPrompt] = createSignal(false);
@@ -1330,6 +1335,7 @@ export function App(props: {
       const selected = readRendererSelection(renderer);
       if (selected) {
         void performCopy(selected);
+        key.preventDefault();
         return;
       }
     }
@@ -1625,6 +1631,7 @@ export function App(props: {
         const expanded = toolExpand.getHoveredExpandedOutput();
         if (expanded) {
           void performCopy(expanded);
+          key.preventDefault();
           return;
         }
       }
@@ -1915,24 +1922,24 @@ export function App(props: {
                   scrollY
                   contentOptions={{ flexDirection: "column" }}
                 >
-                  <For each={[...pickerModels()]}>
+                  <Index each={[...pickerModels()]}>
                     {(model, i) => {
-                      const selected = () => (p() as { phase: "model"; index: number }).index === i();
-                      const isCurrent = () => model === state().meta.model;
+                      const selected = () => (p() as { phase: "model"; index: number }).index === i;
+                      const isCurrent = () => model() === state().meta.model;
                       const providerId = () => state().meta.provider ?? activeProviderId();
                       const pricingLabel = () =>
                         formatModelPricingLabel(
                           resolveDisplayModelPricing(
-                            model,
+                            model(),
                             providerId(),
                             modelPricing,
                           ),
                         );
-                      const contextLabel = () => formatContextWindowLabel(modelContextWindows()[model]);
+                      const contextLabel = () => formatContextWindowLabel(modelContextWindows()[model()]);
                       return (
-                        <box id={`model-row-${i()}`} flexDirection="row">
+                        <box id={`model-row-${i}`} flexDirection="row">
                           <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                            {selected() ? "▶ " : "  "}{model}
+                            {selected() ? "▶ " : "  "}{model()}
                           </text>
                           <text fg={theme.secondary}>  {pricingLabel()}</text>
                           <Show when={contextLabel()}>
@@ -1944,7 +1951,7 @@ export function App(props: {
                         </box>
                       );
                     }}
-                  </For>
+                  </Index>
                 </scrollbox>
               </Show>
 
@@ -1970,14 +1977,14 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "mode"}>
-                <For each={APPROVAL_MODES}>
+                <Index each={APPROVAL_MODES}>
                   {(mode, i) => {
-                    const selected = () => (p() as { phase: "mode"; index: number }).index === i();
-                    const isCurrent = () => mode === (coerceApprovalMode(state().meta.approval) ?? "normal");
+                    const selected = () => (p() as { phase: "mode"; index: number }).index === i;
+                    const isCurrent = () => mode() === (coerceApprovalMode(state().meta.approval) ?? "normal");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{APPROVAL_MODE_LABELS[mode]}
+                          {selected() ? "▶ " : "  "}{APPROVAL_MODE_LABELS[mode()]}
                         </text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
@@ -1985,7 +1992,7 @@ export function App(props: {
                       </box>
                     );
                   }}
-                </For>
+                </Index>
               </Show>
 
               <Show when={p().phase === "settings"}>
@@ -2050,15 +2057,15 @@ export function App(props: {
 
               <Show when={p().phase === "settings-session-isolation"}>
                 <text fg={theme.secondary}>Parent agent — where your edits land</text>
-                <For each={SESSION_ISOLATION_MODES}>
+                <Index each={SESSION_ISOLATION_MODES}>
                   {(mode, i) => {
                     const selected = () =>
-                      (p() as { phase: "settings-session-isolation"; index: number }).index === i();
-                    const isCurrent = () => mode === (loadConfig().session?.isolation ?? "shared");
+                      (p() as { phase: "settings-session-isolation"; index: number }).index === i;
+                    const isCurrent = () => mode() === (loadConfig().session?.isolation ?? "shared");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{SESSION_ISOLATION_LABELS[mode]}
+                          {selected() ? "▶ " : "  "}{SESSION_ISOLATION_LABELS[mode()]}
                         </text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
@@ -2066,19 +2073,19 @@ export function App(props: {
                       </box>
                     );
                   }}
-                </For>
+                </Index>
               </Show>
 
               <Show when={p().phase === "settings-isolation"}>
                 <text fg={theme.secondary}>{serialSubagentPaletteHeader("shared")}</text>
-                <For each={ISOLATION_MODES}>
+                <Index each={ISOLATION_MODES}>
                   {(mode, i) => {
-                    const selected = () => (p() as { phase: "settings-isolation"; index: number }).index === i();
-                    const isCurrent = () => mode === loadConfig().subagent.isolation;
+                    const selected = () => (p() as { phase: "settings-isolation"; index: number }).index === i;
+                    const isCurrent = () => mode() === loadConfig().subagent.isolation;
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{ISOLATION_LABELS[mode]}
+                          {selected() ? "▶ " : "  "}{ISOLATION_LABELS[mode()]}
                         </text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
@@ -2086,7 +2093,7 @@ export function App(props: {
                       </box>
                     );
                   }}
-                </For>
+                </Index>
               </Show>
 
               <Show when={p().phase === "settings-serial-info"}>
@@ -2109,28 +2116,28 @@ export function App(props: {
                   scrollY
                   contentOptions={{ flexDirection: "column" }}
                 >
-                  <For each={modelSlotList()}>
+                  <Index each={modelSlotList()}>
                     {(model, i) => {
                       const sp = () => p() as { phase: "settings-model-slot"; index: number; slot: ModelSlot };
-                      const selected = () => sp().index === i();
+                      const selected = () => sp().index === i;
                       const providerId = () => roleProviderId();
                       const override = () => loadConfig().models.providers?.[providerId()]?.[sp().slot]?.trim() ?? "";
                       const isCurrent = () =>
-                        model === MODEL_SLOT_DEFAULT ? override() === "" : model === override();
+                        model() === MODEL_SLOT_DEFAULT ? override() === "" : model() === override();
                       const pricingLabel = () =>
-                        model === MODEL_SLOT_DEFAULT
+                        model() === MODEL_SLOT_DEFAULT
                           ? ""
                           : formatModelPricingLabel(
-                              resolveDisplayModelPricing(model, providerId(), modelPricing),
+                              resolveDisplayModelPricing(model(), providerId(), modelPricing),
                             );
                       const contextLabel = () =>
-                        model === MODEL_SLOT_DEFAULT
+                        model() === MODEL_SLOT_DEFAULT
                           ? ""
-                          : formatContextWindowLabel(modelContextWindows()[model]);
+                          : formatContextWindowLabel(modelContextWindows()[model()]);
                       return (
-                        <box id={`model-row-${i()}`} flexDirection="row">
+                        <box id={`model-row-${i}`} flexDirection="row">
                           <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                            {selected() ? "▶ " : "  "}{model}
+                            {selected() ? "▶ " : "  "}{model()}
                           </text>
                           <Show when={pricingLabel()}>
                             <text fg={theme.secondary}>  {pricingLabel()}</text>
@@ -2144,7 +2151,7 @@ export function App(props: {
                         </box>
                       );
                     }}
-                  </For>
+                  </Index>
                 </scrollbox>
               </Show>
 
@@ -2232,9 +2239,9 @@ export function App(props: {
                             <Show when={server()}>
                               {(s) => (
                                 <box flexDirection="column">
-                                  <For each={mcpServerDetailLines(s())}>
-                                    {(line) => <text fg={theme.secondary}>{line}</text>}
-                                  </For>
+                                  <Index each={mcpServerDetailLines(s())}>
+                                    {(line) => <text fg={theme.secondary}>{line()}</text>}
+                                  </Index>
                                 </box>
                               )}
                             </Show>
@@ -2245,11 +2252,11 @@ export function App(props: {
                   }
                 >
                   <scrollbox
-                    height={Math.min(mcpListRows((p() as McpPaletteState).servers).length, MCP_LIST_MAX_VISIBLE)}
+                    height={Math.min(mcpPaletteRows().length, MCP_LIST_MAX_VISIBLE)}
                     scrollY
                     contentOptions={{ flexDirection: "column" }}
                   >
-                    <For each={mcpListRows((p() as McpPaletteState).servers)}>
+                    <For each={mcpPaletteRows()}>
                       {(row, i) => {
                         const selected = () => (p() as McpPaletteState).index === i();
                         return (

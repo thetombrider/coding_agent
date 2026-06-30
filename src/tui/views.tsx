@@ -2,7 +2,7 @@ import { createTextAttributes, type ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { formatMcpToolLabel, isMcpTool } from "../mcp/names.js";
 import type { ModelPricing } from "../config/config.js";
-import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js";
 import type { SubagentContext, ToolEntry, Turn } from "./controller.js";
 import type { TodoItem, TodoStatus } from "../todos/types.js";
 import { countCompletedTodos, hasActiveTodos } from "../todos/store.js";
@@ -154,7 +154,6 @@ export function formatSessionCost(costUsd?: number | null): string {
 
 /** Format a per-million-token rate for model list display. */
 function formatPerMRate(rate: number): string {
-  if (rate >= 1) return `$${rate.toFixed(2)}`;
   if (rate >= 0.1) return `$${rate.toFixed(2)}`;
   return `$${rate.toFixed(3)}`;
 }
@@ -362,16 +361,18 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
   const expandKey = () => props.expandKey;
   const nested = () => props.nested ?? false;
   const toolExpand = useToolExpand();
-  const showDiff = () =>
+  const showDiff = createMemo(() =>
     entry().name === "edit"
     && entry().status === "done"
     && !!entry().output
-    && entry().output!.includes("@@");
+    && entry().output!.includes("@@"),
+  );
 
-  const hasPlainOutput = () =>
+  const hasPlainOutput = createMemo(() =>
     !!entry().output
     && entry().status !== "running"
-    && !showDiff();
+    && !showDiff(),
+  );
 
   const [expanded, setLocalExpanded] = createSignal(
     entry().status === "error" && hasPlainOutput(),
@@ -415,8 +416,8 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
       : entry().status === "error"
         ? theme.toolError
         : theme.accent;
-  const summary = () => toolSummary(entry().name, entry().args, { truncate: running() });
-  const wrapSummary = () => !running() && !!summary() && shouldWrapToolSummary(summary());
+  const summary = createMemo(() => toolSummary(entry().name, entry().args, { truncate: running() }));
+  const wrapSummary = () => { const s = summary(); return !running() && !!s && shouldWrapToolSummary(s); };
   const inlineSummary = () => !!summary() && !wrapSummary();
   const expandHint = () => (hasPlainOutput() && !expanded() ? outputExpandHint(entry().output!) : "");
 
@@ -468,7 +469,7 @@ function SubagentBlock(props: { subagent: SubagentContext; expandKeyPrefix: stri
 
   return (
     <box flexDirection="column" marginLeft={2} marginTop={0}>
-      <box flexDirection="row" marginBottom={subagent().tools.length ? 0 : 0}>
+      <box flexDirection="row" marginBottom={subagent().tools.length ? 1 : 0}>
         <text selectable={false} fg={theme.subagent} attributes={running() ? BOLD : 0}>
           {running() ? spinnerFrame() : "▸"} subagent ({subagent().agent})
         </text>
