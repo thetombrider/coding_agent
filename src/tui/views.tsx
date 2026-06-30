@@ -500,13 +500,107 @@ function SubagentBlock(props: { subagent: SubagentContext; expandKeyPrefix: stri
   );
 }
 
+function parseSkillFrontmatter(output: string | undefined): { version?: string; description?: string } {
+  if (!output) return {};
+  const match = output.match(/^---\n([\s\S]*?)\n---/m);
+  if (!match) return {};
+  const fm = match[1];
+  const versionMatch = fm.match(/^version:\s*(.+)$/m);
+  const descMatch = fm.match(/^description:\s*(.+)$/m);
+  return {
+    version: versionMatch?.[1]?.trim(),
+    description: descMatch?.[1]?.trim(),
+  };
+}
+
+function SkillBlock(props: { entry: ToolEntry; expandKey: string }) {
+  const entry = () => props.entry;
+  const toolExpand = useToolExpand();
+  const running = () => entry().status === "running";
+
+  const name = createMemo(() => {
+    const args = entry().args;
+    if (args && typeof args === "object") {
+      const n = (args as Record<string, unknown>).name;
+      if (typeof n === "string") return n;
+    }
+    return "";
+  });
+
+  const parsed = createMemo(() => parseSkillFrontmatter(entry().output));
+  const hasContent = createMemo(() => !!entry().output && entry().status !== "running");
+
+  const [expanded, setLocalExpanded] = createSignal(false);
+  const setExpanded = (value: boolean) => {
+    setLocalExpanded(value);
+    toolExpand?.setExpanded(props.expandKey, value);
+  };
+  const toggleExpanded = () => {
+    if (!hasContent()) return;
+    setExpanded(!expanded());
+  };
+
+  onMount(() => {
+    toolExpand?.setExpanded(props.expandKey, expanded());
+    toolExpand?.registerToggle(props.expandKey, toggleExpanded);
+    toolExpand?.registerCopyTarget(props.expandKey, {
+      label: name() || "skill",
+      getOutput: () => entry().output,
+      isExpanded: () => expanded(),
+    });
+  });
+  onCleanup(() => {
+    toolExpand?.registerToggle(props.expandKey, null);
+    toolExpand?.registerCopyTarget(props.expandKey, null);
+  });
+
+  const glyph = () => (running() ? spinnerFrame() : "▸");
+  const header = () => {
+    const v = parsed().version;
+    return v ? `${name()} v${v}` : name();
+  };
+  const expandHint = () => (hasContent() && !expanded() ? outputExpandHint(entry().output!) : "");
+
+  return (
+    <box
+      flexDirection="column"
+      marginLeft={1}
+      onMouseOver={() => toolExpand?.setHovered(props.expandKey)}
+    >
+      <box flexDirection="row" onMouseDown={() => toggleExpanded()}>
+        <text selectable={false} fg={running() ? theme.toolRunning : theme.accent} attributes={running() ? BOLD : 0}>
+          {glyph()} skill
+        </text>
+        <text selectable={false} fg={theme.secondary}>  {header()}</text>
+        <Show when={expandHint()}>
+          <text selectable={false} fg={theme.muted}>  {expandHint()}</text>
+        </Show>
+      </box>
+      <Show when={parsed().description}>
+        {(desc) => (
+          <text selectable={false} fg={theme.secondary}>  {desc()}</text>
+        )}
+      </Show>
+      <Show when={hasContent() && expanded()}>
+        <ToolOutputView output={entry().output!} />
+      </Show>
+    </box>
+  );
+}
+
 function ToolBlock(props: { entry: ToolEntry; expandKeyPrefix: string }) {
+  const expandKey = () => `${props.expandKeyPrefix}/${props.entry.id}`;
   return (
     <box flexDirection="column">
-      <ToolLine entry={props.entry} expandKey={`${props.expandKeyPrefix}/${props.entry.id}`} />
+      <Show
+        when={props.entry.name === "skill_use"}
+        fallback={<ToolLine entry={props.entry} expandKey={expandKey()} />}
+      >
+        <SkillBlock entry={props.entry} expandKey={expandKey()} />
+      </Show>
       <Show when={props.entry.subagent}>
         {(subagent) => (
-          <SubagentBlock subagent={subagent()} expandKeyPrefix={`${props.expandKeyPrefix}/${props.entry.id}`} />
+          <SubagentBlock subagent={subagent()} expandKeyPrefix={expandKey()} />
         )}
       </Show>
     </box>
