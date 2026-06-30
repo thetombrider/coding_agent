@@ -16,6 +16,7 @@ export type McpStdioConfig = {
   env?: Record<string, string>;
   cwd?: string;
   disabled?: boolean;
+  autoApprove?: string[];
 };
 
 export type McpHttpConfig = {
@@ -26,6 +27,7 @@ export type McpHttpConfig = {
   /** Enable MCP OAuth 2.1 (`true` or static client registration). */
   oauth?: true | McpOAuthOptions;
   disabled?: boolean;
+  autoApprove?: string[];
 };
 
 export type McpWsConfig = {
@@ -33,6 +35,7 @@ export type McpWsConfig = {
   url: string;
   headers?: Record<string, string>;
   disabled?: boolean;
+  autoApprove?: string[];
 };
 
 export type McpServerConfig = McpStdioConfig | McpHttpConfig | McpWsConfig;
@@ -49,6 +52,12 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function parseDisabled(raw: Record<string, unknown>): boolean | undefined {
   return raw.disabled === true ? true : undefined;
+}
+
+function parseAutoApprove(raw: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(raw.autoApprove)) return undefined;
+  const arr = raw.autoApprove.filter((v): v is string => typeof v === "string");
+  return arr.length > 0 ? arr : undefined;
 }
 
 function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfig; warning?: string } {
@@ -84,6 +93,7 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
         env,
         cwd,
         disabled,
+        autoApprove: parseAutoApprove(raw),
       },
     };
   }
@@ -111,9 +121,10 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
     if (raw.oauth !== undefined && oauth === undefined) {
       return { warning: `MCP server "${name}": "oauth" must be true or an object, skipping.` };
     }
+    const autoApprove = parseAutoApprove(raw);
     return type === "http"
-      ? { config: { type: "http", url: raw.url, headers, oauth, disabled } }
-      : { config: { type: "ws", url: raw.url, headers, disabled } };
+      ? { config: { type: "http", url: raw.url, headers, oauth, disabled, autoApprove } }
+      : { config: { type: "ws", url: raw.url, headers, disabled, autoApprove } };
   }
 
   return { warning: `MCP server "${name}": unknown transport type "${String(type)}", skipping.` };

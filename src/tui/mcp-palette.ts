@@ -54,9 +54,9 @@ export function mcpPaletteHint(menu: McpPaletteMenu, server?: McpServerStatus): 
       return "↑↓ navigate · Enter select · Esc back";
     case "detail":
       if (server && mcpDetailCanAuthenticate(server)) {
-        return "a authenticate · Enter edit · → delete · ← or Esc back";
+        return "a authenticate · d enable/disable · Enter edit · → delete · ← or Esc back";
       }
-      return "Enter edit · → delete · ← or Esc back";
+      return "d enable/disable · Enter edit · → delete · ← or Esc back";
     case "delete":
       return "Enter confirm delete · ← or Esc cancel";
   }
@@ -75,6 +75,9 @@ export function mcpServerDetailLines(server: McpServerStatus): string[] {
   ];
   if (server.config.type === "http" || server.config.type === "ws") {
     lines.push(`auth: ${mcpAuthModeLabel(server.config)}`);
+  }
+  if (server.config.autoApprove && server.config.autoApprove.length > 0) {
+    lines.push(`autoApprove: ${server.config.autoApprove.join(", ")}`);
   }
 
   switch (server.status) {

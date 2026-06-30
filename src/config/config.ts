@@ -170,6 +170,7 @@ const DEFAULT_CONFIG: Config = {
       "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely. "
       + "Prefer automated tests over starting dev servers; bash blocks on foreground long-running processes.",
   },
+  ratel: { enabled: true },
   telemetry: {
     enabled: true,
     stdout: false,

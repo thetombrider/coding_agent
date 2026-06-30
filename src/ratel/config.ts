@@ -24,7 +24,7 @@ const DEFAULT_PINNED = [
 ] as const;
 
 const DEFAULTS: RatelSettings = {
-  enabled: false,
+  enabled: true,
   topKTools: 5,
   topKSkills: 3,
   pinnedTools: DEFAULT_PINNED,

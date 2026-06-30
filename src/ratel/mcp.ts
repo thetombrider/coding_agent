@@ -6,6 +6,7 @@ import type { AnyTool } from "../tools/registry.js";
 import { renderMcpContent } from "../mcp/adapter.js";
 import { makeTransport } from "../mcp/client.js";
 import { loadMcpConfig, type McpScope, type McpServerConfig } from "../mcp/config.js";
+import { MCP_TOOL_SEP } from "../mcp/names.js";
 import {
   classifyMcpFailure,
   mcpSummaryPart,
@@ -28,13 +29,13 @@ function isDisabled(config: McpServerConfig): boolean {
 }
 
 /** Wrap a catalog MCP tool for Orin's approval gate and output rendering. */
-export function wrapCatalogMcpTool(catalog: ToolCatalog, toolId: string): AnyTool {
+export function wrapCatalogMcpTool(catalog: ToolCatalog, toolId: string, autoApproved = false): AnyTool {
   const meta = catalog.get(toolId);
   return {
     name: toolId,
     description: meta?.description ?? "",
     schema: z.record(z.string(), z.unknown()),
-    needsApproval: () => true,
+    needsApproval: autoApproved ? () => false : () => true,
     async execute(args, _ctx, _signal) {
       const result = await catalog.invoke(toolId, args as Record<string, unknown>);
       return { output: formatMcpInvokeOutput(result) };
@@ -101,8 +102,11 @@ export async function loadMcpIntoRatelCatalog(
     if (result.status === "fulfilled") {
       const { handle } = result.value;
       handles.push(handle);
+      const autoApproveIds = serverConfig.autoApprove?.length
+        ? new Set(serverConfig.autoApprove.map((t) => `${serverName}${MCP_TOOL_SEP}${t}`))
+        : undefined;
       for (const toolId of handle.toolIds) {
-        tools.push(wrapCatalogMcpTool(catalog, toolId));
+        tools.push(wrapCatalogMcpTool(catalog, toolId, autoApproveIds?.has(toolId) ?? false));
       }
       summaryParts.push(mcpSummaryPart(serverName, "connected", handle.toolIds.length));
       servers.push({

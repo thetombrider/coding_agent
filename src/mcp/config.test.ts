@@ -186,6 +186,62 @@ describe("loadMcpConfig – project merge", () => {
     expect(scopes.fs).toBe("project");
   });
 
+  it("parses autoApprove list on stdio server", async () => {
+    mkdirSync(join(home, ".orin"), { recursive: true });
+    writeFileSync(
+      join(home, ".orin", "mcp.json"),
+      JSON.stringify({
+        servers: {
+          fs: { type: "stdio", command: "echo", autoApprove: ["read_file", "list_directory"] },
+        },
+      }),
+    );
+    const { loadMcpConfig } = await import("./config.js");
+    const { config } = loadMcpConfig();
+    expect(config.servers.fs?.autoApprove).toEqual(["read_file", "list_directory"]);
+  });
+
+  it("parses autoApprove on http server", async () => {
+    mkdirSync(join(home, ".orin"), { recursive: true });
+    writeFileSync(
+      join(home, ".orin", "mcp.json"),
+      JSON.stringify({
+        servers: {
+          gh: { type: "http", url: "https://mcp.example.com", autoApprove: ["search"] },
+        },
+      }),
+    );
+    const { loadMcpConfig } = await import("./config.js");
+    const { config } = loadMcpConfig();
+    expect(config.servers.gh?.autoApprove).toEqual(["search"]);
+  });
+
+  it("omits autoApprove when field is absent", async () => {
+    mkdirSync(join(home, ".orin"), { recursive: true });
+    writeFileSync(
+      join(home, ".orin", "mcp.json"),
+      JSON.stringify({ servers: { fs: { type: "stdio", command: "echo" } } }),
+    );
+    const { loadMcpConfig } = await import("./config.js");
+    const { config } = loadMcpConfig();
+    expect(config.servers.fs?.autoApprove).toBeUndefined();
+  });
+
+  it("filters non-string entries out of autoApprove", async () => {
+    mkdirSync(join(home, ".orin"), { recursive: true });
+    writeFileSync(
+      join(home, ".orin", "mcp.json"),
+      JSON.stringify({
+        servers: {
+          fs: { type: "stdio", command: "echo", autoApprove: ["read_file", 42, null, "write"] },
+        },
+      }),
+    );
+    const { loadMcpConfig } = await import("./config.js");
+    const { config } = loadMcpConfig();
+    expect(config.servers.fs?.autoApprove).toEqual(["read_file", "write"]);
+  });
+
   it("warns when project .mcp.json contains a raw Bearer token", async () => {
     writeFileSync(
       join(projectDir, ".mcp.json"),

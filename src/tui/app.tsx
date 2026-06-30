@@ -646,6 +646,26 @@ export function App(props: {
     props.controller.setStatusHint(mcpWizardHint(next));
   };
 
+  const toggleMcpServerEnabled = async () => {
+    const p = palette();
+    if (p?.phase !== "mcp" || p.menu !== "detail" || !p.selectedName) return;
+    const name = p.selectedName;
+    const server = p.servers.find((s) => s.name === name);
+    if (!server) return;
+
+    if (server.scope === "project") {
+      props.controller.setStatusHint(`Project servers can only be toggled by editing .mcp.json`);
+      return;
+    }
+
+    const wasDisabled = server.config.disabled === true;
+    const newConfig = { ...server.config, disabled: wasDisabled ? undefined : (true as const) };
+    const result = await props.mcpHost.saveServer(name, newConfig);
+    setMcpServers(result.servers);
+    props.controller.setStatusHint(wasDisabled ? `MCP ${name}: enabled` : `MCP ${name}: disabled`);
+    setPalette({ ...p, servers: result.servers });
+  };
+
   const confirmMcpDelete = async () => {
     const p = palette();
     if (p?.phase !== "mcp" || p.menu !== "delete" || !p.selectedName) return;
@@ -1604,6 +1624,10 @@ export function App(props: {
               void authenticateMcpServerFromPalette();
               return;
             }
+          }
+          if (key.name === "d") {
+            void toggleMcpServerEnabled();
+            return;
           }
           if (key.name !== undefined) return;
         }

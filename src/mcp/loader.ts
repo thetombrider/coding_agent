@@ -3,6 +3,7 @@ import type { AnyTool } from "../tools/registry.js";
 import { toLocalTool } from "./adapter.js";
 import { connectServer } from "./client.js";
 import { loadMcpConfig, type McpScope, type McpServerConfig } from "./config.js";
+import { MCP_TOOL_SEP } from "./names.js";
 import {
   classifyMcpFailure,
   mcpSummaryPart,
@@ -73,7 +74,11 @@ export async function loadMcpServers(projectCwd?: string): Promise<McpLoadResult
     if (result.status === "fulfilled") {
       const { client, tools: remoteTools, name } = result.value;
       clients.push(client);
-      tools.push(...remoteTools.map((t) => toLocalTool(client, name, t)));
+      const [, serverConfig] = activeEntries[i]!;
+      const autoApproveIds = serverConfig.autoApprove?.length
+        ? new Set(serverConfig.autoApprove.map((t) => `${name}${MCP_TOOL_SEP}${t}`))
+        : undefined;
+      tools.push(...remoteTools.map((t) => toLocalTool(client, name, t, autoApproveIds)));
       summaryParts.push(mcpSummaryPart(name, "connected", remoteTools.length));
       servers.push({
         name,
