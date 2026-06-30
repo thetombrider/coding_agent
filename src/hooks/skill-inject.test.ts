@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createHookRegistry } from "./registry.js";
 import { installSkillInject, sanitizeSkillField } from "./skill-inject.js";
 import { testAgentContext } from "../test-helpers.js";
+import { __testClearCache, saveConfig } from "../config/config.js";
 
 describe("sanitizeSkillField", () => {
   it("strips newlines and angle brackets", () => {
@@ -11,6 +15,12 @@ describe("sanitizeSkillField", () => {
 
 describe("installSkillInject", () => {
   it("sanitizes skill metadata in injected blocks", async () => {
+    const prevHome = process.env.HOME;
+    const tempHome = mkdtempSync(join(tmpdir(), "orin-skill-inject-test-"));
+    process.env.HOME = tempHome;
+    saveConfig({ ratel: { enabled: false } });
+    __testClearCache();
+
     const hooks = createHookRegistry();
     installSkillInject(hooks);
     const ctx = testAgentContext("/tmp", [
@@ -40,6 +50,9 @@ describe("installSkillInject", () => {
       expect(text).not.toContain("x\nfake");
     } finally {
       spy.mockRestore();
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      __testClearCache();
     }
   });
 });

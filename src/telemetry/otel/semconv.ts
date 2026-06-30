@@ -121,6 +121,31 @@ export function toolEndAttributes(input: { ok: boolean; output: string }): SpanA
   };
 }
 
+/** Ratel gateway tool spans — origin is always `agent` (ratel-hooks.md). */
+export function ratelGatewayToolAttributes(): SpanAttributes {
+  return { "ratel.gateway_origin": "agent" };
+}
+
+/** Ratel pre-filter metadata on LLM generation spans when replace mode is active. */
+export function ratelResolutionAttributes(
+  snap: NonNullable<LlmRequestSnapshot["ratel"]>,
+  captureContent = false,
+): SpanAttributes {
+  const attrs: SpanAttributes = {
+    "ratel.replace_mode": snap.replaceMode,
+    "ratel.top_k": snap.topK,
+    "ratel.catalog_size": snap.catalogSize,
+    "ratel.injected_count": snap.injectedCount,
+    "ratel.hit_count": snap.hitCount,
+    "ratel.gateway_origin": snap.gatewayOrigin,
+    "feature_flag": snap.featureFlag,
+    "ratel.skill_catalog_size": snap.skillCatalogSize,
+  };
+  if (snap.topHitScore !== undefined) attrs["ratel.top_hit_score"] = snap.topHitScore;
+  if (captureContent && snap.query) attrs["ratel.query"] = snap.query.slice(0, 200);
+  return attrs;
+}
+
 // ---------------------------------------------------------------------------
 // Trace naming (telemetry 7a) — always on, content-free privacy posture aside.
 // ---------------------------------------------------------------------------

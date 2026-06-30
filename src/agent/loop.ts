@@ -4,6 +4,7 @@ import type { HookRegistryImpl } from "../hooks/registry.js";
 import type { StreamAssistantFn } from "../provider/types.js";
 import { enrichAssistantMessage, formatToolValidationErrors } from "../provider/tool-call-parser.js";
 import type { AnyTool } from "../tools/registry.js";
+import type { OrinRatelBundle } from "../ratel/catalog.js";
 import type { AgentContext, Message, SessionEventCallback } from "../types.js";
 import { activeProviderId } from "../provider/registry.js";
 import { resolveProviderSlot } from "../config/models.js";
@@ -21,6 +22,7 @@ import { isCriticalSystemError } from "../util/system-error.js";
 
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
+  /** Full execution registry — all tools the loop may run (including via invoke_tool). */
   tools: AnyTool[];
   model: string;
   system?: string;
@@ -32,6 +34,8 @@ export interface RunLoopOptions {
   maxTurns?: number;
   /** Cap cumulative tool calls across all turns — used by subagent child loops. */
   maxToolCalls?: number;
+  /** When set, BM25 pre-filter + gateway tools are resolved per LLM call (issue #295). */
+  ratel?: OrinRatelBundle;
 }
 
 interface ToolCallBlock {
@@ -213,7 +217,6 @@ export async function runLoop(
   options: RunLoopOptions,
 ): Promise<AgentContext> {
   const registry = toolMap(options.tools);
-  const knownTools = new Set(options.tools.map((t) => t.name));
   let parseCorrectionRetries = 0;
   let assistantTurns = 0;
   let totalToolCalls = 0;
@@ -262,6 +265,11 @@ export async function runLoop(
       promptMessages = promptHook.messages;
     }
 
+    const userQuery = latestUserText(ctx.messages) ?? "";
+    const ratelResolution = options.ratel?.resolveToolsForTurn(userQuery);
+    const providerTools = ratelResolution?.tools ?? options.tools;
+    const knownTools = new Set(providerTools.map((t) => t.name));
+
     const llmCallId = randomUUID();
     hooks.emit({
       type: "llm_start",
@@ -270,7 +278,14 @@ export async function runLoop(
       // Carried by reference for opt-in content capture (telemetry 7a). The OTel
       // exporter snapshots it to JSON only when captureContent is on, so there is
       // no cost here when it is off (the default).
-      request: { system: options.system, messages: promptMessages, tools: options.tools },
+      request: {
+        system: options.system,
+        messages: promptMessages,
+        tools: providerTools,
+        ...(ratelResolution
+          ? { ratel: ratelResolution.telemetry }
+          : {}),
+      },
     });
 
     let rawMessage;
@@ -280,7 +295,7 @@ export async function runLoop(
         {
           model: options.model,
           system: options.system,
-          tools: toProviderTools(options.tools),
+          tools: toProviderTools(providerTools),
           signal: options.signal,
           sessionId: options.sessionId,
         },

@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { Message } from "../../types.js";
 import type { CostBreakdown } from "../cost.js";
 import {
+  ratelGatewayToolAttributes,
+  ratelResolutionAttributes,
   llmInputAttributes,
   llmOutputAttributes,
   llmRequestAttributes,
@@ -193,5 +195,30 @@ describe("content capture builders", () => {
       "output.value": "found 3 files",
       "output.mime_type": "text/plain",
     });
+  });
+});
+
+describe("ratel semconv", () => {
+  it("maps pre-filter snapshot to OTel attributes", () => {
+    const attrs = ratelResolutionAttributes({
+      catalogSize: 22,
+      injectedCount: 10,
+      query: "grep TODO in src",
+      topK: 5,
+      hitCount: 5,
+      topHitScore: 1.42,
+      replaceMode: true,
+      gatewayOrigin: "direct",
+      featureFlag: "tool_pool=ratel",
+      skillCatalogSize: 2,
+      injectedToolNames: ["read", "grep"],
+    });
+    expect(attrs["ratel.replace_mode"]).toBe(true);
+    expect(attrs["feature_flag"]).toBe("tool_pool=ratel");
+    expect(attrs["ratel.query"]).toBe("grep TODO in src");
+  });
+
+  it("tags gateway tool spans with agent origin", () => {
+    expect(ratelGatewayToolAttributes()).toEqual({ "ratel.gateway_origin": "agent" });
   });
 });
