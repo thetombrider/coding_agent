@@ -268,18 +268,50 @@ export function createSessionController(meta: SessionMeta): SessionController {
   // synchronous writes while they are mid-render — that triggers
   // "depends on itself in the same turn" errors on finalizeTurn etc.
   let notifyPending = false;
+  // Pending timer for throttled streaming notifications.
+  let streamingTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const flushListeners = () => {
+    for (const listener of listeners) listener(state);
+  };
+
   const notify = () => {
+    // An urgent (interactive) render supersedes any pending streaming timer so we
+    // don't double-render after the microtask fires.
+    if (streamingTimer !== null) {
+      clearTimeout(streamingTimer);
+      streamingTimer = null;
+    }
     if (notifyPending) return;
     notifyPending = true;
     queueMicrotask(() => {
       notifyPending = false;
-      for (const listener of listeners) listener(state);
+      flushListeners();
     });
+  };
+
+  // High-frequency streaming events (text_delta, reasoning_delta) arrive on every
+  // async event-loop turn, so queueMicrotask alone doesn't coalesce them — each
+  // schedules its own render and the cumulative element count can exhaust opentui's
+  // native TextBufferView pool, causing an uncaught "Failed to create TextBufferView"
+  // that kills the process. Throttling to ~16 ms (one frame) collapses many rapid
+  // deltas into a single render pass.
+  const notifyStreaming = () => {
+    if (notifyPending || streamingTimer !== null) return;
+    streamingTimer = setTimeout(() => {
+      streamingTimer = null;
+      flushListeners();
+    }, 16);
   };
 
   const update = (patch: Partial<SessionState>) => {
     state = { ...state, ...patch };
     notify();
+  };
+
+  const updateStreaming = (patch: Partial<SessionState>) => {
+    state = { ...state, ...patch };
+    notifyStreaming();
   };
 
   const setCurrentTools = (currentTools: ToolEntry[]) => {
@@ -439,7 +471,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     handleEvent(event) {
       switch (event.type) {
         case "text_delta":
-          update({ streamingText: state.streamingText + event.text });
+          updateStreaming({ streamingText: state.streamingText + event.text });
           break;
         case "llm_start": {
           const lastBlock = state.currentBlocks[state.currentBlocks.length - 1];
@@ -475,7 +507,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
           const segs = state.streamingReasoningSegments;
           if (segs.length === 0) {
             const segId = randomUUID();
-            update({
+            updateStreaming({
               streamingReasoningSegments: [{ id: segId, text: event.text }],
               streamingReasoning: state.streamingReasoning + event.text,
               currentBlocks: [
@@ -487,7 +519,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
             const updated = [...segs];
             const last = updated[updated.length - 1]!;
             updated[updated.length - 1] = { ...last, text: last.text + event.text };
-            update({
+            updateStreaming({
               streamingReasoningSegments: updated,
               streamingReasoning: state.streamingReasoning + event.text,
               currentBlocks: state.currentBlocks.map((b) =>
