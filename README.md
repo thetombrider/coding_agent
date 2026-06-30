@@ -319,7 +319,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contributor workflow, and
 
 ## References
 
-- [Deepwiki Documentation](https://deepwiki.com/thetombrider/coding_agent)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/thetombrider/coding_agent)
 
 ## License
 
