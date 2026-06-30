@@ -23,7 +23,7 @@ different trade-offs that pay off in cost, safety, and observability.
 
 ### BM25 tool pre-filtering per turn
 
-Every turn, Orin runs a **BM25 retrieval pass** (via [Ratel](https://ratel.ai)) over
+Every turn, Orin runs a **BM25 retrieval pass** (via [Ratel](https://ratel.sh)) over
 the full tool catalog — including MCP tools and skills — and exposes only the most
 relevant tools to the model. The expensive model never sees a bloated catalog;
 it sees the tools that match the current task. This cuts per-turn token cost and
