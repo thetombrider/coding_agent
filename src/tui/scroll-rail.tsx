@@ -30,7 +30,7 @@ export function ScrollRail(props: {
   revision: number;
 }) {
   const layout = () => {
-    props.revision;
+    void props.revision;
     return scrollRailMetrics(props.scrollRef());
   };
 

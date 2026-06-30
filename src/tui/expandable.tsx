@@ -1,5 +1,5 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Index, Show } from "solid-js";
 import { ScrollRail } from "./scroll-rail.js";
 import { hiddenNativeScrollbar, scrollbars, surfaceSelection, theme } from "./theme.js";
 import { formatToolOutputForDisplay, MAX_EXPANDED_VIEW_ROWS } from "./tool-output.js";
@@ -21,14 +21,14 @@ export function ToolOutputView(props: {
   fg?: string;
   wrapMode?: "none" | "word" | "char";
 }) {
-  const formatted = () => formatToolOutputForDisplay(props.output);
+  const formatted = createMemo(() => formatToolOutputForDisplay(props.output));
   const fg = () => props.fg ?? theme.codeFg;
   // Wrap by default so long bash lines reflow inside the (sidebar-narrowed)
   // column instead of overflowing horizontally over the scroll rail / todo list.
   const wrapMode = () => props.wrapMode ?? "word";
   const textSelection = () => surfaceSelection(theme.toolOutputBg, fg());
   // Rendered rows = the visible lines plus the optional "more lines" notice.
-  const rowCount = () => formatted().lines.length + (formatted().truncated ? 1 : 0);
+  const rowCount = () => { const f = formatted(); return f.lines.length + (f.truncated ? 1 : 0); };
   const scrollable = () => rowCount() > MAX_EXPANDED_VIEW_ROWS;
 
   let toolScrollRef: ScrollBoxRenderable | undefined;
@@ -36,13 +36,13 @@ export function ToolOutputView(props: {
   const bumpScrollRail = () => setScrollRailRevision((n) => n + 1);
 
   createEffect(() => {
-    props.output;
+    void props.output;
     queueMicrotask(bumpScrollRail);
   });
 
   const Lines = () => (
     <>
-      <For each={formatted().lines}>
+      <Index each={formatted().lines}>
         {(line) => (
           <text
             selectable
@@ -51,10 +51,10 @@ export function ToolOutputView(props: {
             wrapMode={wrapMode()}
             {...(wrapMode() === "word" ? { flexGrow: 1 } : {})}
           >
-            {line || " "}
+            {line() || " "}
           </text>
         )}
-      </For>
+      </Index>
       <Show when={formatted().truncated}>
         <text selectable={false} fg={theme.muted}>
           … {formatted().omittedLines} more lines — see session log
