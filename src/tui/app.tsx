@@ -2358,10 +2358,7 @@ export function App(props: {
                 >
                   <scrollbox
                     ref={skillsListScrollRef}
-                    height={Math.min(
-                      (p() as SkillsPaletteState).skills.length,
-                      SKILLS_LIST_MAX_VISIBLE,
-                    )}
+                    height={SKILLS_LIST_MAX_VISIBLE}
                     scrollY
                     contentOptions={{ flexDirection: "column" }}
                   >
@@ -2370,12 +2367,22 @@ export function App(props: {
                         const sp = () => p() as SkillsPaletteState;
                         const selected = () => sp().index === i();
                         const version = () => (skill.version ? `  v${skill.version}` : "");
+                        const nameColWidth = () =>
+                          Math.max(...sp().skills.map((s) => s.name.length)) + 4;
                         return (
                           <box id={`skill-row-${i()}`} flexDirection="row">
-                            <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                            <text
+                              fg={selected() ? theme.accent : theme.fg}
+                              attributes={selected() ? BOLD : 0}
+                              minWidth={nameColWidth()}
+                              flexShrink={0}
+                              wrapMode="none"
+                            >
                               {selected() ? "▶ " : "  "}{skill.name}
                             </text>
-                            <text fg={theme.secondary}>  {skillScopeLabel(skill)}{version()}  {skill.description}</text>
+                            <text fg={theme.secondary} flexGrow={1} wrapMode="word">
+                              {skillScopeLabel(skill)}{version()}  {skill.description}
+                            </text>
                           </box>
                         );
                       }}
