@@ -315,7 +315,7 @@ async function runHeadless(opts: {
   ctx.loopHost = {
     provider,
     model,
-    sessionId,
+    sessionId: effectiveSessionId,
     hooks,
     approval: approvalRef,
     recordLlmCall: telemetry.recordLlmCall,
@@ -341,7 +341,7 @@ async function runHeadless(opts: {
       tools: tooling.tools,
       model,
       system: sessionSystem(hostCwd),
-      sessionId,
+      sessionId: effectiveSessionId,
       ratel: tooling.ratel,
     });
   } finally {

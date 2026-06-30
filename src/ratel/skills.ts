@@ -54,12 +54,14 @@ export function registerDiscoveredSkills(
     const content = loadSkillContent(meta.path);
     if (!content) continue;
     const fm = readFrontmatter(meta.path);
+    const tags = fm ? parseTags(fm) : undefined;
+    const skillTools = fm ? parseSkillTools(fm) : undefined;
     register({
       id: meta.name,
       name: meta.name,
       description: meta.description,
-      ...(fm && parseTags(fm) ? { tags: parseTags(fm) } : {}),
-      ...(fm && parseSkillTools(fm) ? { tools: parseSkillTools(fm) } : {}),
+      ...(tags ? { tags } : {}),
+      ...(skillTools ? { tools: skillTools } : {}),
       body: content.instructions,
     });
     count += 1;

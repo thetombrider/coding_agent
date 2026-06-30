@@ -84,12 +84,20 @@ export async function loadMcpIntoRatelCatalog(
   const handles: McpServerHandle[] = [];
   const tools: AnyTool[] = [];
 
-  for (const [serverName, serverConfig] of activeEntries) {
-    try {
-      const handle = await registerMcpServer(catalog, {
+  const results = await Promise.allSettled(
+    activeEntries.map(([serverName, serverConfig]) =>
+      registerMcpServer(catalog, {
         name: serverName,
         transport: makeTransport(serverName, serverConfig),
-      });
+      }).then((handle: McpServerHandle) => ({ serverName, serverConfig, handle })),
+    ),
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]!;
+    const [serverName, serverConfig] = activeEntries[i]!;
+    if (result.status === "fulfilled") {
+      const { handle } = result.value;
       handles.push(handle);
       for (const toolId of handle.toolIds) {
         tools.push(wrapCatalogMcpTool(catalog, toolId));
@@ -101,10 +109,9 @@ export async function loadMcpIntoRatelCatalog(
         status: "connected",
         toolCount: handle.toolIds.length,
       });
-    } catch (err) {
-      const failure = classifyMcpFailure(err, serverConfig, serverName);
-      const message = failure.reason;
-      warnings.push(`MCP server "${serverName}" failed to connect: ${message}`);
+    } else {
+      const failure = classifyMcpFailure(result.reason, serverConfig, serverName);
+      warnings.push(`MCP server "${serverName}" failed to connect: ${failure.reason}`);
       summaryParts.push(mcpSummaryPart(serverName, failure.status, 0));
       servers.push({
         name: serverName,

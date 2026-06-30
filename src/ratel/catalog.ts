@@ -302,6 +302,11 @@ export class OrinRatelBundle {
               if (!underlying?.needsApproval) return false;
               return underlying.needsApproval(unwrapInvokeArgs(args), ctx);
             },
+            approvalDisplayArgs(args: unknown): { name: string; args: unknown } {
+              const parsed = invokeToolSchema.safeParse(args);
+              if (!parsed.success) return { name: INVOKE_TOOL_ID, args };
+              return { name: parsed.data.toolId, args: unwrapInvokeArgs(parsed.data) };
+            },
           }
         : {}),
       async execute(args, ctx, signal): Promise<ToolResult> {
