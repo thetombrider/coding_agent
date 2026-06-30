@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { parseMcpOAuth, type McpOAuthOptions } from "./oauth-config.js";
 import { deleteMcpOAuthStore } from "./oauth-store.js";
 
+export type McpScope = "global" | "project";
+
 export type { McpOAuthOptions };
 
 export type McpStdioConfig = {
@@ -40,8 +42,6 @@ export type McpTransportType = McpServerConfig["type"];
 export interface McpConfig {
   servers: Record<string, McpServerConfig>;
 }
-
-const EMPTY: McpConfig = { servers: {} };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -172,30 +172,30 @@ export function mcpConfigPath(): string {
   return join(homedir(), ".orin", "mcp.json");
 }
 
-/** Load global MCP config. Missing or invalid file → empty config + warnings. */
-export function loadMcpConfig(): { config: McpConfig; warnings: string[] } {
-  const path = mcpConfigPath();
-  if (!existsSync(path)) return { config: EMPTY, warnings: [] };
+/** Project MCP config path: `<cwd>/.mcp.json`. */
+export function projectMcpConfigPath(cwd: string): string {
+  return join(cwd, ".mcp.json");
+}
+
+function parseMcpFile(path: string): { servers: Record<string, McpServerConfig>; warnings: string[] } {
+  if (!existsSync(path)) return { servers: {}, warnings: [] };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
-      config: EMPTY,
-      warnings: [`Failed to parse ${path}: ${message}`],
-    };
+    return { servers: {}, warnings: [`Failed to parse ${path}: ${message}`] };
   }
 
   if (!isRecord(parsed)) {
-    return { config: EMPTY, warnings: [`${path}: expected a JSON object at the root.`] };
+    return { servers: {}, warnings: [`${path}: expected a JSON object at the root.`] };
   }
 
   const rawServers = parsed.servers;
-  if (rawServers === undefined) return { config: EMPTY, warnings: [] };
+  if (rawServers === undefined) return { servers: {}, warnings: [] };
   if (!isRecord(rawServers)) {
-    return { config: EMPTY, warnings: [`${path}: "servers" must be an object.`] };
+    return { servers: {}, warnings: [`${path}: "servers" must be an object.`] };
   }
 
   const servers: Record<string, McpServerConfig> = {};
@@ -207,13 +207,53 @@ export function loadMcpConfig(): { config: McpConfig; warnings: string[] } {
     else if (result.config) servers[name] = result.config;
   }
 
-  const repaired = repairLoadedServers(servers);
+  return { servers, warnings };
+}
+
+function hasBearerToken(config: McpServerConfig): boolean {
+  if (config.type !== "http" && config.type !== "ws") return false;
+  const auth = config.headers?.["Authorization"] ?? config.headers?.["authorization"];
+  return typeof auth === "string" && /^bearer /i.test(auth);
+}
+
+/**
+ * Load MCP config: global `~/.orin/mcp.json` merged with optional project `<projectCwd>/.mcp.json`.
+ * Project servers override global servers on name collision.
+ */
+export function loadMcpConfig(projectCwd?: string): {
+  config: McpConfig;
+  scopes: Record<string, McpScope>;
+  warnings: string[];
+} {
+  const global_ = parseMcpFile(mcpConfigPath());
+  const warnings = [...global_.warnings];
+
+  const repaired = repairLoadedServers(global_.servers);
   warnings.push(...repaired.warnings);
   if (repaired.changed) {
     saveMcpConfig({ servers: repaired.servers });
   }
 
-  return { config: { servers: repaired.servers }, warnings };
+  const servers: Record<string, McpServerConfig> = { ...repaired.servers };
+  const scopes: Record<string, McpScope> = {};
+  for (const name of Object.keys(servers)) scopes[name] = "global";
+
+  if (projectCwd) {
+    const projectPath = projectMcpConfigPath(projectCwd);
+    const project = parseMcpFile(projectPath);
+    warnings.push(...project.warnings);
+    for (const [name, config] of Object.entries(project.servers)) {
+      if (hasBearerToken(config)) {
+        warnings.push(
+          `MCP server "${name}": project .mcp.json has a raw Bearer token — use \${env:VAR} instead.`,
+        );
+      }
+      servers[name] = config;
+      scopes[name] = "project";
+    }
+  }
+
+  return { config: { servers }, scopes, warnings };
 }
 
 /** Persist MCP config to `~/.orin/mcp.json`. */
@@ -245,4 +285,9 @@ export function removeMcpServer(name: string): McpConfig {
   const next = { servers };
   saveMcpConfig(next);
   return next;
+}
+
+/** Check whether a project `.mcp.json` exists at the given directory. */
+export function hasProjectMcpConfig(cwd: string): boolean {
+  return existsSync(projectMcpConfigPath(cwd));
 }

@@ -5,7 +5,7 @@ import { registerMcpServer } from "./register-mcp.js";
 import type { AnyTool } from "../tools/registry.js";
 import { renderMcpContent } from "../mcp/adapter.js";
 import { makeTransport } from "../mcp/client.js";
-import { loadMcpConfig, type McpServerConfig } from "../mcp/config.js";
+import { loadMcpConfig, type McpScope, type McpServerConfig } from "../mcp/config.js";
 import {
   classifyMcpFailure,
   mcpSummaryPart,
@@ -55,8 +55,9 @@ function formatMcpInvokeOutput(value: unknown): string {
  */
 export async function loadMcpIntoRatelCatalog(
   catalog: ToolCatalog,
+  projectCwd?: string,
 ): Promise<RatelMcpLoadResult> {
-  const { config, warnings } = loadMcpConfig();
+  const { config, scopes, warnings } = loadMcpConfig(projectCwd);
   const entries = Object.entries(config.servers);
 
   if (entries.length === 0) {
@@ -75,6 +76,7 @@ export async function loadMcpIntoRatelCatalog(
         config: serverConfig,
         status: "disabled",
         toolCount: 0,
+        scope: (scopes[serverName] ?? "global") as McpScope,
       });
       continue;
     }
@@ -108,6 +110,7 @@ export async function loadMcpIntoRatelCatalog(
         config: serverConfig,
         status: "connected",
         toolCount: handle.toolIds.length,
+        scope: (scopes[serverName] ?? "global") as McpScope,
       });
     } else {
       const failure = classifyMcpFailure(result.reason, serverConfig, serverName);
@@ -120,6 +123,7 @@ export async function loadMcpIntoRatelCatalog(
         toolCount: 0,
         error: failure.reason,
         hint: failure.hint,
+        scope: (scopes[serverName] ?? "global") as McpScope,
       });
     }
   }

@@ -32,7 +32,7 @@ export async function bootstrapOrinTooling(
     };
   }
 
-  const mcp = await loadMcpServers();
+  const mcp = await loadMcpServers(cwd);
   return {
     tools: [...getCoreTools(), ...mcp.tools],
     mcpTools: mcp.tools,

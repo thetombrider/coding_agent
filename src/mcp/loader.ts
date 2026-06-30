@@ -2,7 +2,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { AnyTool } from "../tools/registry.js";
 import { toLocalTool } from "./adapter.js";
 import { connectServer } from "./client.js";
-import { loadMcpConfig, type McpServerConfig } from "./config.js";
+import { loadMcpConfig, type McpScope, type McpServerConfig } from "./config.js";
 import {
   classifyMcpFailure,
   mcpSummaryPart,
@@ -16,6 +16,7 @@ export interface McpServerStatus {
   toolCount: number;
   error?: string;
   hint?: string;
+  scope: McpScope;
 }
 
 export interface McpLoadResult {
@@ -31,8 +32,8 @@ function isDisabled(config: McpServerConfig): boolean {
   return config.disabled === true;
 }
 
-export async function loadMcpServers(): Promise<McpLoadResult> {
-  const { config, warnings } = loadMcpConfig();
+export async function loadMcpServers(projectCwd?: string): Promise<McpLoadResult> {
+  const { config, scopes, warnings } = loadMcpConfig(projectCwd);
   const entries = Object.entries(config.servers);
 
   if (entries.length === 0) {
@@ -51,6 +52,7 @@ export async function loadMcpServers(): Promise<McpLoadResult> {
         config: serverConfig,
         status: "disabled",
         toolCount: 0,
+        scope: scopes[serverName] ?? "global",
       });
       continue;
     }
@@ -78,6 +80,7 @@ export async function loadMcpServers(): Promise<McpLoadResult> {
         config: serverConfig,
         status: "connected",
         toolCount: remoteTools.length,
+        scope: scopes[serverName] ?? "global",
       });
     } else {
       const failure = classifyMcpFailure(result.reason, serverConfig, serverName);
@@ -91,6 +94,7 @@ export async function loadMcpServers(): Promise<McpLoadResult> {
         toolCount: 0,
         error: failure.reason,
         hint: failure.hint,
+        scope: scopes[serverName] ?? "global",
       });
     }
   }

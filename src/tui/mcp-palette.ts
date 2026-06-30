@@ -36,7 +36,7 @@ export function mcpListRowLabel(row: McpListRow): string {
   if (row.kind === "reload") return "↻ Reload connections";
   const s = row.server;
   const status = mcpListStatusLabel(s.status, s.toolCount);
-  return `${s.name}  ·  ${formatServerConfigSummary(s.config)}  ·  ${status}`;
+  return `${s.name}  ·  ${formatServerConfigSummary(s.config)}  ·  ${status}  ·  ${s.scope}`;
 }
 
 export function selectedMcpListRow(state: McpPaletteState): McpListRow | undefined {
@@ -69,6 +69,7 @@ export function mcpServerSupportsOAuth(server: McpServerStatus): boolean {
 export function mcpServerDetailLines(server: McpServerStatus): string[] {
   const lines = [
     `name: ${server.name}`,
+    `scope: ${server.scope}`,
     `transport: ${server.config.type}`,
     `config: ${formatServerConfigSummary(server.config)}`,
   ];

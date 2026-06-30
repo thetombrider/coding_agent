@@ -128,7 +128,7 @@ export class OrinRatelBundle {
       registerOrinTool(toolCatalog, tool, orinTools);
     }
 
-    const mcp = await loadMcpIntoRatelCatalog(toolCatalog);
+    const mcp = await loadMcpIntoRatelCatalog(toolCatalog, cwd);
     for (const tool of mcp.tools) {
       orinTools.set(tool.name, tool);
     }

@@ -120,4 +120,48 @@ describe("loadMcpServers", () => {
 
     expect(close).toHaveBeenCalled();
   });
+
+  it("annotates global servers with scope=global", async () => {
+    mkdirSync(join(home, ".orin"), { recursive: true });
+    writeFileSync(
+      join(home, ".orin", "mcp.json"),
+      JSON.stringify({
+        servers: { fs: { type: "stdio", command: "echo" } },
+      }),
+    );
+
+    connectServer.mockResolvedValue({
+      client: { close: vi.fn(async () => {}) },
+      name: "fs",
+      tools: [],
+    });
+
+    const { loadMcpServers } = await import("./loader.js");
+    const result = await loadMcpServers();
+    expect(result.servers[0]?.scope).toBe("global");
+  });
+
+  it("annotates project servers with scope=project when projectCwd is provided", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "orin-loader-proj-"));
+    try {
+      writeFileSync(
+        join(projectDir, ".mcp.json"),
+        JSON.stringify({
+          servers: { local: { type: "stdio", command: "echo" } },
+        }),
+      );
+
+      connectServer.mockResolvedValue({
+        client: { close: vi.fn(async () => {}) },
+        name: "local",
+        tools: [],
+      });
+
+      const { loadMcpServers } = await import("./loader.js");
+      const result = await loadMcpServers(projectDir);
+      expect(result.servers.find((s) => s.name === "local")?.scope).toBe("project");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -413,7 +413,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         warnings: tooling.mcpWarnings,
       };
     }
-    const mcp = await loadMcpServers();
+    const mcp = await loadMcpServers(config.hostCwd);
     currentMcpTools = mcp.tools;
     currentMcpDispose = mcp.dispose;
     mcpServers = mcp.servers;
