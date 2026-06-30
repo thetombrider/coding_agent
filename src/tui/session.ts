@@ -85,6 +85,8 @@ export interface TuiSessionConfig {
   tools: AnyTool[];
   /** Ratel bundle when `ratel.enabled` is set in config (issue #295). */
   ratel?: OrinRatelBundle;
+  /** A/B control-arm feature flag — set when this session is in the control arm. */
+  featureFlag?: string;
   /** MCP tools merged into `tools`; kept separately for refreshTools(). */
   mcpTools?: AnyTool[];
   mcpDispose?: () => Promise<void>;
@@ -227,6 +229,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   });
   let activeTools = config.tools;
   let ratelBundle = config.ratel;
+  const featureFlag = config.featureFlag;
   let currentMcpTools = config.mcpTools ?? [];
   let currentMcpDispose = config.mcpDispose;
   let mcpServers = config.mcpServers ?? [];
@@ -670,6 +673,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         provider: config.provider,
         tools: activeTools,
         ratel: ratelBundle,
+        featureFlag,
         model: activeModel,
         system: config.system,
         sessionId: activeSessionId,

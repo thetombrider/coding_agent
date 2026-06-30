@@ -215,7 +215,14 @@ describe("ratel semconv", () => {
     });
     expect(attrs["ratel.replace_mode"]).toBe(true);
     expect(attrs["feature_flag"]).toBe("tool_pool=ratel");
-    expect(attrs["ratel.query"]).toBe("grep TODO in src");
+    // ratel.query is only captured when captureContent is true
+    expect(attrs["ratel.query"]).toBeUndefined();
+    const attrsWithContent = ratelResolutionAttributes({
+      catalogSize: 22, injectedCount: 10, query: "grep TODO in src", topK: 5,
+      hitCount: 5, topHitScore: 1.42, replaceMode: true, gatewayOrigin: "direct",
+      featureFlag: "tool_pool=ratel", skillCatalogSize: 2, injectedToolNames: ["read", "grep"],
+    }, true);
+    expect(attrsWithContent["ratel.query"]).toBe("grep TODO in src");
   });
 
   it("tags gateway tool spans with agent origin", () => {

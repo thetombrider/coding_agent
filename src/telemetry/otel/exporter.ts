@@ -289,6 +289,8 @@ class SpanConsumer implements OtelSpanConsumer {
           attributes: {
             ...llmRequestAttributes({ requestModel: model, providerId: this.opts.providerId }),
             ...(request?.ratel ? ratelResolutionAttributes(request.ratel, this.cfg.captureContent) : {}),
+            // Control arm: emit feature_flag directly when no ratel snapshot present.
+            ...(request?.featureFlag && !request?.ratel ? { "feature_flag": request.featureFlag } : {}),
             ...contentAttrs,
           },
         },

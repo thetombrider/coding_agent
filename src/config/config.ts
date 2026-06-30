@@ -107,6 +107,7 @@ export interface Config {
     topKTools?: number;
     topKSkills?: number;
     pinnedTools?: string[];
+    controlFraction?: number;
   };
   tools?: {
     exa?: { apiKey?: string };

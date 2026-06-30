@@ -32,6 +32,7 @@ describe("OrinRatelBundle", () => {
         topKTools: 3,
         topKSkills: 2,
         pinnedTools: ["read", "bash", "search_capabilities", "invoke_tool"],
+        controlFraction: 0,
       },
     });
 
@@ -57,6 +58,7 @@ describe("OrinRatelBundle", () => {
         topKTools: 2,
         topKSkills: 1,
         pinnedTools: ["search_capabilities", "invoke_tool"],
+        controlFraction: 0,
       },
     });
 

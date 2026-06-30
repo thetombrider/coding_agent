@@ -120,6 +120,10 @@ export function installRatelTelemetry(opts: InstallRatelTelemetryOptions): () =>
   const { hooks, sessionId, sinks, getBundle } = opts;
   const ts = () => new Date().toISOString();
 
+  // Gap 2: track the injected tool set from the most recent LLM call for
+  // stranded-tool detection — populated on every llm_start with ratel data.
+  let lastInjectedTools = new Set<string>();
+
   const forwardBundleTraces = () => {
     const bundle = getBundle();
     if (!bundle) return;
@@ -131,21 +135,54 @@ export function installRatelTelemetry(opts: InstallRatelTelemetryOptions): () =>
         sessionId,
         ts: ts(),
         name: normalized.name,
-        attributes: normalized.attributes,
+        attributes: normalized.attributes as Record<string, string | number | boolean>,
       });
     }
   };
 
   return hooks.observe((event) => {
-    if (event.type === "llm_start" && event.request?.ratel) {
-      emitRatelPrefilterMetric(sinks, sessionId, event.request.ratel);
-      const bundle = getBundle();
-      if (bundle) {
-        emitRatelTraceMetrics(sinks, sessionId, bundle.drainTraceEvents());
+    if (event.type === "llm_start") {
+      if (event.request?.ratel) {
+        // Treatment arm: snapshot injected tools, emit prefilter metric, drain traces.
+        lastInjectedTools = new Set(event.request.ratel.injectedToolNames);
+        emitRatelPrefilterMetric(sinks, sessionId, event.request.ratel);
+        const bundle = getBundle();
+        if (bundle) {
+          emitRatelTraceMetrics(sinks, sessionId, bundle.drainTraceEvents());
+        }
+      } else if (event.request?.featureFlag) {
+        // Gap 1: control arm — emit a minimal feature_flag metric so the
+        // Token Cost & Savings dashboard can split by arm even without ratel data.
+        emitAll(sinks, {
+          type: "ratel",
+          sessionId,
+          ts: ts(),
+          name: "ratel.control_arm",
+          attributes: { "feature_flag": event.request.featureFlag },
+        });
       }
     }
-    if (event.type === "tool_end" && isRatelGatewayTool(event.name)) {
-      forwardBundleTraces();
+
+    if (event.type === "tool_end") {
+      if (isRatelGatewayTool(event.name)) {
+        forwardBundleTraces();
+      } else if (lastInjectedTools.size > 0 && !lastInjectedTools.has(event.name)) {
+        // Gap 2: tool was executed but was NOT in the LLM's injected tool set.
+        // If it exists in the catalog, Ratel filtered it — emit the guardrail score.
+        const bundle = getBundle();
+        if (bundle?.getOrinTool(event.name)) {
+          emitAll(sinks, {
+            type: "ratel",
+            sessionId,
+            ts: ts(),
+            name: "ratel.unavailable_tool_call",
+            attributes: {
+              "ratel.tool_id": event.name,
+              "feature_flag": "tool_pool=ratel",
+            },
+          });
+        }
+      }
     }
   });
 }
@@ -160,7 +197,7 @@ export function emitRatelPrefilterMetric(
     sessionId,
     ts: new Date().toISOString(),
     name: "ratel.prefilter",
-    attributes: ratelResolutionAttributes(snap),
+    attributes: ratelResolutionAttributes(snap) as Record<string, string | number | boolean>,
   });
 }
 
@@ -178,7 +215,7 @@ export function emitRatelTraceMetrics(
       sessionId,
       ts,
       name: normalized.name,
-      attributes: normalized.attributes,
+      attributes: normalized.attributes as Record<string, string | number | boolean>,
     });
   }
 }

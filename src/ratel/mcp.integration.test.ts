@@ -172,6 +172,7 @@ describe("OrinRatelBundle + mock MCP", () => {
         topKTools: 2,
         topKSkills: 1,
         pinnedTools: ["read", "search_capabilities", "invoke_tool"],
+        controlFraction: 0,
       },
     });
 
@@ -200,6 +201,7 @@ describe("OrinRatelBundle + mock MCP", () => {
         topKTools: 1,
         topKSkills: 1,
         pinnedTools: ["invoke_tool"],
+        controlFraction: 0,
       },
     });
 

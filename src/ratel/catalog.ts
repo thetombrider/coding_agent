@@ -256,7 +256,11 @@ export class OrinRatelBundle {
       add(this.orinTools.get(hit.toolId));
     }
 
-    const injectedToolNames = [...selected.keys()];
+    // Sort alphabetically so the tools: block is identical whenever the same
+    // tools are selected — maximising Anthropic prompt-cache hit rate (Gap 3).
+    const sortedTools = [...selected.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const injectedToolNames = sortedTools.map((t) => t.name);
+
     const telemetry: RatelResolutionSnapshot = {
       catalogSize: this.orinTools.size,
       injectedCount: selected.size,
@@ -272,7 +276,7 @@ export class OrinRatelBundle {
     };
 
     return {
-      tools: [...selected.values()],
+      tools: sortedTools,
       catalogSize: this.orinTools.size,
       injectedCount: selected.size,
       query,

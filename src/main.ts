@@ -173,6 +173,7 @@ async function runInteractive(opts: {
     provider,
     tools: tooling.tools,
     ratel: tooling.ratel,
+    featureFlag: tooling.controlArm ? "tool_pool=full" : undefined,
     mcpTools: tooling.mcpTools,
     mcpDispose: tooling.mcpDispose,
     mcpServers: tooling.mcpServers,
@@ -345,6 +346,7 @@ async function runHeadless(opts: {
       system: sessionSystem(hostCwd),
       sessionId: effectiveSessionId,
       ratel: tooling.ratel,
+      featureFlag: tooling.controlArm ? "tool_pool=full" : undefined,
     });
   } finally {
     disposeRatelTelemetry();

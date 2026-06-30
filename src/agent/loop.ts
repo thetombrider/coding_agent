@@ -36,6 +36,8 @@ export interface RunLoopOptions {
   maxToolCalls?: number;
   /** When set, BM25 pre-filter + gateway tools are resolved per LLM call (issue #295). */
   ratel?: OrinRatelBundle;
+  /** A/B control-arm tag — emitted as `featureFlag` on `llm_start` when ratel is absent. */
+  featureFlag?: string;
 }
 
 interface ToolCallBlock {
@@ -282,9 +284,9 @@ export async function runLoop(
         system: options.system,
         messages: promptMessages,
         tools: providerTools,
-        ...(ratelResolution
-          ? { ratel: ratelResolution.telemetry }
-          : {}),
+        ...(ratelResolution ? { ratel: ratelResolution.telemetry } : {}),
+        // Control-arm tag: present only when ratel is absent (A/B split).
+        ...(options.featureFlag && !ratelResolution ? { featureFlag: options.featureFlag } : {}),
       },
     });
 

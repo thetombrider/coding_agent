@@ -25,6 +25,12 @@ export interface LlmRequestSnapshot {
   tools?: readonly ToolSchemaRef[];
   /** Ratel pre-filter metadata when `ratel.enabled` (issue #295 / ratel-hooks.md). */
   ratel?: RatelResolutionSnapshot;
+  /**
+   * A/B arm tag emitted on every LLM span — present even when `ratel` is absent
+   * (e.g. control arm). Consumers should prefer `ratel.featureFlag` when ratel is
+   * present; fall back to this field for control-arm spans.
+   */
+  featureFlag?: string;
 }
 
 /** Emitted on `llm_start.request.ratel` when the Ratel pre-filter runs (replace mode). */
