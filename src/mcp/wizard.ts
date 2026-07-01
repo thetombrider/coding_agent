@@ -160,7 +160,7 @@ export function wizardSteps(state: McpWizardState): McpWizardStep[] {
       steps.push({
         id: "token",
         title: "Bearer token",
-        hint: "API key or personal access token (sent as Authorization header)",
+        hint: "API key, personal access token, or ${env:VAR} reference (resolved at load time; sent as Authorization header)",
         optional: true,
       });
     } else if (state.authMode === "oauth") {
@@ -192,7 +192,7 @@ export function wizardSteps(state: McpWizardState): McpWizardStep[] {
     steps.push({
       id: "token",
       title: "Authorization token",
-      hint: "Optional Bearer/API token (sent as Authorization header)",
+      hint: "Optional Bearer/API token, or ${env:VAR} reference (resolved at load time; sent as Authorization header)",
       optional: true,
     });
   }
