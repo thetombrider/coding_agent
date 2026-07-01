@@ -471,9 +471,11 @@ export function createSessionController(meta: SessionMeta): SessionController {
     handleEvent(event) {
       switch (event.type) {
         case "text_delta":
+          if (event.subagentId) break;
           updateStreaming({ streamingText: state.streamingText + event.text });
           break;
         case "llm_start": {
+          if (event.subagentId) break;
           const lastBlock = state.currentBlocks[state.currentBlocks.length - 1];
           if (lastBlock?.type === "reasoning") {
             update({
@@ -504,6 +506,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
           break;
         }
         case "reasoning_delta": {
+          if (event.subagentId) break;
           const segs = state.streamingReasoningSegments;
           if (segs.length === 0) {
             const segId = randomUUID();
