@@ -1,7 +1,7 @@
 import type { InputRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { createTextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/solid";
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show } from "solid-js";
 import { IDLE_STATUS_HINT, type SessionController, type SessionState, type Turn } from "./controller.js";
 import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
@@ -22,6 +22,7 @@ import {
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
 import { sanitizePromptInput, selectionCopyHint } from "./terminal-env.js";
+import { forceFullRepaint } from "./terminal.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { ISOLATION_MODES, ISOLATION_LABELS, type IsolationMode } from "../agent/isolation.js";
@@ -232,6 +233,11 @@ export function App(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [questionIndex, setQuestionIndex] = createSignal(0);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
+  const mcpPaletteRows = createMemo(() => {
+    const pal = palette();
+    if (!pal || pal.phase !== "mcp" || pal.menu !== "list") return [];
+    return mcpListRows(pal.servers);
+  });
   const [configPrompt, setConfigPrompt] = createSignal<ConfigPromptState | null>(null);
   const [mcpWizard, setMcpWizard] = createSignal<McpWizardState | null>(null);
   const [e2bPrompt, setE2bPrompt] = createSignal(false);
@@ -354,6 +360,46 @@ export function App(props: {
   const [approvalRailRevision, setApprovalRailRevision] = createSignal(0);
   const bumpApprovalRail = () => setApprovalRailRevision((n) => n + 1);
   let inputRef: InputRenderable | undefined;
+
+  /** /mcp is keyboard-driven — blur the prompt so hover mouse reports cannot leak in. */
+  const inputFocused = createMemo(() => {
+    if (state().phase === "approval") return false;
+    if (palette()?.phase === "mcp") return false;
+    return true;
+  });
+
+  const scrubLeakedPromptInput = () => {
+    if (!inputRef) return;
+    const raw = inputRef.value;
+    const cleaned = sanitizePromptInput(raw);
+    if (cleaned !== raw) {
+      inputRef.value = cleaned;
+      props.controller.setInput(cleaned);
+      forceFullRepaint(renderer);
+    }
+  };
+
+  createEffect(() => {
+    if (palette()?.phase !== "mcp") return;
+    let raf = 0;
+    const loop = () => {
+      scrubLeakedPromptInput();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    onCleanup(() => cancelAnimationFrame(raf));
+  });
+
+  createEffect(() => {
+    const p = palette();
+    if (p?.phase === "mcp") {
+      queueMicrotask(() => inputRef?.blur());
+      return;
+    }
+    if (inputFocused()) {
+      queueMicrotask(() => inputRef?.focus());
+    }
+  });
 
   const scrollSessionIntoView = (index: number) => {
     sessionListScrollRef?.scrollChildIntoView(`session-row-${index}`);
@@ -506,7 +552,10 @@ export function App(props: {
   };
 
   const openMcpPalette = () => {
-    if (inputRef) inputRef.value = "";
+    if (inputRef) {
+      inputRef.value = "";
+      inputRef.blur();
+    }
     props.controller.clearInput();
     setMcpServers(props.mcpHost.getServers());
     setPalette({ phase: "mcp", menu: "list", index: 0, servers: props.mcpHost.getServers() });
@@ -514,9 +563,19 @@ export function App(props: {
 
   const reloadMcpConnections = async (previous?: McpPaletteState) => {
     props.controller.setStatusHint("Reloading MCP servers…");
+    props.controller.clearInput();
+    if (inputRef) inputRef.value = "";
+
     const result = await props.mcpHost.reload();
     setMcpServers(result.servers);
-    props.controller.setStatusHint(result.statusHint ?? "MCP servers reloaded");
+    props.controller.setStatusHint(
+      result.warnings[0] ?? result.statusHint ?? "MCP servers reloaded",
+    );
+
+    scrubLeakedPromptInput();
+    props.controller.clearInput();
+    forceFullRepaint(renderer);
+
     if (previous) {
       setPalette(mcpPaletteAfterReload(result.servers, previous));
     }
@@ -585,6 +644,26 @@ export function App(props: {
 
     setMcpWizard(next);
     props.controller.setStatusHint(mcpWizardHint(next));
+  };
+
+  const toggleMcpServerEnabled = async () => {
+    const p = palette();
+    if (p?.phase !== "mcp" || p.menu !== "detail" || !p.selectedName) return;
+    const name = p.selectedName;
+    const server = p.servers.find((s) => s.name === name);
+    if (!server) return;
+
+    if (server.scope === "project") {
+      props.controller.setStatusHint(`Project servers can only be toggled by editing .mcp.json`);
+      return;
+    }
+
+    const wasDisabled = server.config.disabled === true;
+    const newConfig = { ...server.config, disabled: wasDisabled ? undefined : (true as const) };
+    const result = await props.mcpHost.saveServer(name, newConfig);
+    setMcpServers(result.servers);
+    props.controller.setStatusHint(wasDisabled ? `MCP ${name}: enabled` : `MCP ${name}: disabled`);
+    setPalette({ ...p, servers: result.servers });
   };
 
   const confirmMcpDelete = async () => {
@@ -718,6 +797,8 @@ export function App(props: {
     setPalette(null);
     if (inputRef) inputRef.value = "";
     props.controller.clearInput();
+    scrubLeakedPromptInput();
+    if (inputRef && state().phase !== "approval") inputRef.focus();
   };
 
   const openSessionsPalette = (state: SessionsPaletteState) => {
@@ -1330,6 +1411,7 @@ export function App(props: {
       const selected = readRendererSelection(renderer);
       if (selected) {
         void performCopy(selected);
+        key.preventDefault();
         return;
       }
     }
@@ -1476,6 +1558,13 @@ export function App(props: {
 
     const p = palette();
     if (p !== null) {
+      // Palette selection normally fires via the input's onSubmit, but /mcp blurs
+      // the prompt (mouse-report leak fix) so Enter must be handled here instead.
+      if ((key.name === "enter" || key.name === "return") && !inputFocused()) {
+        handlePaletteSelect();
+        return;
+      }
+
       if (p.phase === "sessions") {
         if (p.menu === "delete") {
           if (key.name === "left" || key.name === "escape") {
@@ -1535,6 +1624,10 @@ export function App(props: {
               void authenticateMcpServerFromPalette();
               return;
             }
+          }
+          if (key.name === "d") {
+            void toggleMcpServerEnabled();
+            return;
           }
           if (key.name !== undefined) return;
         }
@@ -1625,6 +1718,7 @@ export function App(props: {
         const expanded = toolExpand.getHoveredExpandedOutput();
         if (expanded) {
           void performCopy(expanded);
+          key.preventDefault();
           return;
         }
       }
@@ -1915,24 +2009,24 @@ export function App(props: {
                   scrollY
                   contentOptions={{ flexDirection: "column" }}
                 >
-                  <For each={[...pickerModels()]}>
+                  <Index each={[...pickerModels()]}>
                     {(model, i) => {
-                      const selected = () => (p() as { phase: "model"; index: number }).index === i();
-                      const isCurrent = () => model === state().meta.model;
+                      const selected = () => (p() as { phase: "model"; index: number }).index === i;
+                      const isCurrent = () => model() === state().meta.model;
                       const providerId = () => state().meta.provider ?? activeProviderId();
                       const pricingLabel = () =>
                         formatModelPricingLabel(
                           resolveDisplayModelPricing(
-                            model,
+                            model(),
                             providerId(),
                             modelPricing,
                           ),
                         );
-                      const contextLabel = () => formatContextWindowLabel(modelContextWindows()[model]);
+                      const contextLabel = () => formatContextWindowLabel(modelContextWindows()[model()]);
                       return (
-                        <box id={`model-row-${i()}`} flexDirection="row">
+                        <box id={`model-row-${i}`} flexDirection="row">
                           <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                            {selected() ? "▶ " : "  "}{model}
+                            {selected() ? "▶ " : "  "}{model()}
                           </text>
                           <text fg={theme.secondary}>  {pricingLabel()}</text>
                           <Show when={contextLabel()}>
@@ -1944,7 +2038,7 @@ export function App(props: {
                         </box>
                       );
                     }}
-                  </For>
+                  </Index>
                 </scrollbox>
               </Show>
 
@@ -1970,14 +2064,14 @@ export function App(props: {
               </Show>
 
               <Show when={p().phase === "mode"}>
-                <For each={APPROVAL_MODES}>
+                <Index each={APPROVAL_MODES}>
                   {(mode, i) => {
-                    const selected = () => (p() as { phase: "mode"; index: number }).index === i();
-                    const isCurrent = () => mode === (coerceApprovalMode(state().meta.approval) ?? "normal");
+                    const selected = () => (p() as { phase: "mode"; index: number }).index === i;
+                    const isCurrent = () => mode() === (coerceApprovalMode(state().meta.approval) ?? "normal");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{APPROVAL_MODE_LABELS[mode]}
+                          {selected() ? "▶ " : "  "}{APPROVAL_MODE_LABELS[mode()]}
                         </text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
@@ -1985,7 +2079,7 @@ export function App(props: {
                       </box>
                     );
                   }}
-                </For>
+                </Index>
               </Show>
 
               <Show when={p().phase === "settings"}>
@@ -2050,15 +2144,15 @@ export function App(props: {
 
               <Show when={p().phase === "settings-session-isolation"}>
                 <text fg={theme.secondary}>Parent agent — where your edits land</text>
-                <For each={SESSION_ISOLATION_MODES}>
+                <Index each={SESSION_ISOLATION_MODES}>
                   {(mode, i) => {
                     const selected = () =>
-                      (p() as { phase: "settings-session-isolation"; index: number }).index === i();
-                    const isCurrent = () => mode === (loadConfig().session?.isolation ?? "shared");
+                      (p() as { phase: "settings-session-isolation"; index: number }).index === i;
+                    const isCurrent = () => mode() === (loadConfig().session?.isolation ?? "shared");
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{SESSION_ISOLATION_LABELS[mode]}
+                          {selected() ? "▶ " : "  "}{SESSION_ISOLATION_LABELS[mode()]}
                         </text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
@@ -2066,19 +2160,19 @@ export function App(props: {
                       </box>
                     );
                   }}
-                </For>
+                </Index>
               </Show>
 
               <Show when={p().phase === "settings-isolation"}>
                 <text fg={theme.secondary}>{serialSubagentPaletteHeader("shared")}</text>
-                <For each={ISOLATION_MODES}>
+                <Index each={ISOLATION_MODES}>
                   {(mode, i) => {
-                    const selected = () => (p() as { phase: "settings-isolation"; index: number }).index === i();
-                    const isCurrent = () => mode === loadConfig().subagent.isolation;
+                    const selected = () => (p() as { phase: "settings-isolation"; index: number }).index === i;
+                    const isCurrent = () => mode() === loadConfig().subagent.isolation;
                     return (
                       <box flexDirection="row">
                         <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                          {selected() ? "▶ " : "  "}{ISOLATION_LABELS[mode]}
+                          {selected() ? "▶ " : "  "}{ISOLATION_LABELS[mode()]}
                         </text>
                         <Show when={isCurrent()}>
                           <text fg={theme.secondary}>  (current)</text>
@@ -2086,7 +2180,7 @@ export function App(props: {
                       </box>
                     );
                   }}
-                </For>
+                </Index>
               </Show>
 
               <Show when={p().phase === "settings-serial-info"}>
@@ -2109,28 +2203,28 @@ export function App(props: {
                   scrollY
                   contentOptions={{ flexDirection: "column" }}
                 >
-                  <For each={modelSlotList()}>
+                  <Index each={modelSlotList()}>
                     {(model, i) => {
                       const sp = () => p() as { phase: "settings-model-slot"; index: number; slot: ModelSlot };
-                      const selected = () => sp().index === i();
+                      const selected = () => sp().index === i;
                       const providerId = () => roleProviderId();
                       const override = () => loadConfig().models.providers?.[providerId()]?.[sp().slot]?.trim() ?? "";
                       const isCurrent = () =>
-                        model === MODEL_SLOT_DEFAULT ? override() === "" : model === override();
+                        model() === MODEL_SLOT_DEFAULT ? override() === "" : model() === override();
                       const pricingLabel = () =>
-                        model === MODEL_SLOT_DEFAULT
+                        model() === MODEL_SLOT_DEFAULT
                           ? ""
                           : formatModelPricingLabel(
-                              resolveDisplayModelPricing(model, providerId(), modelPricing),
+                              resolveDisplayModelPricing(model(), providerId(), modelPricing),
                             );
                       const contextLabel = () =>
-                        model === MODEL_SLOT_DEFAULT
+                        model() === MODEL_SLOT_DEFAULT
                           ? ""
-                          : formatContextWindowLabel(modelContextWindows()[model]);
+                          : formatContextWindowLabel(modelContextWindows()[model()]);
                       return (
-                        <box id={`model-row-${i()}`} flexDirection="row">
+                        <box id={`model-row-${i}`} flexDirection="row">
                           <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
-                            {selected() ? "▶ " : "  "}{model}
+                            {selected() ? "▶ " : "  "}{model()}
                           </text>
                           <Show when={pricingLabel()}>
                             <text fg={theme.secondary}>  {pricingLabel()}</text>
@@ -2144,7 +2238,7 @@ export function App(props: {
                         </box>
                       );
                     }}
-                  </For>
+                  </Index>
                 </scrollbox>
               </Show>
 
@@ -2232,9 +2326,9 @@ export function App(props: {
                             <Show when={server()}>
                               {(s) => (
                                 <box flexDirection="column">
-                                  <For each={mcpServerDetailLines(s())}>
-                                    {(line) => <text fg={theme.secondary}>{line}</text>}
-                                  </For>
+                                  <Index each={mcpServerDetailLines(s())}>
+                                    {(line) => <text fg={theme.secondary}>{line()}</text>}
+                                  </Index>
                                 </box>
                               )}
                             </Show>
@@ -2245,11 +2339,11 @@ export function App(props: {
                   }
                 >
                   <scrollbox
-                    height={Math.min(mcpListRows((p() as McpPaletteState).servers).length, MCP_LIST_MAX_VISIBLE)}
+                    height={Math.min(mcpPaletteRows().length, MCP_LIST_MAX_VISIBLE)}
                     scrollY
                     contentOptions={{ flexDirection: "column" }}
                   >
-                    <For each={mcpListRows((p() as McpPaletteState).servers)}>
+                    <For each={mcpPaletteRows()}>
                       {(row, i) => {
                         const selected = () => (p() as McpPaletteState).index === i();
                         return (
@@ -2288,10 +2382,7 @@ export function App(props: {
                 >
                   <scrollbox
                     ref={skillsListScrollRef}
-                    height={Math.min(
-                      (p() as SkillsPaletteState).skills.length,
-                      SKILLS_LIST_MAX_VISIBLE,
-                    )}
+                    height={SKILLS_LIST_MAX_VISIBLE}
                     scrollY
                     contentOptions={{ flexDirection: "column" }}
                   >
@@ -2300,12 +2391,22 @@ export function App(props: {
                         const sp = () => p() as SkillsPaletteState;
                         const selected = () => sp().index === i();
                         const version = () => (skill.version ? `  v${skill.version}` : "");
+                        const nameColWidth = () =>
+                          Math.max(...sp().skills.map((s) => s.name.length)) + 4;
                         return (
                           <box id={`skill-row-${i()}`} flexDirection="row">
-                            <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                            <text
+                              fg={selected() ? theme.accent : theme.fg}
+                              attributes={selected() ? BOLD : 0}
+                              minWidth={nameColWidth()}
+                              flexShrink={0}
+                              wrapMode="none"
+                            >
                               {selected() ? "▶ " : "  "}{skill.name}
                             </text>
-                            <text fg={theme.secondary}>  {skillScopeLabel(skill)}{version()}  {skill.description}</text>
+                            <text fg={theme.secondary} flexGrow={1} wrapMode="word">
+                              {skillScopeLabel(skill)}{version()}  {skill.description}
+                            </text>
                           </box>
                         );
                       }}
@@ -2343,7 +2444,7 @@ export function App(props: {
           <input
             ref={inputRef}
             flexGrow={1}
-            focused={state().phase !== "approval"}
+            focused={inputFocused()}
             textColor={theme.fg}
             focusedTextColor={theme.fg}
             backgroundColor={theme.bg}

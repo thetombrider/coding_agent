@@ -23,6 +23,29 @@ export interface LlmRequestSnapshot {
   system?: string;
   messages: Message[];
   tools?: readonly ToolSchemaRef[];
+  /** Ratel pre-filter metadata when `ratel.enabled` (issue #295 / ratel-hooks.md). */
+  ratel?: RatelResolutionSnapshot;
+  /**
+   * A/B arm tag emitted on every LLM span — present even when `ratel` is absent
+   * (e.g. control arm). Consumers should prefer `ratel.featureFlag` when ratel is
+   * present; fall back to this field for control-arm spans.
+   */
+  featureFlag?: string;
+}
+
+/** Emitted on `llm_start.request.ratel` when the Ratel pre-filter runs (replace mode). */
+export interface RatelResolutionSnapshot {
+  catalogSize: number;
+  injectedCount: number;
+  query: string;
+  topK: number;
+  hitCount: number;
+  topHitScore?: number;
+  replaceMode: true;
+  gatewayOrigin: "direct";
+  featureFlag: "tool_pool=ratel";
+  skillCatalogSize: number;
+  injectedToolNames: readonly string[];
 }
 
 export type AgentEvent =

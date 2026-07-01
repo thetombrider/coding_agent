@@ -16,6 +16,7 @@
         "@opentelemetry/semantic-conventions": "^1.41.1",
         "@opentui/core": "^0.4.1",
         "@opentui/solid": "^0.4.1",
+        "@ratel-ai/sdk": "^0.2.0",
         "@vscode/ripgrep": "^1.18.0",
         "ai": "^6.0.205",
         "diff": "^9.0.0",
@@ -246,6 +247,18 @@
 
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.1", "", {}, "sha512-oOAWABowe8EAbMyWKM0tYDKi8Yaox52D+HWZhAIJqQXbqe0xI/GV7FhLWqlEKreMkfDjshR5FKgi3mnle0h6Eg=="],
 
+    "@ratel-ai/sdk": ["@ratel-ai/sdk@0.2.0", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "@types/json-schema": "^7.0.15" }, "optionalDependencies": { "@ratel-ai/sdk-darwin-arm64": "0.2.0", "@ratel-ai/sdk-darwin-x64": "0.2.0", "@ratel-ai/sdk-linux-arm64-gnu": "0.2.0", "@ratel-ai/sdk-linux-x64-gnu": "0.2.0", "@ratel-ai/sdk-win32-x64-msvc": "0.2.0" } }, "sha512-U357euk4lQUUXooHWcGYUCNGmHDFo6myJWrM8sy1YtZaQWGSN7TMFwMn1TfNL6dIUTv0TqShcx6fw7RPXdx3kw=="],
+
+    "@ratel-ai/sdk-darwin-arm64": ["@ratel-ai/sdk-darwin-arm64@0.2.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-RIXMLc46GlJqCBgoifVPEw8+NPPtj8VzIDG12n0EW96OOmdKQzzXRAfYr5qZ+sdY3T1zD8FmH0EFYszc1Fu4Yw=="],
+
+    "@ratel-ai/sdk-darwin-x64": ["@ratel-ai/sdk-darwin-x64@0.2.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-xguey9AT8TmH++gK0Ol4ryghlZtKBb4GhbW+mJHHHZLTThMXbT63dcgxA3jYZnwZ5CadY7UZsXzh+0iowbE5Yg=="],
+
+    "@ratel-ai/sdk-linux-arm64-gnu": ["@ratel-ai/sdk-linux-arm64-gnu@0.2.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-k2U815Xn/s9ShA9OyaeQl67XBCQz4Tp3HDinuKfW8Xp4mNex0I2ObkZhbYwEzPcdKjBuCxvnBORQQHiYzAvkQg=="],
+
+    "@ratel-ai/sdk-linux-x64-gnu": ["@ratel-ai/sdk-linux-x64-gnu@0.2.0", "", { "os": "linux", "cpu": "x64" }, "sha512-W6oaCK1a9mcCJjTZkqH8drbSqhKdGOyHsRsz36Bs7RMmWzfWfWKr5nQlv2ym/tT/clGXwReQb9FYOH+VBbm/xw=="],
+
+    "@ratel-ai/sdk-win32-x64-msvc": ["@ratel-ai/sdk-win32-x64-msvc@0.2.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Uz5jtKNC7t2ki9ThwatNZS+tzi6XPbOrhNcUUj7Hp3Ttw3lZn9LzpoEbhodL3Dl5g2ntIXP01Viyh++rJSZzTg=="],
+
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.62.0", "", { "os": "android", "cpu": "arm" }, "sha512-IPIQ55ythEHkfEd9jMEi32OQ7SxURsGA43JI22lj01OLZNt2NUbJX8YUHxkVWyQ6daHPNn0truF5nSj3DQp6YQ=="],
 
     "@rollup/rollup-android-arm64": ["@rollup/rollup-android-arm64@4.62.0", "", { "os": "android", "cpu": "arm64" }, "sha512-M6s9cr10MibETyo8JsOkq+Lo1+lU6hcvb1MApnUql5qte/5hMEgzlN8/ReIKNfRV8rrqX50W1BX9zoUhC192RA=="],
@@ -305,6 +318,8 @@
     "@types/diff": ["@types/diff@7.0.2", "", {}, "sha512-JSWRMozjFKsGlEjiiKajUjIJVKuKdE3oVy2DNtK+fUo8q82nhFZ2CPQwicAIkXrofahDXrWJ7mjelvZphMS98Q=="],
 
     "@types/estree": ["@types/estree@1.0.9", "", {}, "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=="],
+
+    "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
 
     "@types/node": ["@types/node@25.9.3", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-603BddQMv3pUcr4U2dhujk83N2tTDVr/34wII2B6bJy6g+8WD6yUb11jszNs0gdi4PesVWl7ABt8nYMVpnLUcg=="],
 

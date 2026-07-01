@@ -385,4 +385,51 @@ describe("createSessionController", () => {
       expect(taskBlock.entry.subagent?.tools[0]?.name).toBe("read");
     }
   });
+
+  it("does not leak a subagent's internal llm_start/reasoning/text events into the parent turn", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("explore");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "task1",
+      name: "task",
+      args: { description: "scan repo", prompt: "list files", agent: "explore" },
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan repo",
+      agent: "explore",
+    });
+    // A subagent loop fires its own llm_start/reasoning_delta/text_delta per
+    // internal LLM call — these must stay scoped to the subagent, not bleed
+    // into the parent turn's reasoning blocks or streamed text.
+    for (let i = 0; i < 5; i++) {
+      controller.handleEvent({ type: "llm_start", id: `sub-call-${i}`, model: "test/model", subagentId: "sub1" });
+      controller.handleEvent({ type: "reasoning_delta", text: "sub thinking", subagentId: "sub1" });
+      controller.handleEvent({ type: "text_delta", text: "sub text", subagentId: "sub1" });
+    }
+    controller.handleEvent({
+      type: "subagent_end",
+      id: "sub1",
+      agent: "explore",
+      turns: 5,
+      summary: "Found package.json",
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "task1",
+      name: "task",
+      output: "Subagent finished",
+    });
+    controller.handleEvent({ type: "llm_start", id: "call-2", model: "test/model" });
+    controller.handleEvent({ type: "text_delta", text: "Done." });
+    controller.finalizeTurn();
+
+    const turn = controller.getState().completedTurns[0];
+    expect(turn?.blocks.filter((b) => b.type === "reasoning")).toEqual([]);
+    expect(turn?.reasoningText).toBeUndefined();
+    expect(turn?.assistantText).toBe("Done.");
+  });
 });

@@ -22,6 +22,7 @@ const baseState = (): SessionState => ({
   input: "",
   statusHint: "",
   todos: [],
+  activeSkills: [],
 });
 
 describe("plaintext", () => {

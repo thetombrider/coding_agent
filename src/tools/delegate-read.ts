@@ -28,6 +28,7 @@ export const delegateReadTool: Tool<DelegateReadArgs> = {
       workspace: ctx.workspace,
       signal,
       record: ctx.loopHost?.recordLlmCall,
+      symbols: ctx.symbols,
     });
 
     const prefix = warnings.length ? `${warnings.join("\n")}\n\n` : "";

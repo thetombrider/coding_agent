@@ -1,5 +1,6 @@
 import { discoverSkills } from "../skills/discovery.js";
 import { injectLeadingContext } from "../prompt/inject.js";
+import { isRatelEnabled } from "../ratel/config.js";
 import type { HookRegistry } from "./types.js";
 
 /** Collapse control chars and strip angle brackets so skill metadata cannot break injected blocks. */
@@ -14,6 +15,8 @@ export function sanitizeSkillField(value: string): string {
  */
 export function installSkillInject(hooks: HookRegistry): void {
   hooks.on("before_prompt", ({ messages }, ctx) => {
+    if (isRatelEnabled()) return;
+
     const skills = discoverSkills(ctx.cwd);
     if (skills.length === 0) return;
 

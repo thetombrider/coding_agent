@@ -12,20 +12,17 @@ vi.mock("./client.js", () => ({
 describe("loadMcpServers", () => {
   let home: string;
   let prevHome: string | undefined;
-  let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "orin-mcp-loader-"));
     prevHome = process.env.HOME;
     process.env.HOME = home;
     connectServer.mockReset();
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    warnSpy.mockRestore();
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -59,7 +56,6 @@ describe("loadMcpServers", () => {
     expect(result.statusHint).toContain("good (1 tools)");
     expect(result.statusHint).toContain("bad failed");
     expect(result.servers.find((s) => s.name === "bad")?.status).toBe("failed");
-    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("classifies auth failures as needs_auth", async () => {
@@ -123,5 +119,49 @@ describe("loadMcpServers", () => {
     await result.dispose();
 
     expect(close).toHaveBeenCalled();
+  });
+
+  it("annotates global servers with scope=global", async () => {
+    mkdirSync(join(home, ".orin"), { recursive: true });
+    writeFileSync(
+      join(home, ".orin", "mcp.json"),
+      JSON.stringify({
+        servers: { fs: { type: "stdio", command: "echo" } },
+      }),
+    );
+
+    connectServer.mockResolvedValue({
+      client: { close: vi.fn(async () => {}) },
+      name: "fs",
+      tools: [],
+    });
+
+    const { loadMcpServers } = await import("./loader.js");
+    const result = await loadMcpServers();
+    expect(result.servers[0]?.scope).toBe("global");
+  });
+
+  it("annotates project servers with scope=project when projectCwd is provided", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "orin-loader-proj-"));
+    try {
+      writeFileSync(
+        join(projectDir, ".mcp.json"),
+        JSON.stringify({
+          servers: { local: { type: "stdio", command: "echo" } },
+        }),
+      );
+
+      connectServer.mockResolvedValue({
+        client: { close: vi.fn(async () => {}) },
+        name: "local",
+        tools: [],
+      });
+
+      const { loadMcpServers } = await import("./loader.js");
+      const result = await loadMcpServers(projectDir);
+      expect(result.servers.find((s) => s.name === "local")?.scope).toBe("project");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });

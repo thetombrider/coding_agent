@@ -1,6 +1,6 @@
 import { bold, createTextAttributes, fg, italic, StyledText, type TextChunk } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
-import { For, type JSX, Show } from "solid-js";
+import { For, Index, type JSX, Show } from "solid-js";
 import {
   type Block,
   displayWidth,
@@ -133,8 +133,7 @@ function TableBlock(props: { headers: string[]; rows: string[][] }) {
 }
 
 function BlockView(props: { block: Block; first: boolean }) {
-  const block = props.block;
-  switch (block.type) {
+  switch (props.block.type) {
     case "heading":
       return (
         <box marginTop={props.first ? 0 : 1}>
@@ -142,39 +141,41 @@ function BlockView(props: { block: Block; first: boolean }) {
             selectable
             {...surfaceSelection(theme.bg, theme.heading)}
             fg={theme.heading}
-            attributes={createTextAttributes({ bold: true, underline: block.level === 1 })}
+            attributes={createTextAttributes({ bold: true, underline: props.block.level === 1 })}
           >
-            {block.text}
+            {props.block.text}
           </text>
         </box>
       );
     case "code":
       return (
         <box flexDirection="column" marginTop={1} marginBottom={1} paddingLeft={1} paddingRight={1} backgroundColor={theme.codeBg}>
-          <For each={block.body.split("\n")}>
-            {(line) => <text selectable {...surfaceSelection(theme.codeBg, theme.codeFg)} fg={theme.codeFg} attributes={BOLD}>{line || " "}</text>}
-          </For>
+          <Index each={props.block.body.split("\n")}>
+            {(line) => <text selectable {...surfaceSelection(theme.codeBg, theme.codeFg)} fg={theme.codeFg} attributes={BOLD}>{line() || " "}</text>}
+          </Index>
         </box>
       );
-    case "list":
+    case "list": {
+      const ordered = props.block.ordered;
       return (
         <box flexDirection="column">
-          <For each={block.items}>
+          <Index each={props.block.items}>
             {(item, i) => (
               <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">
                 {styled(new StyledText([
-                  fg(theme.muted)(bold(block.ordered ? `${i() + 1}. ` : "· ")),
-                  ...inlineChunks(item),
+                  fg(theme.muted)(bold(ordered ? `${i + 1}. ` : "· ")),
+                  ...inlineChunks(item()),
                 ]))}
               </text>
             )}
-          </For>
+          </Index>
         </box>
       );
+    }
     case "blockquote":
       return (
         <box flexDirection="column" marginTop={1} marginBottom={1} paddingLeft={1} border={["left"]} borderColor={theme.border}>
-          <For each={block.lines}>{(line) => <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">{styled(inlineText(line))}</text>}</For>
+          <Index each={props.block.lines}>{(line) => <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">{styled(inlineText(line()))}</text>}</Index>
         </box>
       );
     case "rule":
@@ -184,11 +185,11 @@ function BlockView(props: { block: Block; first: boolean }) {
         </box>
       );
     case "table":
-      return <TableBlock headers={block.headers} rows={block.rows} />;
+      return <TableBlock headers={props.block.headers} rows={props.block.rows} />;
     case "paragraph":
       return (
         <box flexDirection="column">
-          <For each={block.lines}>{(line) => <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">{styled(inlineText(line))}</text>}</For>
+          <Index each={props.block.lines}>{(line) => <text selectable {...surfaceSelection(theme.bg)} wrapMode="word">{styled(inlineText(line()))}</text>}</Index>
         </box>
       );
   }
