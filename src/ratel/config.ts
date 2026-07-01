@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/config.js";
+import { isMcpTool } from "../mcp/names.js";
 
 /** Resolved Ratel settings (issue #295). */
 export interface RatelSettings {
@@ -25,6 +26,7 @@ const DEFAULT_PINNED = [
   "grep",
   "find",
   "ls",
+  "search_symbols",
   "search_capabilities",
   "invoke_tool",
 ] as const;
@@ -54,7 +56,7 @@ export function resolveRatelSettings(): RatelSettings {
 
   const pinned =
     Array.isArray(raw.pinnedTools) && raw.pinnedTools.every((t) => typeof t === "string")
-      ? raw.pinnedTools
+      ? raw.pinnedTools.filter((t) => !isMcpTool(t))
       : DEFAULTS.pinnedTools;
 
   return {
