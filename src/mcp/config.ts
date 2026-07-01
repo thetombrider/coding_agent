@@ -317,6 +317,12 @@ export function loadMcpConfig(
       continue;
     }
     const expandedConfig = r.config;
+    if (expandedConfig.type === "stdio" && !expandedConfig.command.trim()) {
+      warnings.push(
+        `MCP server "${name}": stdio transport requires a non-empty "command" after env expansion, skipping.`,
+      );
+      continue;
+    }
     if (
       (expandedConfig.type === "http" || expandedConfig.type === "ws") &&
       (serverConfig.type === "http" || serverConfig.type === "ws") &&
@@ -326,7 +332,7 @@ export function loadMcpConfig(
         new URL(expandedConfig.url);
       } catch {
         warnings.push(
-          `MCP server "${name}": invalid url "${expandedConfig.url}" after env expansion, skipping.`,
+          `MCP server "${name}": invalid url after env expansion, skipping.`,
         );
         continue;
       }

@@ -111,8 +111,8 @@ describe("loadMcpConfig", () => {
   });
 
   describe("env var expansion", () => {
-    function withEnv(extra: Record<string, string>) {
-      return { ...process.env, ...extra };
+    function withEnv(extra: Record<string, string> = {}) {
+      return { ...extra };
     }
 
     it("expands ${env:VAR} in command, args, env, and url at load time", async () => {
@@ -193,7 +193,7 @@ describe("loadMcpConfig", () => {
         }),
       );
       const { loadMcpConfig } = await import("./config.js");
-      const { config, warnings } = loadMcpConfig();
+      const { config, warnings } = loadMcpConfig(withEnv());
       expect(warnings).toEqual([]);
       const httpServer = config.servers.http;
       if (httpServer?.type !== "http") throw new Error("expected http server");
@@ -216,7 +216,7 @@ describe("loadMcpConfig", () => {
         }),
       );
       const { loadMcpConfig } = await import("./config.js");
-      const { config, warnings } = loadMcpConfig();
+      const { config, warnings } = loadMcpConfig(withEnv());
       expect(Object.keys(config.servers)).toEqual(["fs"]);
       expect(
         warnings.some(
