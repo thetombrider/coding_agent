@@ -50,6 +50,16 @@ export function normalizeOpenAiModelId(modelId: string): string {
   return id;
 }
 
+/**
+ * OpenAI `-pro` models (`gpt-5-pro`, `gpt-5.4-pro`, `o3-pro`, …) are only served
+ * by the Responses API and error on Chat Completions, so they must be routed to
+ * `client.responses()`. Matches a `-pro` segment, including dated variants like
+ * `gpt-5.4-pro-2026-03-05`.
+ */
+export function isOpenAiProModel(modelId: string): boolean {
+  return /-pro(-|$)/.test(normalizeOpenAiModelId(modelId));
+}
+
 const openaiCompatibleCfg: OpenAiCompatibleProviderConfig = {
   id: "openai",
   displayName: "OpenAI",
@@ -63,6 +73,9 @@ const openaiCompatibleCfg: OpenAiCompatibleProviderConfig = {
     delegate_read: "gpt-5.4-mini",
     compaction: "gpt-5.4-mini",
   },
+  // `-pro` models are only available on the Responses API; route them there
+  // instead of Chat Completions (see issue #321).
+  responsesApiModel: isOpenAiProModel,
   // OpenAI's /v1/models lists ids only — no context_length. Source windows from
   // models.dev (same catalog opencode uses), then offline picker defaults, then
   // any context fields the live catalog happens to publish.

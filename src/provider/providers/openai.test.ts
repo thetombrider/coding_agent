@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OPENAI_PICKER_MODELS, normalizeOpenAiModelId, openaiProvider } from "./openai.js";
+import { OPENAI_PICKER_MODELS, isOpenAiProModel, normalizeOpenAiModelId, openaiProvider } from "./openai.js";
 import { resetOpenAiCompatibleModelsCache } from "../openai-compatible.js";
 import { resetModelsDevCache } from "../modelsdev.js";
 
@@ -108,6 +108,27 @@ describe("openai provider", () => {
     const model = provider.languageModel("openai/gpt-5.5");
     expect(model).toBeDefined();
     expect(typeof model).toBe("object");
+  });
+
+  it("identifies -pro models, including dated variants", () => {
+    expect(isOpenAiProModel("gpt-5.5-pro")).toBe(true);
+    expect(isOpenAiProModel("openai:gpt-5.4-pro")).toBe(true);
+    expect(isOpenAiProModel("openai/gpt-5.4-pro-2026-03-05")).toBe(true);
+    expect(isOpenAiProModel("o3-pro")).toBe(true);
+    expect(isOpenAiProModel("gpt-5.5")).toBe(false);
+    expect(isOpenAiProModel("gpt-5.4-mini")).toBe(false);
+  });
+
+  it("routes -pro models to the Responses API and others to Chat Completions", async () => {
+    const { saveConfig } = await import("../../config/config.js");
+    saveConfig({ provider: { openai: { apiKey: "sk-openai" } } });
+    vi.resetModules();
+    const { openaiProvider: provider } = await import("./openai.js");
+
+    const pro = provider.languageModel("openai/gpt-5.5-pro") as { provider: string };
+    const chat = provider.languageModel("openai/gpt-5.5") as { provider: string };
+    expect(pro.provider).toBe("openai.responses");
+    expect(chat.provider).toBe("openai.chat");
   });
 
   it("is registered in the provider registry", async () => {

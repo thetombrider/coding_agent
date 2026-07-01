@@ -28,6 +28,13 @@ export interface OpenAiCompatibleProviderConfig {
     modelId: string,
     fetchImpl?: FetchModelsCatalog,
   ) => Promise<number | undefined>;
+  /**
+   * Predicate deciding whether a (normalized) model id must be served by the
+   * OpenAI Responses API instead of Chat Completions. OpenAI's `-pro` models
+   * (`gpt-5-pro`, `gpt-5.4-pro`, `o3-pro`, …) are only exposed via `/responses`
+   * and error out on `/chat/completions`. Defaults to always using chat.
+   */
+  responsesApiModel?: (modelId: string) => boolean;
 }
 
 const CATALOG_TTL_MS = 60 * 60 * 1000;
@@ -242,7 +249,11 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatibleProviderConf
       return normalizeModelId(modelId, cfg.idPrefix);
     },
     languageModel(modelId) {
-      return getClient().chat(normalizeModelId(modelId, cfg.idPrefix));
+      const client = getClient();
+      const normalized = normalizeModelId(modelId, cfg.idPrefix);
+      return cfg.responsesApiModel?.(normalized)
+        ? client.responses(normalized)
+        : client.chat(normalized);
     },
     metadata,
     pickerModels: cfg.pickerModels,
