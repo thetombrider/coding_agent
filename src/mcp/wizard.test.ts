@@ -112,6 +112,22 @@ describe("MCP wizard", () => {
     expect(validateWizardStep(state, step, "bad name")).toMatch(/name must/);
   });
 
+  it("exposes select options for transport and authMode steps", () => {
+    let state = beginAddWizard();
+    state = applyWizardStep(state, currentWizardStep(state)!, "fs");
+
+    const transportStep = currentWizardStep(state)!;
+    expect(transportStep.id).toBe("transport");
+    expect(transportStep.options).toEqual(["stdio", "http", "ws"]);
+
+    state = applyWizardStep(state, transportStep, "http");
+    state = applyWizardStep(state, currentWizardStep(state)!, "https://mcp.example.com");
+
+    const authStep = currentWizardStep(state)!;
+    expect(authStep.id).toBe("authMode");
+    expect(authStep.options).toEqual(["none", "bearer", "oauth"]);
+  });
+
   it("hints that ${env:VAR} is supported in the token step", () => {
     let state = beginAddWizard();
     for (const [stepId, value] of [

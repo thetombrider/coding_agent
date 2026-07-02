@@ -68,6 +68,7 @@ import {
   currentWizardStep,
   validateWizardStep,
   wizardComplete,
+  wizardFieldValue,
   wizardNeedsOAuthAfterSave,
   wizardToServerConfig,
   type McpWizardState,
@@ -255,6 +256,25 @@ export function App(props: {
   createEffect(() => {
     questionKey();
     setQuestionIndex(0);
+  });
+
+  // Options-based wizard steps (transport, authMode) are answered with arrow
+  // keys + enter. Reset the highlight whenever the step changes, preselecting
+  // the current value when editing an existing server.
+  const [mcpWizardOptionIndex, setMcpWizardOptionIndex] = createSignal(0);
+  const mcpWizardStepKey = createMemo(() => {
+    const wizard = mcpWizard();
+    const step = wizard ? currentWizardStep(wizard) : undefined;
+    return step ? `${wizard!.stepIndex}:${step.id}` : null;
+  });
+  createEffect(() => {
+    mcpWizardStepKey();
+    const wizard = mcpWizard();
+    const step = wizard ? currentWizardStep(wizard) : undefined;
+    if (!wizard || !step?.options) return;
+    const currentValue = wizardFieldValue(wizard, step.id);
+    const idx = step.options.indexOf(currentValue);
+    setMcpWizardOptionIndex(idx >= 0 ? idx : 0);
   });
 
   const canStopTurn = () =>
@@ -548,7 +568,8 @@ export function App(props: {
     const step = currentWizardStep(wizard);
     if (!step) return "Saving MCP server…";
     const prefix = wizard.mode === "edit" ? `Edit MCP server ${wizard.name}` : "Add MCP server";
-    return `${prefix}: ${step.hint} · Esc to cancel`;
+    const guidance = step.options ? "↑/↓ to choose · Enter to confirm" : step.hint;
+    return `${prefix}: ${guidance} · Esc to cancel`;
   };
 
   const openMcpPalette = () => {
@@ -621,7 +642,7 @@ export function App(props: {
       return;
     }
 
-    const trimmed = raw.trim();
+    const trimmed = step.options ? (step.options[mcpWizardOptionIndex()] ?? "") : raw.trim();
     if (!trimmed && !step.optional) {
       props.controller.setStatusHint("value required — Esc to cancel");
       return;
@@ -1532,7 +1553,19 @@ export function App(props: {
       return;
     }
 
-    if (mcpWizard() !== null) {
+    const wizard = mcpWizard();
+    if (wizard !== null) {
+      const step = currentWizardStep(wizard);
+      if (step?.options) {
+        if (key.name === "up") {
+          setMcpWizardOptionIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (key.name === "down") {
+          setMcpWizardOptionIndex((i) => Math.min(step.options!.length - 1, i + 1));
+          return;
+        }
+      }
       if (key.name === "escape") {
         closeMcpWizard();
         props.controller.setStatusHint("MCP configuration cancelled");
@@ -1951,6 +1984,25 @@ export function App(props: {
                     <>
                       <text fg={theme.fg} attributes={BOLD}>{s().title}</text>
                       <text fg={theme.secondary}>{s().hint}</text>
+                      <Show when={s().options}>
+                        {(options) => (
+                          <box flexDirection="column" marginTop={1}>
+                            <For each={options()}>
+                              {(option, i) => {
+                                const selected = () => mcpWizardOptionIndex() === i();
+                                return (
+                                  <text
+                                    fg={selected() ? theme.accent : theme.fg}
+                                    attributes={selected() ? BOLD : 0}
+                                  >
+                                    {selected() ? "▶ " : "  "}{option}
+                                  </text>
+                                );
+                              }}
+                            </For>
+                          </box>
+                        )}
+                      </Show>
                       <Show when={s().id === "authMode"}>
                         <text fg={theme.muted}>oauth opens a browser login; tokens are stored separately from server config</text>
                       </Show>

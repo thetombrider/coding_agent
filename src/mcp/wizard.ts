@@ -41,6 +41,8 @@ export interface McpWizardStep {
   title: string;
   hint: string;
   optional?: boolean;
+  /** When set, this step is answered by picking one of these values (arrow keys + enter). */
+  options?: readonly string[];
 }
 
 const TRANSPORTS: readonly McpTransportType[] = ["stdio", "http", "ws"];
@@ -132,6 +134,7 @@ export function wizardSteps(state: McpWizardState): McpWizardStep[] {
     id: "transport",
     title: "Transport",
     hint: "stdio, http, or ws",
+    options: TRANSPORTS,
   });
   if (state.transport === "stdio") {
     steps.push({
@@ -155,6 +158,7 @@ export function wizardSteps(state: McpWizardState): McpWizardStep[] {
       id: "authMode",
       title: "Authentication",
       hint: "none · bearer (API token) · oauth (browser login — tokens stored separately)",
+      options: AUTH_MODES,
     });
     if (state.authMode === "bearer") {
       steps.push({
