@@ -85,6 +85,37 @@ describe("editTool mismatch diagnostics", () => {
   });
 });
 
+describe("editTool large-file diff guard", () => {
+  it("skips patch computation and applies the edit when content exceeds the diff budget", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "orin-edit-large-"));
+    const ctx: AgentContext = { cwd, messages: [], workspace: createLocalWorkspace() };
+
+    try {
+      const big = "x".repeat(300 * 1024);
+      await writeTool.execute(
+        { path: "big.txt", content: `${big}\nneedle\n` },
+        ctx,
+        new AbortController().signal,
+      );
+
+      const result = await editTool.execute(
+        { path: "big.txt", edits: [{ oldText: "needle", newText: "found" }] },
+        ctx,
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toMatch(/too large to diff/i);
+      expect(result.output).not.toMatch(/@@/);
+
+      const content = await readFile(join(cwd, "big.txt"), "utf8");
+      expect(content).toContain("found");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("phase 3 tools integration", () => {
   it("write, edit, grep end-to-end", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "orin-"));

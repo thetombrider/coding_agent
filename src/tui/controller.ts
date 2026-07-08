@@ -93,6 +93,8 @@ export interface SessionState {
   pendingQuestion: PendingQuestion | null;
   input: string;
   statusHint: string;
+  /** `Date.now()` when the current turn started; `null` when idle. Drives the footer's live elapsed-time readout. */
+  turnStartedAt: number | null;
   /** Skills loaded via skill_use during this session. */
   activeSkills: Array<{ name: string; version?: string }>;
 }
@@ -172,6 +174,18 @@ function toolStatusHint(name: string, args: unknown, subagentAgent?: string): st
   }
   if (detail.length > 48) detail = `${detail.slice(0, 45)}…`;
   const action = detail ? `${verb} ${detail}…` : `${verb}…`;
+  return subagentAgent ? `Subagent (${subagentAgent}): ${action}` : action;
+}
+
+function formatProgressChars(chars: number): string {
+  return chars < 1024 ? `${chars} chars` : `${(chars / 1024).toFixed(1)} KB`;
+}
+
+/** Live status hint while a tool call's arguments are still streaming in, e.g. "Writing… (2.1 KB so far)". */
+function toolInputProgressHint(name: string, chars: number, subagentAgent?: string): string {
+  const displayName = isMcpTool(name) ? formatMcpToolLabel(name) : name;
+  const verb = TOOL_VERBS[name] ?? `Running ${displayName}`;
+  const action = chars > 0 ? `${verb}… (${formatProgressChars(chars)} so far)` : `${verb}…`;
   return subagentAgent ? `Subagent (${subagentAgent}): ${action}` : action;
 }
 
@@ -257,6 +271,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     pendingQuestion: null,
     input: "",
     statusHint: IDLE_STATUS_HINT,
+    turnStartedAt: null,
     activeSkills: [],
   };
 
@@ -361,6 +376,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         currentBlocks: [],
         phase: "running",
         statusHint: RUNNING_HINT,
+        turnStartedAt: Date.now(),
       });
     },
 
@@ -395,6 +411,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_STATUS_HINT,
+        turnStartedAt: null,
       });
     },
 
@@ -411,6 +428,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_STATUS_HINT,
+        turnStartedAt: null,
       });
     },
 
@@ -426,6 +444,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_STATUS_HINT,
+        turnStartedAt: null,
       });
     },
 
@@ -474,6 +493,17 @@ export function createSessionController(meta: SessionMeta): SessionController {
           if (event.subagentId) break;
           updateStreaming({ streamingText: state.streamingText + event.text });
           break;
+        case "tool_input_start":
+        case "tool_input_delta": {
+          const modalPending = state.pendingQuestion !== null || state.pendingApproval !== null;
+          if (modalPending) break;
+          const chars = event.type === "tool_input_delta" ? event.chars : 0;
+          const agent = event.subagentId
+            ? findSubagentAgent(state.currentTools, event.subagentId)
+            : undefined;
+          updateStreaming({ statusHint: toolInputProgressHint(event.name, chars, agent) });
+          break;
+        }
         case "llm_start": {
           if (event.subagentId) break;
           const lastBlock = state.currentBlocks[state.currentBlocks.length - 1];

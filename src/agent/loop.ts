@@ -306,6 +306,17 @@ export async function runLoop(
           if (event.type === "reasoning_delta") {
             hooks.emit({ type: "reasoning_delta", text: event.text });
           }
+          if (event.type === "tool_input_start") {
+            hooks.emit({ type: "tool_input_start", id: event.id, name: event.name });
+          }
+          if (event.type === "tool_input_delta") {
+            hooks.emit({
+              type: "tool_input_delta",
+              id: event.id,
+              name: event.name,
+              chars: event.chars,
+            });
+          }
         },
       );
     } catch (err) {

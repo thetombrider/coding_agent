@@ -52,6 +52,8 @@ export type AgentEvent =
   | { type: "turn_start"; id: string; firstUserText?: string }
   | { type: "text_delta"; text: string; subagentId?: string }
   | { type: "reasoning_delta"; text: string; subagentId?: string }
+  | { type: "tool_input_start"; id: string; name: string; subagentId?: string }
+  | { type: "tool_input_delta"; id: string; name: string; chars: number; subagentId?: string }
   | { type: "llm_start"; id: string; model: string; subagentId?: string; request?: LlmRequestSnapshot }
   | { type: "assistant_message"; id: string; message: AssistantMessage; subagentId?: string }
   | { type: "tool_start"; id: string; name: string; args: unknown; subagentId?: string }

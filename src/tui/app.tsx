@@ -5,7 +5,7 @@ import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show } f
 import { IDLE_STATUS_HINT, type SessionController, type SessionState, type Turn } from "./controller.js";
 import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
-import { useSpinnerClock } from "./spinner.js";
+import { spinnerFrame, useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
 import { ApprovalBar, formatContextWindowLabel, formatModelPricingLabel, formatSessionCost, Header, QuestionBar, TodoSidebar, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
@@ -340,6 +340,19 @@ export function App(props: {
     const hover = toolExpand.getHoverFooterHint();
     if (hover && showHoverFooter()) return hover;
     return state().statusHint;
+  });
+
+  // Ticks every spinner frame (80ms) so the footer keeps visibly moving even
+  // during long silent stretches — e.g. a model generating a large `write` tool
+  // call streams no usable increment, so this is the only sign of life.
+  const runningElapsedLabel = createMemo(() => {
+    spinnerFrame();
+    const startedAt = state().turnStartedAt;
+    if (state().phase !== "running" || startedAt === null) return null;
+    const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m${String(s).padStart(2, "0")}s` : `${seconds}s`;
   });
 
   const performPaste = async () => {
@@ -2505,7 +2518,15 @@ export function App(props: {
             onSubmit={() => void handleSubmit(inputRef?.value ?? "")}
           />
         </box>
-        <text fg={theme.muted}>{footerHint()}</text>
+        <box flexDirection="row">
+          <Show when={state().phase === "running"}>
+            <text fg={theme.toolRunning}>{spinnerFrame()} </text>
+            <Show when={runningElapsedLabel()}>
+              <text fg={theme.muted}>{runningElapsedLabel()} · </text>
+            </Show>
+          </Show>
+          <text fg={theme.muted}>{footerHint()}</text>
+        </box>
       </box>
     </box>
     </ToolExpandProvider>

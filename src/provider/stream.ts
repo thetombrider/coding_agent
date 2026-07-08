@@ -73,6 +73,7 @@ export const streamAssistant: StreamAssistantFn = async (
     string,
     { id: string; name: string; arguments: string }
   >();
+  const toolInputProgress = new Map<string, { name: string; chars: number }>();
 
   const aiMessages = toAiMessages(messages);
   provider.markCacheBreakpoints?.(aiMessages, options.model);
@@ -113,6 +114,23 @@ export const streamAssistant: StreamAssistantFn = async (
             id: part.toolCallId,
             name: part.toolName,
             argumentsDelta: entry.arguments,
+          });
+          break;
+        }
+        case "tool-input-start": {
+          toolInputProgress.set(part.id, { name: part.toolName, chars: 0 });
+          emit({ type: "tool_input_start", id: part.id, name: part.toolName });
+          break;
+        }
+        case "tool-input-delta": {
+          const progress = toolInputProgress.get(part.id);
+          if (!progress) break;
+          progress.chars += part.delta.length;
+          emit({
+            type: "tool_input_delta",
+            id: part.id,
+            name: progress.name,
+            chars: progress.chars,
           });
           break;
         }

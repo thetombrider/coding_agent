@@ -26,6 +26,14 @@ export type EditArgs = z.infer<typeof schema>;
 
 type PlannedEdit = { start: number; end: number; newText: string };
 
+/**
+ * `createTwoFilesPatch` is synchronous Myers diffing on the same event loop that
+ * drives the TUI's render — on a large, heavily-rewritten file it can block for
+ * seconds. Above this combined size, skip the patch and report a plain summary
+ * instead (matches the 256 KiB bound used for read/command output elsewhere).
+ */
+const MAX_DIFF_INPUT_BYTES = 256 * 1024;
+
 export function applyExactEdits(original: string, edits: EditArgs["edits"]): string {
   return applyFuzzyEdits(original, edits);
 }
@@ -69,9 +77,16 @@ export const editTool: Tool<EditArgs> = {
     const original = await ctx.workspace.readFile(fullPath);
     try {
       const updated = applyExactEdits(original, edits);
-      const patch = createTwoFilesPatch(path, path, original, updated, "", "");
+      const summary = `Updated ${path} (${edits.length} edit(s))`;
+      const withinDiffBudget = original.length + updated.length <= MAX_DIFF_INPUT_BYTES;
+      const patch = withinDiffBudget
+        ? createTwoFilesPatch(path, path, original, updated, "", "")
+        : "";
       await ctx.workspace.writeFile(fullPath, updated);
-      return { output: patch || `Updated ${path} (${edits.length} edit(s))` };
+      return {
+        output: patch
+          || (withinDiffBudget ? summary : `${summary} — file too large to diff`),
+      };
     } catch (err) {
       if (err instanceof EditMismatchError) {
         return { output: formatEditMismatchError(err.details), isError: true };
