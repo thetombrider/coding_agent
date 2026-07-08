@@ -1,8 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ModelMessage } from "ai";
-import { collectStreamEvents, toAiMessages } from "./stream.js";
+import { collectStreamEvents, streamAssistant, toAiMessages } from "./stream.js";
 import { createFauxProvider } from "./faux.js";
 import type { Message } from "../types.js";
+import type { StreamEvent } from "./types.js";
+
+vi.mock("./registry.js", () => ({
+  resolveActiveProvider: () => ({
+    id: "faux",
+    languageModel: () => ({}),
+  }),
+}));
+
+vi.mock("ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ai")>();
+  return {
+    ...actual,
+    streamText: vi.fn(() => ({
+      fullStream: (async function* () {
+        yield { type: "tool-input-start", id: "call_1", toolName: "write" };
+        yield { type: "tool-input-delta", id: "call_1", delta: '{"path":"a.ts",' };
+        yield { type: "tool-input-delta", id: "call_1", delta: '"content":"hello"}' };
+        yield {
+          type: "tool-call",
+          toolCallId: "call_1",
+          toolName: "write",
+          input: { path: "a.ts", content: "hello" },
+        };
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+      finishReason: Promise.resolve("tool-calls"),
+    })),
+  };
+});
 
 describe("toAiMessages", () => {
   it("converts a plain user message to a string-content message", () => {
@@ -152,5 +182,37 @@ describe("collectStreamEvents", () => {
 
     expect(events.map((e) => e.type)).toEqual(["text_delta", "done"]);
     expect(message.stopReason).toBe("stop");
+  });
+});
+
+describe("streamAssistant tool-input streaming", () => {
+  it("emits tool_input_start then a running char count on each tool_input_delta", async () => {
+    const delta1 = '{"path":"a.ts",';
+    const delta2 = '"content":"hello"}';
+    const messages: Message[] = [{ role: "user", content: [{ type: "text", text: "hi" }] }];
+    const events: StreamEvent[] = [];
+
+    await streamAssistant(messages, { model: "faux:test" }, (e) => events.push(e));
+
+    expect(events.map((e) => e.type)).toEqual([
+      "tool_input_start",
+      "tool_input_delta",
+      "tool_input_delta",
+      "tool_call_delta",
+      "done",
+    ]);
+    expect(events[0]).toMatchObject({ type: "tool_input_start", id: "call_1", name: "write" });
+    expect(events[1]).toMatchObject({
+      type: "tool_input_delta",
+      id: "call_1",
+      name: "write",
+      chars: delta1.length,
+    });
+    expect(events[2]).toMatchObject({
+      type: "tool_input_delta",
+      id: "call_1",
+      name: "write",
+      chars: delta1.length + delta2.length,
+    });
   });
 });

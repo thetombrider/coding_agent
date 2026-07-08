@@ -351,6 +351,62 @@ describe("createSessionController", () => {
     }
   });
 
+  it("surfaces tool_input_start/tool_input_delta as a live footer progress hint", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("write a big file");
+
+    controller.handleEvent({ type: "tool_input_start", id: "tc1", name: "write" });
+    expect(controller.getState().statusHint).toBe("Writing…");
+
+    controller.handleEvent({ type: "tool_input_delta", id: "tc1", name: "write", chars: 200 });
+    expect(controller.getState().statusHint).toBe("Writing… (200 chars so far)");
+
+    controller.handleEvent({ type: "tool_input_delta", id: "tc1", name: "write", chars: 2048 });
+    expect(controller.getState().statusHint).toBe("Writing… (2.0 KB so far)");
+  });
+
+  it("prefixes tool_input progress with the subagent name and skips it while a modal is pending", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("explore");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "task1",
+      name: "task",
+      args: { description: "scan repo", prompt: "list files", agent: "explore" },
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan repo",
+      agent: "explore",
+    });
+    controller.handleEvent({
+      type: "tool_input_delta",
+      id: "write1",
+      name: "write",
+      chars: 500,
+      subagentId: "sub1",
+    });
+    expect(controller.getState().statusHint).toBe("Subagent (explore): Writing… (500 chars so far)");
+
+    controller.handleEvent({
+      type: "approval_required",
+      id: "write1",
+      name: "write",
+      args: { path: "a.txt" },
+    });
+    const hintDuringApproval = controller.getState().statusHint;
+    controller.handleEvent({
+      type: "tool_input_delta",
+      id: "write1",
+      name: "write",
+      chars: 900,
+      subagentId: "sub1",
+    });
+    expect(controller.getState().statusHint).toBe(hintDuringApproval);
+  });
+
   it("mirrors subagent nesting into currentBlocks while the turn is live", () => {
     const controller = createSessionController(meta);
     controller.beginTurn("explore");

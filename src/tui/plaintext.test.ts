@@ -21,6 +21,7 @@ const baseState = (): SessionState => ({
   pendingQuestion: null,
   input: "",
   statusHint: "",
+  turnStartedAt: null,
   todos: [],
   activeSkills: [],
 });
