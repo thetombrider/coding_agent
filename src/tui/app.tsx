@@ -250,9 +250,10 @@ export function App(props: {
   useSpinnerClock();
 
   // Reset the highlighted option whenever a new question is posed. Keyed on the
-  // question text via a memo so option navigation (which doesn't change the
-  // text) doesn't get clobbered by the per-keystroke state churn.
-  const questionKey = createMemo(() => state().pendingQuestion?.question ?? null);
+  // question's id (stable per `requestQuestion` call, even across a queue of
+  // back-to-back questions with identical text) so option navigation — which
+  // doesn't change the id — doesn't get clobbered by per-keystroke state churn.
+  const questionKey = createMemo(() => state().pendingQuestion?.id ?? null);
   createEffect(() => {
     questionKey();
     setQuestionIndex(0);
