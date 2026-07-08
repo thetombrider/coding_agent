@@ -276,6 +276,8 @@ export function toolSummary(
       return clip(record.name + file);
     }
 
+    if (name === "askuser" && typeof record.question === "string") return clip(record.question);
+
     if (name === "skill_write" && typeof record.action === "string" && typeof record.name === "string") {
       const scope = typeof record.scope === "string" ? ` (${record.scope})` : "";
       return clip(`${record.action} ${record.name}${scope}`);
@@ -588,13 +590,78 @@ function SkillBlock(props: { entry: ToolEntry; expandKey: string }) {
   );
 }
 
+/** Leaves a "what was asked / what they answered" record after an `askuser`
+ *  call resolves — otherwise the question vanishes with the modal and the
+ *  history reads as if nothing happened. */
+function AskUserBlock(props: { entry: ToolEntry; expandKey: string }) {
+  const entry = () => props.entry;
+  const toolExpand = useToolExpand();
+  const running = () => entry().status === "running";
+  const isError = () => entry().status === "error";
+
+  const question = createMemo(() => {
+    const args = entry().args;
+    if (args && typeof args === "object") {
+      const q = (args as Record<string, unknown>).question;
+      if (typeof q === "string") return q;
+    }
+    return "";
+  });
+
+  const answer = createMemo(() => {
+    const output = entry().output ?? "";
+    const match = output.match(/^The user answered: ([\s\S]*)$/);
+    return match ? match[1]! : output;
+  });
+
+  const hasAnswer = createMemo(() => !running() && !!entry().output);
+
+  onMount(() => {
+    toolExpand?.registerCopyTarget(props.expandKey, {
+      label: "askuser",
+      getOutput: () => entry().output,
+      isExpanded: () => true,
+    });
+  });
+  onCleanup(() => {
+    toolExpand?.registerCopyTarget(props.expandKey, null);
+  });
+
+  const glyph = () => (running() ? spinnerFrame() : isError() ? "×" : "▸");
+
+  return (
+    <box
+      flexDirection="column"
+      marginLeft={1}
+      onMouseOver={() => toolExpand?.setHovered(props.expandKey)}
+    >
+      <box flexDirection="row">
+        <text selectable={false} fg={running() ? theme.toolRunning : isError() ? theme.toolError : theme.accent} attributes={running() ? BOLD : 0}>
+          {glyph()} ask
+        </text>
+        <text selectable={false} fg={theme.secondary} wrapMode="word" flexGrow={1}>  {question()}</text>
+      </box>
+      <Show when={hasAnswer()}>
+        <text selectable {...surfaceSelection(theme.bg)} fg={isError() ? theme.toolError : theme.muted} wrapMode="word" flexGrow={1}>  → {answer()}</text>
+      </Show>
+    </box>
+  );
+}
+
 function ToolBlock(props: { entry: ToolEntry; expandKeyPrefix: string }) {
   const expandKey = () => `${props.expandKeyPrefix}/${props.entry.id}`;
   return (
     <box flexDirection="column">
       <Show
         when={props.entry.name === "skill_use"}
-        fallback={<ToolLine entry={props.entry} expandKey={expandKey()} />}
+        fallback={
+          <Show
+            when={props.entry.name === "askuser"}
+            fallback={<ToolLine entry={props.entry} expandKey={expandKey()} />}
+          >
+            <AskUserBlock entry={props.entry} expandKey={expandKey()} />
+          </Show>
+        }
       >
         <SkillBlock entry={props.entry} expandKey={expandKey()} />
       </Show>

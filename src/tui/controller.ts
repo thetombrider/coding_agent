@@ -35,6 +35,10 @@ export interface PendingApproval {
 
 /** A question the agent asked the user, awaiting a choice via `askuser`. */
 export interface PendingQuestion {
+  /** Unique per `requestQuestion` call — lets the UI reset per-question state
+   *  (e.g. the highlighted option) even if two consecutive questions share
+   *  identical text. */
+  id: string;
   question: string;
   options: string[];
 }
@@ -277,7 +281,17 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
   const listeners = new Set<SessionListener>();
   let approvalResolver: ((approved: boolean) => void) | null = null;
-  let questionResolver: ((answer: string | null) => void) | null = null;
+  // Tool calls within one turn run concurrently (see executeToolsParallel), so
+  // more than one `askuser` call can be in flight at once. A single resolver
+  // slot would let a second call's requestQuestion clobber the first's before
+  // it resolves, orphaning that promise forever and hanging the turn. Queue
+  // them instead and show one at a time.
+  const questionQueue: Array<{
+    id: string;
+    question: string;
+    options: string[];
+    resolve: (answer: string | null) => void;
+  }> = [];
 
   // Defer listener calls so Solid (and other UI runtimes) never receive
   // synchronous writes while they are mid-render — that triggers
@@ -357,6 +371,24 @@ export function createSessionController(meta: SessionMeta): SessionController {
     setCurrentTools(next);
   };
 
+  /** Show the next queued question, or clear the modal if none remain. */
+  const advanceQuestionQueue = () => {
+    const next = questionQueue[0];
+    if (next) {
+      update({
+        phase: "question",
+        pendingQuestion: { id: next.id, question: next.question, options: next.options },
+        statusHint: "↑↓ choose · Enter answer · type a custom reply · Esc skip",
+      });
+    } else {
+      update({
+        pendingQuestion: null,
+        phase: "running",
+        statusHint: RUNNING_HINT,
+      });
+    }
+  };
+
   return {
     getState: () => state,
 
@@ -391,6 +423,10 @@ export function createSessionController(meta: SessionMeta): SessionController {
         ),
         state.currentTools,
       );
+      // Defensive: a turn should only finalize once every askuser call has
+      // resolved, but clear any stragglers so a stale entry can't block
+      // future questions from ever reaching the front of the queue.
+      questionQueue.length = 0;
       update({
         completedTurns: [
           ...state.completedTurns,
@@ -416,6 +452,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     },
 
     clearHistory() {
+      questionQueue.length = 0;
       update({
         completedTurns: [],
         currentUserText: "",
@@ -433,6 +470,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
     },
 
     loadHistory(turns) {
+      questionQueue.length = 0;
       update({
         completedTurns: turns,
         currentUserText: "",
@@ -718,33 +756,36 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
     requestQuestion(question, options) {
       return new Promise<string | null>((resolve) => {
-        questionResolver = resolve;
-        update({
-          phase: "question",
-          pendingQuestion: { question, options },
-          statusHint: "↑↓ choose · Enter answer · type a custom reply · Esc skip",
-        });
+        const id = randomUUID();
+        questionQueue.push({ id, question, options, resolve });
+        // Only the head of the queue drives the UI — a question pushed while
+        // another is already showing waits its turn.
+        if (questionQueue.length === 1) {
+          update({
+            phase: "question",
+            pendingQuestion: { id, question, options },
+            statusHint: "↑↓ choose · Enter answer · type a custom reply · Esc skip",
+          });
+        }
       });
     },
 
     respondQuestion(answer) {
-      if (!questionResolver) return;
-      questionResolver(answer);
-      questionResolver = null;
-      update({
-        pendingQuestion: null,
-        phase: "running",
-        statusHint: RUNNING_HINT,
-      });
+      const current = questionQueue.shift();
+      if (!current) return;
+      current.resolve(answer);
+      advanceQuestionQueue();
     },
 
     rejectPendingQuestion() {
-      // Gate on the resolver, not the phase: a sibling tool's tool_start can
+      // Gate on the queue, not the phase: a sibling tool's tool_start can
       // flip the phase off "question" while askuser is still awaiting, and a
       // stop/skip must still resolve it rather than leave the loop blocked.
-      if (!questionResolver) return;
-      questionResolver(null);
-      questionResolver = null;
+      // Stopping the turn abandons every queued question, not just the one
+      // on screen.
+      if (questionQueue.length === 0) return;
+      const pending = questionQueue.splice(0, questionQueue.length);
+      for (const item of pending) item.resolve(null);
       update({
         pendingQuestion: null,
         phase: "running",

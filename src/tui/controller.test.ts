@@ -94,12 +94,56 @@ describe("createSessionController", () => {
     const pending = controller.requestQuestion("Which DB?", ["Postgres", "SQLite"]);
     expect(controller.getState().phase).toBe("question");
     expect(controller.getState().pendingQuestion).toEqual({
+      id: expect.any(String),
       question: "Which DB?",
       options: ["Postgres", "SQLite"],
     });
 
     controller.respondQuestion("SQLite");
     await expect(pending).resolves.toBe("SQLite");
+    expect(controller.getState().pendingQuestion).toBeNull();
+    expect(controller.getState().phase).toBe("running");
+  });
+
+  it("queues a second concurrent question instead of clobbering the first", async () => {
+    const controller = createSessionController(meta);
+
+    // Two `askuser` tool calls in the same parallel batch both call
+    // requestQuestion before either resolves.
+    const first = controller.requestQuestion("Which DB?", ["Postgres", "SQLite"]);
+    const second = controller.requestQuestion("Which cache?", ["Redis", "Memcached"]);
+
+    // Only the first question drives the UI; the second waits its turn
+    // instead of overwriting pendingQuestion and orphaning `first`.
+    expect(controller.getState().pendingQuestion).toMatchObject({
+      question: "Which DB?",
+      options: ["Postgres", "SQLite"],
+    });
+
+    controller.respondQuestion("SQLite");
+    await expect(first).resolves.toBe("SQLite");
+
+    expect(controller.getState().phase).toBe("question");
+    expect(controller.getState().pendingQuestion).toMatchObject({
+      question: "Which cache?",
+      options: ["Redis", "Memcached"],
+    });
+
+    controller.respondQuestion("Redis");
+    await expect(second).resolves.toBe("Redis");
+    expect(controller.getState().pendingQuestion).toBeNull();
+    expect(controller.getState().phase).toBe("running");
+  });
+
+  it("rejectPendingQuestion abandons every queued question, not just the visible one", async () => {
+    const controller = createSessionController(meta);
+    const first = controller.requestQuestion("Which DB?", ["Postgres", "SQLite"]);
+    const second = controller.requestQuestion("Which cache?", ["Redis", "Memcached"]);
+
+    controller.rejectPendingQuestion();
+
+    await expect(first).resolves.toBeNull();
+    await expect(second).resolves.toBeNull();
     expect(controller.getState().pendingQuestion).toBeNull();
     expect(controller.getState().phase).toBe("running");
   });
@@ -140,6 +184,7 @@ describe("createSessionController", () => {
 
     expect(controller.getState().phase).toBe("question");
     expect(controller.getState().pendingQuestion).toEqual({
+      id: expect.any(String),
       question: "Pick one",
       options: ["A", "B"],
     });

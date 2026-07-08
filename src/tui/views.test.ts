@@ -174,6 +174,14 @@ describe("toolSummary — skill tools", () => {
   });
 });
 
+describe("toolSummary — askuser", () => {
+  it("shows the question text", () => {
+    expect(toolSummary("askuser", { question: "Which DB?", options: ["Postgres", "SQLite"] })).toBe(
+      "Which DB?",
+    );
+  });
+});
+
 describe("shouldWrapToolSummary", () => {
   it("keeps short summaries on the header row", () => {
     expect(shouldWrapToolSummary("src/hooks/registry.ts")).toBe(false);
