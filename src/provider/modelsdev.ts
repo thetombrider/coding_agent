@@ -54,6 +54,7 @@ export const MODELSDEV_PROVIDER_ID_MAP: Readonly<Record<string, string>> = {
   openrouter: "openrouter",
   openai: "openai",
   regolo: "regolo-ai",
+  cerebras: "cerebras",
   anthropic: "anthropic",
   "opencode-go": "opencode-go",
   "opencode-zen": "opencode",

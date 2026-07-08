@@ -57,9 +57,11 @@ describe("provider registry", () => {
     expect(listProviders().some((p) => p.id === "openrouter")).toBe(true);
     expect(listProviders().some((p) => p.id === "openai")).toBe(true);
     expect(listProviders().some((p) => p.id === "regolo")).toBe(true);
+    expect(listProviders().some((p) => p.id === "cerebras")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openrouter")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openai")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "regolo")).toBe(true);
+    expect(metadataProviders().some((m) => m.id === "cerebras")).toBe(true);
   });
 
   it("resolves the active provider from config", async () => {
@@ -120,6 +122,14 @@ describe("provider registry", () => {
     expect(getProvider("regolo")?.isConfigured()).toBe(true);
   });
 
+  it("reports Cerebras configured when the config key is set", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ provider: { cerebras: { apiKey: "sk-cerebras-test" } } });
+    vi.resetModules();
+    const { getProvider } = await import("./registry.js");
+    expect(getProvider("cerebras")?.isConfigured()).toBe(true);
+  });
+
   it("reports OpenAI configured when the config key is set", async () => {
     const { saveConfig } = await import("../config/config.js");
     saveConfig({ provider: { openai: { apiKey: "sk-openai-test" } } });
@@ -147,6 +157,14 @@ describe("provider registry", () => {
     const { resolvePickerModels } = await import("./registry.js");
     const { REGOLO_PICKER_MODELS } = await import("./providers/regolo.js");
     expect(resolvePickerModels()).toEqual(REGOLO_PICKER_MODELS);
+  });
+
+  it("returns cerebras picker models when cerebras is active", async () => {
+    const { saveConfig } = await import("../config/config.js");
+    saveConfig({ provider: { active: "cerebras" } });
+    const { resolvePickerModels } = await import("./registry.js");
+    const { CEREBRAS_PICKER_MODELS } = await import("./providers/cerebras.js");
+    expect(resolvePickerModels()).toEqual(CEREBRAS_PICKER_MODELS);
   });
 
   it("returns openai picker models when openai is active", async () => {

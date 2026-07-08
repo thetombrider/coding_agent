@@ -52,6 +52,7 @@ export interface Config {
     vercel?: { apiKey?: string };
     cloudflare?: { apiKey?: string; accountId?: string };
     regolo?: { apiKey?: string };
+    cerebras?: { apiKey?: string };
     opencode?: { apiKey?: string };
   };
   models: {
@@ -444,6 +445,11 @@ export function hasOpenRouterApiKey(): boolean {
 /** True when a Regolo API key is set in config. */
 export function hasRegoloApiKey(): boolean {
   return Boolean(loadConfig().provider.regolo?.apiKey?.trim());
+}
+
+/** True when a Cerebras API key is set in config. */
+export function hasCerebrasApiKey(): boolean {
+  return Boolean(loadConfig().provider.cerebras?.apiKey?.trim());
 }
 
 /** True when an OpenAI API key is set in config. */

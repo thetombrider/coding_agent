@@ -5,6 +5,7 @@ import { opencodeGoProvider, opencodeZenProvider } from "./providers/opencode.js
 import { openRouterProvider } from "./providers/openrouter.js";
 import { openaiProvider } from "./providers/openai.js";
 import { regoloProvider } from "./providers/regolo.js";
+import { cerebrasProvider } from "./providers/cerebras.js";
 import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
 export const DEFAULT_PROVIDER_ID = "openrouter";
 
@@ -127,6 +128,7 @@ export function providerSummaries(): ProviderSummary[] {
 registerProvider(openRouterProvider);
 registerProvider(openaiProvider);
 registerProvider(regoloProvider);
+registerProvider(cerebrasProvider);
 registerProvider(anthropicProvider);
 registerProvider(opencodeGoProvider);
 registerProvider(opencodeZenProvider);
