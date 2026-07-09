@@ -23,12 +23,37 @@ export interface LlmRequestSnapshot {
   system?: string;
   messages: Message[];
   tools?: readonly ToolSchemaRef[];
+  /** Ratel pre-filter metadata when `ratel.enabled` (issue #295 / ratel-hooks.md). */
+  ratel?: RatelResolutionSnapshot;
+  /**
+   * A/B arm tag emitted on every LLM span — present even when `ratel` is absent
+   * (e.g. control arm). Consumers should prefer `ratel.featureFlag` when ratel is
+   * present; fall back to this field for control-arm spans.
+   */
+  featureFlag?: string;
+}
+
+/** Emitted on `llm_start.request.ratel` when the Ratel pre-filter runs (replace mode). */
+export interface RatelResolutionSnapshot {
+  catalogSize: number;
+  injectedCount: number;
+  query: string;
+  topK: number;
+  hitCount: number;
+  topHitScore?: number;
+  replaceMode: true;
+  gatewayOrigin: "direct";
+  featureFlag: "tool_pool=ratel";
+  skillCatalogSize: number;
+  injectedToolNames: readonly string[];
 }
 
 export type AgentEvent =
   | { type: "turn_start"; id: string; firstUserText?: string }
   | { type: "text_delta"; text: string; subagentId?: string }
   | { type: "reasoning_delta"; text: string; subagentId?: string }
+  | { type: "tool_input_start"; id: string; name: string; subagentId?: string }
+  | { type: "tool_input_delta"; id: string; name: string; chars: number; subagentId?: string }
   | { type: "llm_start"; id: string; model: string; subagentId?: string; request?: LlmRequestSnapshot }
   | { type: "assistant_message"; id: string; message: AssistantMessage; subagentId?: string }
   | { type: "tool_start"; id: string; name: string; args: unknown; subagentId?: string }

@@ -155,6 +155,14 @@ describe("API key onboarding", () => {
     expect(loadConfig().provider.regolo?.apiKey).toBe("sk-regolo");
   });
 
+  it("persists an OpenAI key to config.json", async () => {
+    const { saveConfig, hasOpenAiApiKey, loadConfig } = await import("./config.js");
+    saveConfig({ provider: { openai: { apiKey: "sk-openai" } } });
+
+    expect(hasOpenAiApiKey()).toBe(true);
+    expect(loadConfig().provider.openai?.apiKey).toBe("sk-openai");
+  });
+
   it("saveProviderConfig writes provider-specific fields", async () => {
     const { saveProviderConfig, loadConfig } = await import("./config.js");
     saveProviderConfig("openrouter", { apiKey: "  sk-trimmed  " });

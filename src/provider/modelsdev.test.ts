@@ -18,6 +18,14 @@ const SAMPLE_CATALOG = {
       "no-context-model": { id: "no-context-model", limit: { context: 0, output: 16384 } },
     },
   },
+  openai: {
+    id: "openai",
+    name: "OpenAI",
+    models: {
+      "gpt-5.5": { id: "gpt-5.5", limit: { context: 1050000, output: 128000 } },
+      "gpt-5.4-mini": { id: "gpt-5.4-mini", limit: { context: 400000, output: 128000 } },
+    },
+  },
   opencode: {
     id: "opencode",
     name: "OpenCode Zen",
@@ -114,6 +122,8 @@ describe("models.dev helper", () => {
       const fetchImpl = mockFetch({ "/api.json": { body: SAMPLE_CATALOG } });
       await expect(lookupModelsDevContextWindow("regolo", "qwen3-coder-next", fetchImpl))
         .resolves.toBe(262144);
+      await expect(lookupModelsDevContextWindow("openai", "gpt-5.5", fetchImpl))
+        .resolves.toBe(1_050_000);
       await expect(lookupModelsDevContextWindow("opencode-zen", "claude-sonnet-4-5", fetchImpl))
         .resolves.toBe(1_000_000);
     });
@@ -163,6 +173,7 @@ describe("models.dev helper", () => {
 
     it("passes through matching ids", () => {
       expect(MODELSDEV_PROVIDER_ID_MAP.openrouter).toBe("openrouter");
+      expect(MODELSDEV_PROVIDER_ID_MAP.openai).toBe("openai");
       expect(MODELSDEV_PROVIDER_ID_MAP.anthropic).toBe("anthropic");
       expect(MODELSDEV_PROVIDER_ID_MAP["opencode-go"]).toBe("opencode-go");
     });

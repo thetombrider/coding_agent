@@ -22,6 +22,8 @@ export type LlmCallRecorder = (call: {
 /** Per-call cost + token breakdown produced by `calcCost`, tagged with its source. */
 export interface TurnCost {
   model: string;
+  /** Provider id (e.g. "anthropic", "openrouter") when known. */
+  provider?: string;
   usage: Usage;
   /** USD cost for this call, or `null` when no pricing is known for the model. */
   costUsd: number | null;
@@ -87,5 +89,12 @@ export type MetricEvent =
       durationMs: number;
       isError?: boolean;
       subagentId?: string;
+    }
+  | {
+      type: "ratel";
+      sessionId: string;
+      ts: string;
+      name: string;
+      attributes: Record<string, string | number | boolean>;
     }
   | { type: "session"; sessionId: string; ts: string; summary: SessionCostSummary };

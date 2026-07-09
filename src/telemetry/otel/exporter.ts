@@ -49,7 +49,10 @@ import {
   toolOutputAttributes,
   toolStartAttributes,
   traceName,
+  ratelResolutionAttributes,
+  ratelGatewayToolAttributes,
 } from "./semconv.js";
+import { isRatelGatewayTool } from "../../ratel/telemetry.js";
 
 /** Tool name that spawns a subagent — its in-flight span parents the subagent. */
 const TASK_TOOL_NAME = "task";
@@ -285,6 +288,9 @@ class SpanConsumer implements OtelSpanConsumer {
           kind: rt.api.SpanKind.CLIENT,
           attributes: {
             ...llmRequestAttributes({ requestModel: model, providerId: this.opts.providerId }),
+            ...(request?.ratel ? ratelResolutionAttributes(request.ratel, this.cfg.captureContent) : {}),
+            // Control arm: emit feature_flag directly when no ratel snapshot present.
+            ...(request?.featureFlag && !request?.ratel ? { "feature_flag": request.featureFlag } : {}),
             ...contentAttrs,
           },
         },
@@ -325,7 +331,11 @@ class SpanConsumer implements OtelSpanConsumer {
         {
           startTime,
           kind: rt.api.SpanKind.INTERNAL,
-          attributes: { ...toolStartAttributes({ name, callId: id }), ...contentAttrs },
+          attributes: {
+            ...toolStartAttributes({ name, callId: id }),
+            ...(isRatelGatewayTool(name) ? ratelGatewayToolAttributes() : {}),
+            ...contentAttrs,
+          },
         },
         this.childParentContext(rt, subagentId),
       );

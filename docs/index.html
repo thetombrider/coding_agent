@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orin — a coding agent that lives in your terminal</title>
+<meta name="description" content="Orin is a terminal coding agent: it reads, edits, and runs your code on its own, pausing for your OK before anything risky. BM25 tool pre-filtering, E2B sandboxing, shadow-git undo, native OTLP.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23171412'/%3E%3Ctext x='32' y='44' font-family='monospace' font-size='36' font-weight='bold' fill='%23D4CCC0' text-anchor='middle'%3EO%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="wordmark" href="#top">ORIN</a>
+  <nav>
+    <a href="#why">Why Orin</a>
+    <a href="#compare">Compare</a>
+    <a href="#screens">Screens</a>
+    <a href="#install">Install</a>
+    <a class="gh-link" href="https://github.com/thetombrider/coding_agent" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+</header>
+
+<main>
+
+<section id="top" class="hero">
+  <pre class="logo" aria-label="ORIN">  ██████╗  ██████╗  ██╗ ███╗   ██╗
+ ██╔═══██╗ ██╔══██╗ ██║ ████╗  ██║
+ ██║   ██║ ██████╔╝ ██║ ██╔██╗ ██║
+ ██║   ██║ ██╔══██╗ ██║ ██║╚██╗██║
+ ╚██████╔╝ ██║  ██║ ██║ ██║ ╚████║
+  ╚═════╝  ╚═╝  ╚═╝ ╚═╝ ╚═╝  ╚═══╝</pre>
+
+  <p class="tagline">A coding agent that lives in your terminal.</p>
+  <p class="subtitle">
+    Give it a prompt and it reads, edits, and runs your code on its own —
+    pausing for your OK before anything risky. Safe by default, cheap by
+    design: the expensive model thinks, a cheap one does the grunt work.
+  </p>
+
+  <div class="cta-row">
+    <a class="btn btn-primary" href="#install">Get started</a>
+    <a class="btn btn-ghost" href="https://github.com/thetombrider/coding_agent" target="_blank" rel="noopener">View on GitHub</a>
+  </div>
+
+  <div class="install-snippet">
+    <code>git clone https://github.com/thetombrider/coding_agent.git &amp;&amp; cd coding_agent &amp;&amp; ./install.sh</code>
+    <button class="copy-btn" data-copy="git clone https://github.com/thetombrider/coding_agent.git && cd coding_agent && ./install.sh" aria-label="Copy install command">Copy</button>
+  </div>
+
+  <p class="hero-note">No API key? Try it fully offline first — <code>orin --faux</code></p>
+</section>
+
+<img class="hero-shot" src="media/welcome.png" alt="Orin's interactive terminal UI welcome screen" loading="lazy">
+
+<section id="why" class="features">
+  <h2>Where Orin wins</h2>
+  <p class="section-lede">
+    Compared to the closest alternatives — <a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> (SST),
+    <a href="https://pi.dev" target="_blank" rel="noopener">pi.dev</a>, and
+    <a href="https://claude.ai/code" target="_blank" rel="noopener">Claude Code</a> — Orin makes different
+    trade-offs that pay off in cost, safety, and observability.
+  </p>
+
+  <div class="card-grid">
+    <article class="card">
+      <h3>BM25 tool pre-filtering per turn</h3>
+      <p>Every turn, a BM25 retrieval pass (via <a href="https://ratel.sh" target="_blank" rel="noopener">Ratel</a>)
+      ranks the full tool catalog — including MCP tools and skills — and exposes only what's relevant. The
+      expensive model never sees a bloated catalog. Built-in A/B testing measures the impact in your telemetry.</p>
+    </article>
+    <article class="card">
+      <h3>E2B OS-level sandboxing</h3>
+      <p>Most agents enforce safety through permission rules that still run on your host. Orin's
+      <code>sandbox</code> isolation mode runs subagents in E2B ephemeral cloud VMs — a real isolation
+      boundary for untrusted tasks, not a policy.</p>
+    </article>
+    <article class="card">
+      <h3>Shadow-git <code>/undo</code></h3>
+      <p>Shadow-git snapshots fire before every tool execution — including bash — at the git level. Rollback
+      coverage is broader than competing checkpoint systems, with no known gaps for bash-modified files.</p>
+    </article>
+    <article class="card">
+      <h3>Two-model cost split, at the tool level</h3>
+      <p><code>delegate_read</code> hands file reads, grep, find, and ls to a cheap model in an isolated
+      call — no write tools, just a distilled summary back. It's wired into the tool set, not a config
+      option, so it happens automatically.</p>
+    </article>
+    <article class="card">
+      <h3>Native OTLP, no plugins</h3>
+      <p>Every turn exports a trace with child LLM spans (model, tokens, cost), tool spans, and subagent
+      spans — readable in Langfuse, Grafana Tempo, Arize Phoenix, or any OTLP backend. Local metrics are
+      always on; content capture stays opt-in.</p>
+    </article>
+    <article class="card">
+      <h3>Offline demo + EU provider</h3>
+      <p><code>orin --faux</code> runs the full TUI with scripted responses — no API key, no network. Orin
+      also ships Regolo: EU-hosted, OpenAI-compatible, and the only native EU provider option for
+      GDPR-sensitive workloads.</p>
+    </article>
+  </div>
+</section>
+
+<section id="compare" class="comparison">
+  <h2>At a glance</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th></th><th>Orin</th><th>opencode</th><th>pi.dev</th><th>Claude Code</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Per-turn BM25 tool ranking</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td><td class="no">–</td></tr>
+        <tr><td>OS-level sandbox (E2B)</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td><td class="no">–</td></tr>
+        <tr><td><code>/undo</code> incl. bash-modified files</td><td class="yes">✓</td><td class="partial">±</td><td class="partial">±</td><td class="partial">±</td></tr>
+        <tr><td>Two-model cost split</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td><td class="yes">✓</td></tr>
+        <tr><td>Native OTLP (no plugin)</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td><td class="yes">✓</td></tr>
+        <tr><td>Parallel subagents (worktree-isolated)</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td><td class="yes">✓</td></tr>
+        <tr><td>MCP server support</td><td class="yes">✓</td><td class="yes">✓</td><td class="partial">±</td><td class="yes">✓</td></tr>
+        <tr><td>Offline demo mode</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td><td class="no">–</td></tr>
+        <tr><td>EU provider (Regolo)</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td><td class="no">–</td></tr>
+        <tr><td>Local / self-hosted models</td><td class="no">–</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">–</td></tr>
+        <tr><td>LSP diagnostics fed back to model</td><td class="no">–</td><td class="yes">✓</td><td class="no">–</td><td class="no">–</td></tr>
+        <tr><td>IDE extensions</td><td class="no">–</td><td class="yes">✓</td><td class="no">–</td><td class="yes">✓</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="table-footnote">± = partial or extension-only</p>
+</section>
+
+<section id="screens" class="screenshots">
+  <h2>See it in action</h2>
+  <div class="shot-grid">
+    <figure>
+      <img src="media/session.png" alt="Orin handling a task: a read tool call followed by the answer" loading="lazy">
+      <figcaption>One turn of the loop: Orin calls the <code>read</code> tool, then answers — streamed live.</figcaption>
+    </figure>
+    <figure>
+      <img src="media/command-palette.png" alt="Orin's slash-command palette" loading="lazy">
+      <figcaption>The command palette — type <code>/</code> for every slash command.</figcaption>
+    </figure>
+    <figure>
+      <img src="media/model-picker.png" alt="Orin's model picker" loading="lazy">
+      <figcaption>Switch provider or model mid-session with <code>/model</code>.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="install" class="quickstart">
+  <h2>Quick start</h2>
+  <pre class="code-block"><code>git clone https://github.com/thetombrider/coding_agent.git
+cd coding_agent
+./install.sh        # installs Bun if needed, installs deps, builds, links `orin`
+orin                 # start the interactive agent</code></pre>
+  <p>Then add a provider key right from the UI — <code>/providers configure openrouter</code> — and you're off.</p>
+
+  <p class="quickstart-alt">Just want to look around first? No key required:</p>
+  <pre class="code-block"><code>orin --faux         # fully offline, scripted demo</code></pre>
+
+  <p class="requirements">
+    <strong>Requirements:</strong> <a href="https://bun.sh" target="_blank" rel="noopener">Bun</a> ≥ 1.1
+    (the TUI uses Bun's FFI and a preload transform — plain <code>node</code> won't work), a real TTY, and an
+    <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter</a> key (or another
+    provider) for real use.
+  </p>
+</section>
+
+</main>
+
+<footer>
+  <div class="footer-row">
+    <span class="wordmark small">ORIN</span>
+    <span class="footer-sep">·</span>
+    <span>MIT License</span>
+    <span class="footer-sep">·</span>
+    <span>Built on <a href="https://bun.sh" target="_blank" rel="noopener">Bun</a>, the
+      <a href="https://sdk.vercel.ai" target="_blank" rel="noopener">Vercel AI SDK</a>, and
+      <a href="https://www.solidjs.com" target="_blank" rel="noopener">SolidJS</a></span>
+  </div>
+  <div class="footer-row">
+    <a href="https://github.com/thetombrider/coding_agent" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/thetombrider/coding_agent/blob/main/SPEC.md" target="_blank" rel="noopener">Spec</a>
+    <a href="https://github.com/thetombrider/coding_agent/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

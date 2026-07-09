@@ -94,12 +94,56 @@ describe("createSessionController", () => {
     const pending = controller.requestQuestion("Which DB?", ["Postgres", "SQLite"]);
     expect(controller.getState().phase).toBe("question");
     expect(controller.getState().pendingQuestion).toEqual({
+      id: expect.any(String),
       question: "Which DB?",
       options: ["Postgres", "SQLite"],
     });
 
     controller.respondQuestion("SQLite");
     await expect(pending).resolves.toBe("SQLite");
+    expect(controller.getState().pendingQuestion).toBeNull();
+    expect(controller.getState().phase).toBe("running");
+  });
+
+  it("queues a second concurrent question instead of clobbering the first", async () => {
+    const controller = createSessionController(meta);
+
+    // Two `askuser` tool calls in the same parallel batch both call
+    // requestQuestion before either resolves.
+    const first = controller.requestQuestion("Which DB?", ["Postgres", "SQLite"]);
+    const second = controller.requestQuestion("Which cache?", ["Redis", "Memcached"]);
+
+    // Only the first question drives the UI; the second waits its turn
+    // instead of overwriting pendingQuestion and orphaning `first`.
+    expect(controller.getState().pendingQuestion).toMatchObject({
+      question: "Which DB?",
+      options: ["Postgres", "SQLite"],
+    });
+
+    controller.respondQuestion("SQLite");
+    await expect(first).resolves.toBe("SQLite");
+
+    expect(controller.getState().phase).toBe("question");
+    expect(controller.getState().pendingQuestion).toMatchObject({
+      question: "Which cache?",
+      options: ["Redis", "Memcached"],
+    });
+
+    controller.respondQuestion("Redis");
+    await expect(second).resolves.toBe("Redis");
+    expect(controller.getState().pendingQuestion).toBeNull();
+    expect(controller.getState().phase).toBe("running");
+  });
+
+  it("rejectPendingQuestion abandons every queued question, not just the visible one", async () => {
+    const controller = createSessionController(meta);
+    const first = controller.requestQuestion("Which DB?", ["Postgres", "SQLite"]);
+    const second = controller.requestQuestion("Which cache?", ["Redis", "Memcached"]);
+
+    controller.rejectPendingQuestion();
+
+    await expect(first).resolves.toBeNull();
+    await expect(second).resolves.toBeNull();
     expect(controller.getState().pendingQuestion).toBeNull();
     expect(controller.getState().phase).toBe("running");
   });
@@ -140,6 +184,7 @@ describe("createSessionController", () => {
 
     expect(controller.getState().phase).toBe("question");
     expect(controller.getState().pendingQuestion).toEqual({
+      id: expect.any(String),
       question: "Pick one",
       options: ["A", "B"],
     });
@@ -351,6 +396,62 @@ describe("createSessionController", () => {
     }
   });
 
+  it("surfaces tool_input_start/tool_input_delta as a live footer progress hint", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("write a big file");
+
+    controller.handleEvent({ type: "tool_input_start", id: "tc1", name: "write" });
+    expect(controller.getState().statusHint).toBe("Writing…");
+
+    controller.handleEvent({ type: "tool_input_delta", id: "tc1", name: "write", chars: 200 });
+    expect(controller.getState().statusHint).toBe("Writing… (200 chars so far)");
+
+    controller.handleEvent({ type: "tool_input_delta", id: "tc1", name: "write", chars: 2048 });
+    expect(controller.getState().statusHint).toBe("Writing… (2.0 KB so far)");
+  });
+
+  it("prefixes tool_input progress with the subagent name and skips it while a modal is pending", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("explore");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "task1",
+      name: "task",
+      args: { description: "scan repo", prompt: "list files", agent: "explore" },
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan repo",
+      agent: "explore",
+    });
+    controller.handleEvent({
+      type: "tool_input_delta",
+      id: "write1",
+      name: "write",
+      chars: 500,
+      subagentId: "sub1",
+    });
+    expect(controller.getState().statusHint).toBe("Subagent (explore): Writing… (500 chars so far)");
+
+    controller.handleEvent({
+      type: "approval_required",
+      id: "write1",
+      name: "write",
+      args: { path: "a.txt" },
+    });
+    const hintDuringApproval = controller.getState().statusHint;
+    controller.handleEvent({
+      type: "tool_input_delta",
+      id: "write1",
+      name: "write",
+      chars: 900,
+      subagentId: "sub1",
+    });
+    expect(controller.getState().statusHint).toBe(hintDuringApproval);
+  });
+
   it("mirrors subagent nesting into currentBlocks while the turn is live", () => {
     const controller = createSessionController(meta);
     controller.beginTurn("explore");
@@ -384,5 +485,52 @@ describe("createSessionController", () => {
       expect(taskBlock.entry.subagent?.tools).toHaveLength(1);
       expect(taskBlock.entry.subagent?.tools[0]?.name).toBe("read");
     }
+  });
+
+  it("does not leak a subagent's internal llm_start/reasoning/text events into the parent turn", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("explore");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "task1",
+      name: "task",
+      args: { description: "scan repo", prompt: "list files", agent: "explore" },
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "sub1",
+      description: "scan repo",
+      agent: "explore",
+    });
+    // A subagent loop fires its own llm_start/reasoning_delta/text_delta per
+    // internal LLM call — these must stay scoped to the subagent, not bleed
+    // into the parent turn's reasoning blocks or streamed text.
+    for (let i = 0; i < 5; i++) {
+      controller.handleEvent({ type: "llm_start", id: `sub-call-${i}`, model: "test/model", subagentId: "sub1" });
+      controller.handleEvent({ type: "reasoning_delta", text: "sub thinking", subagentId: "sub1" });
+      controller.handleEvent({ type: "text_delta", text: "sub text", subagentId: "sub1" });
+    }
+    controller.handleEvent({
+      type: "subagent_end",
+      id: "sub1",
+      agent: "explore",
+      turns: 5,
+      summary: "Found package.json",
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "task1",
+      name: "task",
+      output: "Subagent finished",
+    });
+    controller.handleEvent({ type: "llm_start", id: "call-2", model: "test/model" });
+    controller.handleEvent({ type: "text_delta", text: "Done." });
+    controller.finalizeTurn();
+
+    const turn = controller.getState().completedTurns[0];
+    expect(turn?.blocks.filter((b) => b.type === "reasoning")).toEqual([]);
+    expect(turn?.reasoningText).toBeUndefined();
+    expect(turn?.assistantText).toBe("Done.");
   });
 });

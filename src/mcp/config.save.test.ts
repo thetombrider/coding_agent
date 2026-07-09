@@ -24,15 +24,15 @@ describe("saveMcpConfig helpers", () => {
     upsertMcpServer("fs", {
       type: "stdio",
       command: "npx",
-      args: ["-y", "server"],
+      args: ["-y", "foo"],
     });
     expect(existsSync(join(home, ".orin", "mcp.json"))).toBe(true);
 
     const loaded = loadMcpConfig();
-    expect(loaded.config.servers.fs).toEqual({
+    expect(loaded.config.servers.fs).toMatchObject({
       type: "stdio",
       command: "npx",
-      args: ["-y", "server"],
+      args: ["-y", "foo"],
     });
 
     removeMcpServer("fs");

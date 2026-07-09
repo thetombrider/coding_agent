@@ -31,6 +31,13 @@ describe("picker-models", () => {
     expect(modelLikelySupported(regoloProvider, "Llama-3.3-70B-Instruct")).toBe(true);
   });
 
+  it("accepts native and legacy openai ids for openai", async () => {
+    const { openaiProvider } = await import("./providers/openai.js");
+    expect(modelLikelySupported(openaiProvider, "openai/gpt-4o")).toBe(true);
+    expect(modelLikelySupported(openaiProvider, "gpt-5.5")).toBe(true);
+    expect(modelLikelySupported(openaiProvider, "anthropic/claude-sonnet-4")).toBe(false);
+  });
+
   it("rejects native ids for openrouter", async () => {
     const { openRouterProvider } = await import("./providers/openrouter.js");
     expect(modelLikelySupported(openRouterProvider, "Llama-3.3-70B-Instruct")).toBe(false);

@@ -61,6 +61,13 @@ environment caveats.
   prompt-tuning out of code.
 - **Imports use `.js` extensions** (NodeNext module resolution), even though the
   source is `.ts`.
+- **MCP servers are user config, not code.** `src/mcp/` loads and adapts
+  servers declared in `~/.orin/mcp.json` (merged with a project-local
+  `.mcp.json`) — there's no in-code registry to extend. `${env:VAR}`
+  placeholders in that config are expanded via `mcp/env-expand.ts`.
+- **Skills are `SKILL.md` files, not code.** `src/skills/discovery.ts` scans
+  `.orin/skills/`, `.claude/skills/`, and their `~`-rooted equivalents at
+  runtime; adding a skill means writing a `SKILL.md`, not touching `src/`.
 
 ## Testing
 
@@ -105,6 +112,16 @@ A couple of caveats worth knowing:
 Mark any tool that writes or executes (`write`/`edit`/`bash`-like) so the
 approval gate and `plan` mode treat it correctly.
 
+Registering in `ALL_TOOLS` is enough on its own — `coreToolsForRatel()`
+(`src/ratel/tools.ts`) derives the Ratel BM25 catalog from `getCoreTools()`,
+so a new tool is automatically searchable/invocable through Ratel too. Only
+touch `RATEL_GATEWAY_REPLACEMENTS` in that file if your tool is meant to
+*replace* a Ratel-native equivalent (as `skill_list`/`skill_use` do).
+
+If your tool should be off-limits to subagents, add its name to
+`CHILD_EXCLUDED` in `src/tools/registry.ts`; if it should exist *only* for
+subagents (like `propose_todo`), add it to `CHILD_ONLY` instead.
+
 ### Adding an LLM provider
 
 Each backend is a single self-contained file under `src/provider/providers/`
@@ -116,7 +133,8 @@ importing it from `src/provider/registry.ts` and calling
 `registerProvider(...)`; it then appears in `/providers` automatically.
 
 API-key providers read credentials from `provider.<id>.apiKey` in the config
-file, with the matching env var taking precedence.
+file only — no environment-variable fallback (env-var auth was dropped for
+consistency across providers; use `/providers configure` to set the key).
 
 ## Commit messages
 

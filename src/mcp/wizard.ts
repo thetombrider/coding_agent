@@ -41,6 +41,8 @@ export interface McpWizardStep {
   title: string;
   hint: string;
   optional?: boolean;
+  /** When set, this step is answered by picking one of these values (arrow keys + enter). */
+  options?: readonly string[];
 }
 
 const TRANSPORTS: readonly McpTransportType[] = ["stdio", "http", "ws"];
@@ -132,6 +134,7 @@ export function wizardSteps(state: McpWizardState): McpWizardStep[] {
     id: "transport",
     title: "Transport",
     hint: "stdio, http, or ws",
+    options: TRANSPORTS,
   });
   if (state.transport === "stdio") {
     steps.push({
@@ -155,12 +158,13 @@ export function wizardSteps(state: McpWizardState): McpWizardStep[] {
       id: "authMode",
       title: "Authentication",
       hint: "none · bearer (API token) · oauth (browser login — tokens stored separately)",
+      options: AUTH_MODES,
     });
     if (state.authMode === "bearer") {
       steps.push({
         id: "token",
         title: "Bearer token",
-        hint: "API key or personal access token (sent as Authorization header)",
+        hint: "API key, personal access token, or ${env:VAR} reference (resolved at load time; sent as Authorization header)",
         optional: true,
       });
     } else if (state.authMode === "oauth") {
@@ -192,7 +196,7 @@ export function wizardSteps(state: McpWizardState): McpWizardStep[] {
     steps.push({
       id: "token",
       title: "Authorization token",
-      hint: "Optional Bearer/API token (sent as Authorization header)",
+      hint: "Optional Bearer/API token, or ${env:VAR} reference (resolved at load time; sent as Authorization header)",
       optional: true,
     });
   }

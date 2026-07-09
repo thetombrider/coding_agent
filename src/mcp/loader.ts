@@ -2,7 +2,8 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { AnyTool } from "../tools/registry.js";
 import { toLocalTool } from "./adapter.js";
 import { connectServer } from "./client.js";
-import { loadMcpConfig, type McpServerConfig } from "./config.js";
+import { loadMcpConfig, type McpScope, type McpServerConfig } from "./config.js";
+import { MCP_TOOL_SEP } from "./names.js";
 import {
   classifyMcpFailure,
   mcpSummaryPart,
@@ -16,6 +17,7 @@ export interface McpServerStatus {
   toolCount: number;
   error?: string;
   hint?: string;
+  scope: McpScope;
 }
 
 export interface McpLoadResult {
@@ -31,8 +33,8 @@ function isDisabled(config: McpServerConfig): boolean {
   return config.disabled === true;
 }
 
-export async function loadMcpServers(): Promise<McpLoadResult> {
-  const { config, warnings } = loadMcpConfig();
+export async function loadMcpServers(projectCwd?: string): Promise<McpLoadResult> {
+  const { config, scopes, warnings } = loadMcpConfig(projectCwd);
   const entries = Object.entries(config.servers);
 
   if (entries.length === 0) {
@@ -51,6 +53,7 @@ export async function loadMcpServers(): Promise<McpLoadResult> {
         config: serverConfig,
         status: "disabled",
         toolCount: 0,
+        scope: scopes[serverName] ?? "global",
       });
       continue;
     }
@@ -71,19 +74,23 @@ export async function loadMcpServers(): Promise<McpLoadResult> {
     if (result.status === "fulfilled") {
       const { client, tools: remoteTools, name } = result.value;
       clients.push(client);
-      tools.push(...remoteTools.map((t) => toLocalTool(client, name, t)));
+      const [, serverConfig] = activeEntries[i]!;
+      const autoApproveIds = serverConfig.autoApprove?.length
+        ? new Set(serverConfig.autoApprove.map((t) => `${name}${MCP_TOOL_SEP}${t}`))
+        : undefined;
+      tools.push(...remoteTools.map((t) => toLocalTool(client, name, t, autoApproveIds)));
       summaryParts.push(mcpSummaryPart(name, "connected", remoteTools.length));
       servers.push({
         name,
         config: serverConfig,
         status: "connected",
         toolCount: remoteTools.length,
+        scope: scopes[serverName] ?? "global",
       });
     } else {
       const failure = classifyMcpFailure(result.reason, serverConfig, serverName);
       const message = failure.reason;
       warnings.push(`MCP server "${serverName}" failed to connect: ${message}`);
-      console.warn(`MCP server failed to connect (${serverName}): ${message}`);
       summaryParts.push(mcpSummaryPart(serverName, failure.status, 0));
       servers.push({
         name: serverName,
@@ -92,6 +99,7 @@ export async function loadMcpServers(): Promise<McpLoadResult> {
         toolCount: 0,
         error: failure.reason,
         hint: failure.hint,
+        scope: scopes[serverName] ?? "global",
       });
     }
   }

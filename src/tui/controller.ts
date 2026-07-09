@@ -35,6 +35,10 @@ export interface PendingApproval {
 
 /** A question the agent asked the user, awaiting a choice via `askuser`. */
 export interface PendingQuestion {
+  /** Unique per `requestQuestion` call — lets the UI reset per-question state
+   *  (e.g. the highlighted option) even if two consecutive questions share
+   *  identical text. */
+  id: string;
   question: string;
   options: string[];
 }
@@ -93,6 +97,10 @@ export interface SessionState {
   pendingQuestion: PendingQuestion | null;
   input: string;
   statusHint: string;
+  /** `Date.now()` when the current turn started; `null` when idle. Drives the footer's live elapsed-time readout. */
+  turnStartedAt: number | null;
+  /** Skills loaded via skill_use during this session. */
+  activeSkills: Array<{ name: string; version?: string }>;
 }
 
 export type SessionListener = (state: SessionState) => void;
@@ -144,6 +152,9 @@ const TOOL_VERBS: Record<string, string> = {
   delegate_read: "Delegating read of",
   task: "Subagent",
   todowrite: "Updating tasks",
+  skill_list: "Listing skills",
+  skill_use: "Loading skill",
+  skill_write: "Writing skill",
 };
 
 function todosFromToolArgs(args: unknown): TodoItem[] | undefined {
@@ -167,6 +178,18 @@ function toolStatusHint(name: string, args: unknown, subagentAgent?: string): st
   }
   if (detail.length > 48) detail = `${detail.slice(0, 45)}…`;
   const action = detail ? `${verb} ${detail}…` : `${verb}…`;
+  return subagentAgent ? `Subagent (${subagentAgent}): ${action}` : action;
+}
+
+function formatProgressChars(chars: number): string {
+  return chars < 1024 ? `${chars} chars` : `${(chars / 1024).toFixed(1)} KB`;
+}
+
+/** Live status hint while a tool call's arguments are still streaming in, e.g. "Writing… (2.1 KB so far)". */
+function toolInputProgressHint(name: string, chars: number, subagentAgent?: string): string {
+  const displayName = isMcpTool(name) ? formatMcpToolLabel(name) : name;
+  const verb = TOOL_VERBS[name] ?? `Running ${displayName}`;
+  const action = chars > 0 ? `${verb}… (${formatProgressChars(chars)} so far)` : `${verb}…`;
   return subagentAgent ? `Subagent (${subagentAgent}): ${action}` : action;
 }
 
@@ -252,28 +275,72 @@ export function createSessionController(meta: SessionMeta): SessionController {
     pendingQuestion: null,
     input: "",
     statusHint: IDLE_STATUS_HINT,
+    turnStartedAt: null,
+    activeSkills: [],
   };
 
   const listeners = new Set<SessionListener>();
   let approvalResolver: ((approved: boolean) => void) | null = null;
-  let questionResolver: ((answer: string | null) => void) | null = null;
+  // Tool calls within one turn run concurrently (see executeToolsParallel), so
+  // more than one `askuser` call can be in flight at once. A single resolver
+  // slot would let a second call's requestQuestion clobber the first's before
+  // it resolves, orphaning that promise forever and hanging the turn. Queue
+  // them instead and show one at a time.
+  const questionQueue: Array<{
+    id: string;
+    question: string;
+    options: string[];
+    resolve: (answer: string | null) => void;
+  }> = [];
 
   // Defer listener calls so Solid (and other UI runtimes) never receive
   // synchronous writes while they are mid-render — that triggers
   // "depends on itself in the same turn" errors on finalizeTurn etc.
   let notifyPending = false;
+  // Pending timer for throttled streaming notifications.
+  let streamingTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const flushListeners = () => {
+    for (const listener of listeners) listener(state);
+  };
+
   const notify = () => {
+    // An urgent (interactive) render supersedes any pending streaming timer so we
+    // don't double-render after the microtask fires.
+    if (streamingTimer !== null) {
+      clearTimeout(streamingTimer);
+      streamingTimer = null;
+    }
     if (notifyPending) return;
     notifyPending = true;
     queueMicrotask(() => {
       notifyPending = false;
-      for (const listener of listeners) listener(state);
+      flushListeners();
     });
+  };
+
+  // High-frequency streaming events (text_delta, reasoning_delta) arrive on every
+  // async event-loop turn, so queueMicrotask alone doesn't coalesce them — each
+  // schedules its own render and the cumulative element count can exhaust opentui's
+  // native TextBufferView pool, causing an uncaught "Failed to create TextBufferView"
+  // that kills the process. Throttling to ~16 ms (one frame) collapses many rapid
+  // deltas into a single render pass.
+  const notifyStreaming = () => {
+    if (notifyPending || streamingTimer !== null) return;
+    streamingTimer = setTimeout(() => {
+      streamingTimer = null;
+      flushListeners();
+    }, 16);
   };
 
   const update = (patch: Partial<SessionState>) => {
     state = { ...state, ...patch };
     notify();
+  };
+
+  const updateStreaming = (patch: Partial<SessionState>) => {
+    state = { ...state, ...patch };
+    notifyStreaming();
   };
 
   const setCurrentTools = (currentTools: ToolEntry[]) => {
@@ -304,6 +371,24 @@ export function createSessionController(meta: SessionMeta): SessionController {
     setCurrentTools(next);
   };
 
+  /** Show the next queued question, or clear the modal if none remain. */
+  const advanceQuestionQueue = () => {
+    const next = questionQueue[0];
+    if (next) {
+      update({
+        phase: "question",
+        pendingQuestion: { id: next.id, question: next.question, options: next.options },
+        statusHint: "↑↓ choose · Enter answer · type a custom reply · Esc skip",
+      });
+    } else {
+      update({
+        pendingQuestion: null,
+        phase: "running",
+        statusHint: RUNNING_HINT,
+      });
+    }
+  };
+
   return {
     getState: () => state,
 
@@ -323,6 +408,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         currentBlocks: [],
         phase: "running",
         statusHint: RUNNING_HINT,
+        turnStartedAt: Date.now(),
       });
     },
 
@@ -337,6 +423,10 @@ export function createSessionController(meta: SessionMeta): SessionController {
         ),
         state.currentTools,
       );
+      // Defensive: a turn should only finalize once every askuser call has
+      // resolved, but clear any stragglers so a stale entry can't block
+      // future questions from ever reaching the front of the queue.
+      questionQueue.length = 0;
       update({
         completedTurns: [
           ...state.completedTurns,
@@ -357,10 +447,12 @@ export function createSessionController(meta: SessionMeta): SessionController {
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_STATUS_HINT,
+        turnStartedAt: null,
       });
     },
 
     clearHistory() {
+      questionQueue.length = 0;
       update({
         completedTurns: [],
         currentUserText: "",
@@ -373,10 +465,12 @@ export function createSessionController(meta: SessionMeta): SessionController {
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_STATUS_HINT,
+        turnStartedAt: null,
       });
     },
 
     loadHistory(turns) {
+      questionQueue.length = 0;
       update({
         completedTurns: turns,
         currentUserText: "",
@@ -388,6 +482,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
         phase: "input",
         pendingQuestion: null,
         statusHint: IDLE_STATUS_HINT,
+        turnStartedAt: null,
       });
     },
 
@@ -433,9 +528,22 @@ export function createSessionController(meta: SessionMeta): SessionController {
     handleEvent(event) {
       switch (event.type) {
         case "text_delta":
-          update({ streamingText: state.streamingText + event.text });
+          if (event.subagentId) break;
+          updateStreaming({ streamingText: state.streamingText + event.text });
           break;
+        case "tool_input_start":
+        case "tool_input_delta": {
+          const modalPending = state.pendingQuestion !== null || state.pendingApproval !== null;
+          if (modalPending) break;
+          const chars = event.type === "tool_input_delta" ? event.chars : 0;
+          const agent = event.subagentId
+            ? findSubagentAgent(state.currentTools, event.subagentId)
+            : undefined;
+          updateStreaming({ statusHint: toolInputProgressHint(event.name, chars, agent) });
+          break;
+        }
         case "llm_start": {
+          if (event.subagentId) break;
           const lastBlock = state.currentBlocks[state.currentBlocks.length - 1];
           if (lastBlock?.type === "reasoning") {
             update({
@@ -466,10 +574,11 @@ export function createSessionController(meta: SessionMeta): SessionController {
           break;
         }
         case "reasoning_delta": {
+          if (event.subagentId) break;
           const segs = state.streamingReasoningSegments;
           if (segs.length === 0) {
             const segId = randomUUID();
-            update({
+            updateStreaming({
               streamingReasoningSegments: [{ id: segId, text: event.text }],
               streamingReasoning: state.streamingReasoning + event.text,
               currentBlocks: [
@@ -481,7 +590,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
             const updated = [...segs];
             const last = updated[updated.length - 1]!;
             updated[updated.length - 1] = { ...last, text: last.text + event.text };
-            update({
+            updateStreaming({
               streamingReasoningSegments: updated,
               streamingReasoning: state.streamingReasoning + event.text,
               currentBlocks: state.currentBlocks.map((b) =>
@@ -572,6 +681,16 @@ export function createSessionController(meta: SessionMeta): SessionController {
             status: event.isError ? "error" : "done",
             output: event.output,
           });
+          if (event.name === "skill_use" && !event.isError) {
+            const toolArgs = state.currentTools.find((t) => t.id === event.id)?.args;
+            const skillName =
+              toolArgs && typeof toolArgs === "object"
+                ? (toolArgs as Record<string, unknown>).name
+                : undefined;
+            if (typeof skillName === "string") {
+              update({ activeSkills: [...state.activeSkills, { name: skillName }] });
+            }
+          }
           break;
         case "todo_update":
           update({ todos: event.todos });
@@ -637,33 +756,36 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
     requestQuestion(question, options) {
       return new Promise<string | null>((resolve) => {
-        questionResolver = resolve;
-        update({
-          phase: "question",
-          pendingQuestion: { question, options },
-          statusHint: "↑↓ choose · Enter answer · type a custom reply · Esc skip",
-        });
+        const id = randomUUID();
+        questionQueue.push({ id, question, options, resolve });
+        // Only the head of the queue drives the UI — a question pushed while
+        // another is already showing waits its turn.
+        if (questionQueue.length === 1) {
+          update({
+            phase: "question",
+            pendingQuestion: { id, question, options },
+            statusHint: "↑↓ choose · Enter answer · type a custom reply · Esc skip",
+          });
+        }
       });
     },
 
     respondQuestion(answer) {
-      if (!questionResolver) return;
-      questionResolver(answer);
-      questionResolver = null;
-      update({
-        pendingQuestion: null,
-        phase: "running",
-        statusHint: RUNNING_HINT,
-      });
+      const current = questionQueue.shift();
+      if (!current) return;
+      current.resolve(answer);
+      advanceQuestionQueue();
     },
 
     rejectPendingQuestion() {
-      // Gate on the resolver, not the phase: a sibling tool's tool_start can
+      // Gate on the queue, not the phase: a sibling tool's tool_start can
       // flip the phase off "question" while askuser is still awaiting, and a
       // stop/skip must still resolve it rather than leave the loop blocked.
-      if (!questionResolver) return;
-      questionResolver(null);
-      questionResolver = null;
+      // Stopping the turn abandons every queued question, not just the one
+      // on screen.
+      if (questionQueue.length === 0) return;
+      const pending = questionQueue.splice(0, questionQueue.length);
+      for (const item of pending) item.resolve(null);
       update({
         pendingQuestion: null,
         phase: "running",

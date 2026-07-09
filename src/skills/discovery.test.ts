@@ -4,7 +4,7 @@ import * as os from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { discoverSkills } from "./discovery.js";
+import { discoverSkills, parseSkillMeta } from "./discovery.js";
 
 function writeSkill(dir: string, name: string, description: string): void {
   const skillDir = join(dir, name);
@@ -15,6 +15,44 @@ function writeSkill(dir: string, name: string, description: string): void {
     "utf8",
   );
 }
+
+describe("parseSkillMeta", () => {
+  it("parses a single-line description", () => {
+    const meta = parseSkillMeta(
+      "---\nname: my-skill\ndescription: A simple skill\n---\nbody\n",
+      "/fake/SKILL.md",
+      "/fake",
+    );
+    expect(meta?.description).toBe("A simple skill");
+  });
+
+  it("parses a YAML block literal description (|)", () => {
+    const meta = parseSkillMeta(
+      "---\nname: my-skill\ndescription: |\n  Break a bloated prompt into lean skills.\nversion: 1.0.0\n---\nbody\n",
+      "/fake/SKILL.md",
+      "/fake",
+    );
+    expect(meta?.description).toBe("Break a bloated prompt into lean skills.");
+  });
+
+  it("parses a YAML block folded description (>)", () => {
+    const meta = parseSkillMeta(
+      "---\nname: my-skill\ndescription: >\n  Line one.\n  Line two.\n---\nbody\n",
+      "/fake/SKILL.md",
+      "/fake",
+    );
+    expect(meta?.description).toBe("Line one. Line two.");
+  });
+
+  it("strips surrounding quotes from inline description", () => {
+    const meta = parseSkillMeta(
+      '---\nname: my-skill\ndescription: "A quoted skill."\n---\nbody\n',
+      "/fake/SKILL.md",
+      "/fake",
+    );
+    expect(meta?.description).toBe("A quoted skill.");
+  });
+});
 
 describe("discoverSkills", () => {
   let root: string;

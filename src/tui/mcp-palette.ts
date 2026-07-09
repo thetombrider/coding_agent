@@ -36,7 +36,7 @@ export function mcpListRowLabel(row: McpListRow): string {
   if (row.kind === "reload") return "↻ Reload connections";
   const s = row.server;
   const status = mcpListStatusLabel(s.status, s.toolCount);
-  return `${s.name}  ·  ${formatServerConfigSummary(s.config)}  ·  ${status}`;
+  return `${s.name}  ·  ${formatServerConfigSummary(s.config)}  ·  ${status}  ·  ${s.scope}`;
 }
 
 export function selectedMcpListRow(state: McpPaletteState): McpListRow | undefined {
@@ -54,9 +54,9 @@ export function mcpPaletteHint(menu: McpPaletteMenu, server?: McpServerStatus): 
       return "↑↓ navigate · Enter select · Esc back";
     case "detail":
       if (server && mcpDetailCanAuthenticate(server)) {
-        return "a authenticate · Enter edit · → delete · ← or Esc back";
+        return "a authenticate · d enable/disable · Enter edit · → delete · ← or Esc back";
       }
-      return "Enter edit · → delete · ← or Esc back";
+      return "d enable/disable · Enter edit · → delete · ← or Esc back";
     case "delete":
       return "Enter confirm delete · ← or Esc cancel";
   }
@@ -69,11 +69,15 @@ export function mcpServerSupportsOAuth(server: McpServerStatus): boolean {
 export function mcpServerDetailLines(server: McpServerStatus): string[] {
   const lines = [
     `name: ${server.name}`,
+    `scope: ${server.scope}`,
     `transport: ${server.config.type}`,
     `config: ${formatServerConfigSummary(server.config)}`,
   ];
   if (server.config.type === "http" || server.config.type === "ws") {
     lines.push(`auth: ${mcpAuthModeLabel(server.config)}`);
+  }
+  if (server.config.autoApprove && server.config.autoApprove.length > 0) {
+    lines.push(`autoApprove: ${server.config.autoApprove.join(", ")}`);
   }
 
   switch (server.status) {

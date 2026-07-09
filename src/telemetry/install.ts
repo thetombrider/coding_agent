@@ -95,7 +95,7 @@ export function installTelemetry(opts: InstallTelemetryOptions): InstalledTeleme
       const source: TurnSource = event.subagentId ? "subagent" : "main_loop";
       const breakdown = calcCost(message.model, message.usage, pricing, providerId);
       acc.recordTurn(breakdown, source);
-      emitAll(sinks, { type: "turn", sessionId, ts: now(), ...breakdown, source });
+      emitAll(sinks, { type: "turn", sessionId, ts: now(), ...breakdown, source, provider: providerId });
       if (onSessionCost) {
         try {
           onSessionCost(acc.snapshot());
@@ -181,5 +181,6 @@ export function recordLlmCall(
     ts: now(),
     ...breakdown,
     source: call.source,
+    provider: call.providerId,
   });
 }

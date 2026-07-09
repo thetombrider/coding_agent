@@ -14,8 +14,8 @@ import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, repl
 import { resolveSessionIsolation } from "./workspace/session-worktree.js";
 import type { SessionIsolationMode } from "./agent/session-isolation.js";
 import { rebuildTodosFromMessages } from "./todos/store.js";
-import { loadMcpServers } from "./mcp/loader.js";
-import { getCoreTools } from "./tools/registry.js";
+import { bootstrapOrinTooling } from "./ratel/session.js";
+import { installRatelTelemetry } from "./ratel/telemetry.js";
 import { createDefaultSinks, installTelemetry } from "./telemetry/install.js";
 import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
@@ -163,17 +163,21 @@ async function runInteractive(opts: {
   const ctx: AgentContext = { cwd: hostCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
   attachSymbolService(ctx, createSymbolService());
   const hooks = createSessionHooks();
-  const mcp = await loadMcpServers();
-  for (const warning of mcp.warnings) console.warn(warning);
+  // For resumed worktree sessions the stored cwd is the worktree path; use it
+  // so skill discovery runs against the right workspace, not the host repo.
+  const tooling = await bootstrapOrinTooling(sessionMeta?.cwd ?? hostCwd, sessionId);
+  for (const warning of tooling.mcpWarnings) console.warn(warning);
 
   await runTuiSession({
     ctx,
     provider,
-    tools: [...getCoreTools(), ...mcp.tools],
-    mcpTools: mcp.tools,
-    mcpDispose: mcp.dispose,
-    mcpServers: mcp.servers,
-    mcpStartupHint: mcp.statusHint,
+    tools: tooling.tools,
+    ratel: tooling.ratel,
+    featureFlag: tooling.controlArm ? "tool_pool=full" : undefined,
+    mcpTools: tooling.mcpTools,
+    mcpDispose: tooling.mcpDispose,
+    mcpServers: tooling.mcpServers,
+    mcpStartupHint: tooling.mcpStatusHint,
     model,
     system: sessionSystem(hostCwd),
     approvalMode: opts.approvalMode,
@@ -280,31 +284,41 @@ async function runHeadless(opts: {
   const { provider, model } = resolveProvider(opts.useFaux);
   const { runLoop } = await import("./agent/loop.js");
   const sessionId = opts.useFaux ? undefined : generateSessionId();
+  const effectiveSessionId = sessionId ?? generateSessionId();
   const hooks = createSessionHooks();
-  const mcp = await loadMcpServers();
-  for (const warning of mcp.warnings) console.warn(warning);
-  const tools = [...getCoreTools(), ...mcp.tools];
+  const tooling = await bootstrapOrinTooling(hostCwd, effectiveSessionId);
+  for (const warning of tooling.mcpWarnings) console.warn(warning);
 
   const approvalRef: ApprovalGateRef = {
     mode: opts.approvalMode,
     autoAcceptCli: opts.autoAcceptCli,
-    tools,
+    tools: tooling.tools,
   };
   installCoreHooks(hooks, approvalRef);
 
   // Telemetry: turn/tool metrics plus a session summary flushed at session_end
   // (fired in the finally below). No session-log sink in headless mode.
+  const telemetrySinks = createDefaultSinks();
   const telemetry = installTelemetry({
     hooks,
-    sinks: createDefaultSinks(),
-    sessionId: sessionId ?? generateSessionId(),
+    sinks: telemetrySinks,
+    sessionId: effectiveSessionId,
     providerId: opts.useFaux ? "faux" : resolveActiveProvider().id,
   });
+  let disposeRatelTelemetry: () => void = () => {};
+  if (tooling.ratel) {
+    disposeRatelTelemetry = installRatelTelemetry({
+      hooks,
+      sessionId: effectiveSessionId,
+      sinks: telemetrySinks,
+      getBundle: () => tooling.ratel,
+    });
+  }
 
   ctx.loopHost = {
     provider,
     model,
-    sessionId,
+    sessionId: effectiveSessionId,
     hooks,
     approval: approvalRef,
     recordLlmCall: telemetry.recordLlmCall,
@@ -327,14 +341,17 @@ async function runHeadless(opts: {
   try {
     await runLoop(ctx, hooks, {
       provider,
-      tools,
+      tools: tooling.tools,
       model,
       system: sessionSystem(hostCwd),
-      sessionId,
+      sessionId: effectiveSessionId,
+      ratel: tooling.ratel,
+      featureFlag: tooling.controlArm ? "tool_pool=full" : undefined,
     });
   } finally {
+    disposeRatelTelemetry();
     await hooks.fireHook("session_end", { reason: "complete" }, ctx);
-    await mcp.dispose();
+    await tooling.mcpDispose();
     if (worktreeHandle) {
       worktreeHandle.harvest();
       try {

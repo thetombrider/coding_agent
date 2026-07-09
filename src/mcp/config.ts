@@ -2,8 +2,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import {
+  expandEnvList,
+  expandEnvRecord,
+  expandEnvString,
+  formatMissingVars,
+} from "./env-expand.js";
 import { parseMcpOAuth, type McpOAuthOptions } from "./oauth-config.js";
 import { deleteMcpOAuthStore } from "./oauth-store.js";
+
+export type McpScope = "global" | "project";
 
 export type { McpOAuthOptions };
 
@@ -14,6 +22,7 @@ export type McpStdioConfig = {
   env?: Record<string, string>;
   cwd?: string;
   disabled?: boolean;
+  autoApprove?: string[];
 };
 
 export type McpHttpConfig = {
@@ -24,6 +33,7 @@ export type McpHttpConfig = {
   /** Enable MCP OAuth 2.1 (`true` or static client registration). */
   oauth?: true | McpOAuthOptions;
   disabled?: boolean;
+  autoApprove?: string[];
 };
 
 export type McpWsConfig = {
@@ -31,6 +41,7 @@ export type McpWsConfig = {
   url: string;
   headers?: Record<string, string>;
   disabled?: boolean;
+  autoApprove?: string[];
 };
 
 export type McpServerConfig = McpStdioConfig | McpHttpConfig | McpWsConfig;
@@ -41,14 +52,86 @@ export interface McpConfig {
   servers: Record<string, McpServerConfig>;
 }
 
-const EMPTY: McpConfig = { servers: {} };
-
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function hasEnvPlaceholder(value: string): boolean {
+  return /\$\{(?:env:)?[A-Za-z_][A-Za-z0-9_]*/.test(value);
+}
+
+/** Apply `${env:VAR}` / `${VAR}` expansion to all string fields of a server config. */
+function expandServerEnv(
+  config: McpServerConfig,
+  env: NodeJS.ProcessEnv,
+): { config: McpServerConfig; missing: string[] } {
+  const missingSet = new Set<string>();
+  const track = (m: string[]): void => {
+    for (const v of m) missingSet.add(v);
+  };
+
+  switch (config.type) {
+    case "stdio": {
+      const commandR = expandEnvString(config.command, env);
+      track(commandR.missing);
+      const argsR = config.args
+        ? expandEnvList(config.args, env)
+        : undefined;
+      if (argsR) track(argsR.missing);
+      const envR = config.env ? expandEnvRecord(config.env, env) : undefined;
+      if (envR) track(envR.missing);
+      const cwdR = config.cwd !== undefined ? expandEnvString(config.cwd, env) : undefined;
+      if (cwdR) track(cwdR.missing);
+      return {
+        config: {
+          ...config,
+          command: commandR.value,
+          args: argsR?.value,
+          env: envR?.value,
+          cwd: cwdR?.value,
+        },
+        missing: [...missingSet],
+      };
+    }
+    case "http": {
+      const urlR = expandEnvString(config.url, env);
+      track(urlR.missing);
+      const headersR = config.headers ? expandEnvRecord(config.headers, env) : undefined;
+      if (headersR) track(headersR.missing);
+      return {
+        config: {
+          ...config,
+          url: urlR.value,
+          headers: headersR?.value,
+        },
+        missing: [...missingSet],
+      };
+    }
+    case "ws": {
+      const urlR = expandEnvString(config.url, env);
+      track(urlR.missing);
+      const headersR = config.headers ? expandEnvRecord(config.headers, env) : undefined;
+      if (headersR) track(headersR.missing);
+      return {
+        config: {
+          ...config,
+          url: urlR.value,
+          headers: headersR?.value,
+        },
+        missing: [...missingSet],
+      };
+    }
+  }
+}
+
 function parseDisabled(raw: Record<string, unknown>): boolean | undefined {
   return raw.disabled === true ? true : undefined;
+}
+
+function parseAutoApprove(raw: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(raw.autoApprove)) return undefined;
+  const arr = raw.autoApprove.filter((v): v is string => typeof v === "string");
+  return arr.length > 0 ? arr : undefined;
 }
 
 function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfig; warning?: string } {
@@ -84,6 +167,7 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
         env,
         cwd,
         disabled,
+        autoApprove: parseAutoApprove(raw),
       },
     };
   }
@@ -92,10 +176,12 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
     if (typeof raw.url !== "string" || !raw.url.trim()) {
       return { warning: `MCP server "${name}": ${type} transport requires a non-empty "url", skipping.` };
     }
-    try {
-      new URL(raw.url);
-    } catch {
-      return { warning: `MCP server "${name}": invalid url "${raw.url}", skipping.` };
+    if (!hasEnvPlaceholder(raw.url)) {
+      try {
+        new URL(raw.url);
+      } catch {
+        return { warning: `MCP server "${name}": invalid url "${raw.url}", skipping.` };
+      }
     }
     const headers =
       raw.headers === undefined
@@ -111,9 +197,10 @@ function parseServerEntry(name: string, raw: unknown): { config?: McpServerConfi
     if (raw.oauth !== undefined && oauth === undefined) {
       return { warning: `MCP server "${name}": "oauth" must be true or an object, skipping.` };
     }
+    const autoApprove = parseAutoApprove(raw);
     return type === "http"
-      ? { config: { type: "http", url: raw.url, headers, oauth, disabled } }
-      : { config: { type: "ws", url: raw.url, headers, disabled } };
+      ? { config: { type: "http", url: raw.url, headers, oauth, disabled, autoApprove } }
+      : { config: { type: "ws", url: raw.url, headers, disabled, autoApprove } };
   }
 
   return { warning: `MCP server "${name}": unknown transport type "${String(type)}", skipping.` };
@@ -169,33 +256,37 @@ function repairLoadedServers(servers: Record<string, McpServerConfig>): {
 
 /** Global MCP config path: `~/.orin/mcp.json`. */
 export function mcpConfigPath(): string {
-  return join(homedir(), ".orin", "mcp.json");
+  // Prefer `process.env.HOME` so tests that point HOME at a temp dir can isolate
+  // from the real user config (Bun caches `os.homedir()`, so we can't rely on it
+  // picking up a HOME change made after process start).
+  const home = process.env.HOME || homedir();
+  return join(home, ".orin", "mcp.json");
 }
 
-/** Load global MCP config. Missing or invalid file → empty config + warnings. */
-export function loadMcpConfig(): { config: McpConfig; warnings: string[] } {
-  const path = mcpConfigPath();
-  if (!existsSync(path)) return { config: EMPTY, warnings: [] };
+/** Project MCP config path: `<cwd>/.mcp.json`. */
+export function projectMcpConfigPath(cwd: string): string {
+  return join(cwd, ".mcp.json");
+}
+
+function parseMcpFile(path: string): { servers: Record<string, McpServerConfig>; warnings: string[] } {
+  if (!existsSync(path)) return { servers: {}, warnings: [] };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
-      config: EMPTY,
-      warnings: [`Failed to parse ${path}: ${message}`],
-    };
+    return { servers: {}, warnings: [`Failed to parse ${path}: ${message}`] };
   }
 
   if (!isRecord(parsed)) {
-    return { config: EMPTY, warnings: [`${path}: expected a JSON object at the root.`] };
+    return { servers: {}, warnings: [`${path}: expected a JSON object at the root.`] };
   }
 
   const rawServers = parsed.servers;
-  if (rawServers === undefined) return { config: EMPTY, warnings: [] };
+  if (rawServers === undefined) return { servers: {}, warnings: [] };
   if (!isRecord(rawServers)) {
-    return { config: EMPTY, warnings: [`${path}: "servers" must be an object.`] };
+    return { servers: {}, warnings: [`${path}: "servers" must be an object.`] };
   }
 
   const servers: Record<string, McpServerConfig> = {};
@@ -207,13 +298,102 @@ export function loadMcpConfig(): { config: McpConfig; warnings: string[] } {
     else if (result.config) servers[name] = result.config;
   }
 
-  const repaired = repairLoadedServers(servers);
+  return { servers, warnings };
+}
+
+function hasBearerToken(config: McpServerConfig): boolean {
+  if (config.type !== "http" && config.type !== "ws") return false;
+  const auth = config.headers?.["Authorization"] ?? config.headers?.["authorization"];
+  return typeof auth === "string" && /^bearer /i.test(auth);
+}
+
+/**
+ * Parse and validate the on-disk global MCP config. Returns the *unexpanded*
+ * config (placeholders intact) so save-back paths don't leak resolved secrets.
+ */
+function loadGlobalMcpConfigRaw(): { config: McpConfig; warnings: string[] } {
+  const global_ = parseMcpFile(mcpConfigPath());
+  const warnings = [...global_.warnings];
+
+  const repaired = repairLoadedServers(global_.servers);
   warnings.push(...repaired.warnings);
   if (repaired.changed) {
     saveMcpConfig({ servers: repaired.servers });
   }
 
   return { config: { servers: repaired.servers }, warnings };
+}
+
+/**
+ * Load MCP config: global `~/.orin/mcp.json` merged with optional project
+ * `<projectCwd>/.mcp.json` (project servers override global servers on name
+ * collision), then expand `${env:VAR}` / `${VAR}` placeholders at load time.
+ * The raw values (with placeholders) are kept on disk; secrets never live in
+ * mcp.json.
+ */
+export function loadMcpConfig(
+  projectCwd?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { config: McpConfig; scopes: Record<string, McpScope>; warnings: string[] } {
+  const global_ = loadGlobalMcpConfigRaw();
+  const warnings = [...global_.warnings];
+
+  const rawServers: Record<string, McpServerConfig> = { ...global_.config.servers };
+  const scopes: Record<string, McpScope> = {};
+  for (const name of Object.keys(rawServers)) scopes[name] = "global";
+
+  if (projectCwd) {
+    const projectPath = projectMcpConfigPath(projectCwd);
+    const project = parseMcpFile(projectPath);
+    warnings.push(...project.warnings);
+    for (const [name, config] of Object.entries(project.servers)) {
+      if (hasBearerToken(config)) {
+        warnings.push(
+          `MCP server "${name}": project .mcp.json has a raw Bearer token — use \${env:VAR} instead.`,
+        );
+      }
+      rawServers[name] = config;
+      scopes[name] = "project";
+    }
+  }
+
+  const expanded: Record<string, McpServerConfig> = {};
+  for (const [name, serverConfig] of Object.entries(rawServers)) {
+    const r = expandServerEnv(serverConfig, env);
+    if (r.missing.length > 0) {
+      warnings.push(
+        `MCP server "${name}": missing required env var(s) ${formatMissingVars(r.missing)}; skipping. Set them and reload.`,
+      );
+      delete scopes[name];
+      continue;
+    }
+    const expandedConfig = r.config;
+    if (expandedConfig.type === "stdio" && !expandedConfig.command.trim()) {
+      warnings.push(
+        `MCP server "${name}": stdio transport requires a non-empty "command" after env expansion, skipping.`,
+      );
+      delete scopes[name];
+      continue;
+    }
+    if (
+      (expandedConfig.type === "http" || expandedConfig.type === "ws") &&
+      (serverConfig.type === "http" || serverConfig.type === "ws") &&
+      hasEnvPlaceholder(serverConfig.url)
+    ) {
+      try {
+        new URL(expandedConfig.url);
+      } catch {
+        warnings.push(
+          `MCP server "${name}": invalid url after env expansion, skipping.`,
+        );
+        delete scopes[name];
+        continue;
+      }
+    }
+    expanded[name] = expandedConfig;
+  }
+
+  return { config: { servers: expanded }, scopes, warnings };
 }
 
 /** Persist MCP config to `~/.orin/mcp.json`. */
@@ -228,7 +408,7 @@ export function upsertMcpServer(
   server: McpServerConfig,
   opts?: { replace?: string },
 ): { config: McpConfig; warnings: string[] } {
-  const { config, warnings } = loadMcpConfig();
+  const { config, warnings } = loadGlobalMcpConfigRaw();
   const servers = { ...config.servers };
   if (opts?.replace && opts.replace !== name) delete servers[opts.replace];
   servers[name] = server;
@@ -238,11 +418,16 @@ export function upsertMcpServer(
 }
 
 export function removeMcpServer(name: string): McpConfig {
-  const { config } = loadMcpConfig();
+  const { config } = loadGlobalMcpConfigRaw();
   const servers = { ...config.servers };
   delete servers[name];
   deleteMcpOAuthStore(name);
   const next = { servers };
   saveMcpConfig(next);
   return next;
+}
+
+/** Check whether a project `.mcp.json` exists at the given directory. */
+export function hasProjectMcpConfig(cwd: string): boolean {
+  return existsSync(projectMcpConfigPath(cwd));
 }

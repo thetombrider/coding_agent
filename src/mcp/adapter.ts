@@ -34,14 +34,20 @@ export function renderMcpContent(content: unknown): string {
   );
 }
 
-export function toLocalTool(client: Client, serverName: string, remote: RemoteTool): AnyTool {
+export function toLocalTool(
+  client: Client,
+  serverName: string,
+  remote: RemoteTool,
+  autoApproveIds?: Set<string>,
+): AnyTool {
   const localName = `${serverName}${MCP_TOOL_SEP}${remote.name}`;
+  const isAutoApproved = autoApproveIds?.has(localName) ?? false;
 
   return {
     name: localName,
     description: remote.description ?? "",
     schema: passthroughSchema,
-    needsApproval: () => true,
+    needsApproval: isAutoApproved ? () => false : () => true,
     async execute(args, _ctx, signal) {
       const result = await client.callTool(
         { name: remote.name, arguments: args as Record<string, unknown> },

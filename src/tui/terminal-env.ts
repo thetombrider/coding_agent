@@ -78,6 +78,24 @@ export function consumeTerminalCapabilityLeak(sequence: string): boolean {
   return sequence.replace(KITTY_GRAPHICS_QUERY_LEAK_RE, "").length === 0;
 }
 
+/**
+ * Input-handler predicate (for OpenTUI `prependInputHandlers`): returns true to
+ * consume a stdin chunk *only* when the chunk is entirely SGR mouse reports
+ * (one or more), so we never swallow a chunk that also carries real keystrokes.
+ * Mixed chunks fall through to {@link sanitizePromptInput} at the value layer.
+ *
+ * This is the stdin-layer defense against mouse tracking garbage (#183). Without
+ * it, mouse bytes reach the InputRenderable and render as literal `<35;36;19M`
+ * text for one frame before {@link sanitizePromptInput} strips them at the value
+ * layer — a visible flicker on rapid mouse movement. Catching them here prevents
+ * them from ever reaching the input, so no new feature that adds an input path
+ * can reintroduce the garbage.
+ */
+export function consumeMouseReports(sequence: string): boolean {
+  if (!sequence || !sequence.includes("[<")) return false;
+  return sequence.replace(MOUSE_SGR_REPORT_RE, "").length === 0;
+}
+
 export function selectionCopyHint(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,

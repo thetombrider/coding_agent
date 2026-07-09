@@ -9,6 +9,7 @@ import type { AgentEvent } from "../agent/events.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { createStatefulFauxProvider } from "../provider/faux.js";
+import type { StreamAssistantFn } from "../provider/types.js";
 import { getCoreTools } from "../tools/registry.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
@@ -348,6 +349,54 @@ describe("runLoop", () => {
     expect(providerCalls).toBeGreaterThanOrEqual(2);
     expect(ctx.messages.some((m) => m.role === "user" && m.content[0]?.type === "text" &&
       (m.content[0] as { text: string }).text.includes("invalid"))).toBe(true);
+  });
+
+  it("forwards tool_input_start/tool_input_delta progress events to hooks", async () => {
+    const dummyTool: Tool<{ path: string }> = {
+      name: "write",
+      description: "write a file",
+      schema: z.object({ path: z.string() }),
+      async execute() {
+        return { output: "ok" };
+      },
+    };
+
+    let calls = 0;
+    const provider: StreamAssistantFn = async (_messages, options, emit) => {
+      calls += 1;
+      if (calls === 1) {
+        emit({ type: "tool_input_start", id: "tc1", name: "write" });
+        emit({ type: "tool_input_delta", id: "tc1", name: "write", chars: 12 });
+        emit({ type: "tool_input_delta", id: "tc1", name: "write", chars: 30 });
+        return {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "tc1", name: "write", arguments: { path: "a.txt" } }],
+          model: options.model,
+        };
+      }
+      return { role: "assistant", content: [{ type: "text", text: "done" }], model: options.model };
+    };
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "write a file" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([dummyTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [dummyTool], model: "faux:test" });
+
+    const progressEvents = observed.filter(
+      (e) => e.type === "tool_input_start" || e.type === "tool_input_delta",
+    );
+    expect(progressEvents).toEqual([
+      { type: "tool_input_start", id: "tc1", name: "write" },
+      { type: "tool_input_delta", id: "tc1", name: "write", chars: 12 },
+      { type: "tool_input_delta", id: "tc1", name: "write", chars: 30 },
+    ]);
   });
 
   it("before_tool hook blocks dangerous bash commands", async () => {

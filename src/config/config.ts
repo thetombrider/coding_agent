@@ -101,6 +101,14 @@ export interface Config {
     /** Write `.orin/todo.md` on each todowrite call for human-editable, committable plans. */
     export?: boolean;
   };
+  /** Ratel context engine — ranked tool/skill catalogs (issue #295). */
+  ratel?: {
+    enabled?: boolean;
+    topKTools?: number;
+    topKSkills?: number;
+    pinnedTools?: string[];
+    controlFraction?: number;
+  };
   tools?: {
     exa?: { apiKey?: string };
     /** When true, fetch may reach loopback hosts on the local workspace only. */
@@ -163,6 +171,7 @@ const DEFAULT_CONFIG: Config = {
       "You are Orin, a coding agent. Use tools to inspect and modify the codebase. Answer concisely. "
       + "Prefer automated tests over starting dev servers; bash blocks on foreground long-running processes.",
   },
+  ratel: { enabled: true },
   telemetry: {
     enabled: true,
     stdout: false,
@@ -435,6 +444,11 @@ export function hasOpenRouterApiKey(): boolean {
 /** True when a Regolo API key is set in config. */
 export function hasRegoloApiKey(): boolean {
   return Boolean(loadConfig().provider.regolo?.apiKey?.trim());
+}
+
+/** True when an OpenAI API key is set in config. */
+export function hasOpenAiApiKey(): boolean {
+  return Boolean(loadConfig().provider.openai?.apiKey?.trim());
 }
 
 /** True when an Anthropic API key is set in config. */

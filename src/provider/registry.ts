@@ -3,6 +3,7 @@ import { loadConfig, saveConfig } from "../config/config.js";
 import { anthropicProvider } from "./providers/anthropic.js";
 import { opencodeGoProvider, opencodeZenProvider } from "./providers/opencode.js";
 import { openRouterProvider } from "./providers/openrouter.js";
+import { openaiProvider } from "./providers/openai.js";
 import { regoloProvider } from "./providers/regolo.js";
 import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
 export const DEFAULT_PROVIDER_ID = "openrouter";
@@ -124,6 +125,7 @@ export function providerSummaries(): ProviderSummary[] {
 
 // Built-in providers. Additional backends register here in follow-up PRs.
 registerProvider(openRouterProvider);
+registerProvider(openaiProvider);
 registerProvider(regoloProvider);
 registerProvider(anthropicProvider);
 registerProvider(opencodeGoProvider);

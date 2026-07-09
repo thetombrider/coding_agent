@@ -6,6 +6,10 @@ export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_call_delta"; id: string; name: string; argumentsDelta: string }
+  /** A tool call has started generating arguments — fired before any content. */
+  | { type: "tool_input_start"; id: string; name: string }
+  /** Running character count of a tool call's arguments as they stream in. */
+  | { type: "tool_input_delta"; id: string; name: string; chars: number }
   | { type: "done"; message: AssistantMessage };
 
 export interface Usage {
