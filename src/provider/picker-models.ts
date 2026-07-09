@@ -12,6 +12,14 @@ export function modelLikelySupported(provider: Provider, modelId: string): boole
   return provider.metadata.supportsModel(modelId);
 }
 
+/** Whether candidateId is an exact match or a dated snapshot of baseId. */
+function isDatedSnapshot(baseId: string, candidateId: string): boolean {
+  if (candidateId === baseId) return true;
+  if (!candidateId.startsWith(`${baseId}-`)) return false;
+  const suffix = candidateId.slice(baseId.length + 1);
+  return /^\d+$/.test(suffix);
+}
+
 /**
  * Whether a curated id is present in the live catalog. Matches exact ids as well
  * as dated snapshots — e.g. curated `claude-haiku-4-5` matches the published
@@ -19,8 +27,7 @@ export function modelLikelySupported(provider: Provider, modelId: string): boole
  */
 function catalogContains(catalogIds: Iterable<string>, normalized: string, original: string): boolean {
   for (const id of catalogIds) {
-    if (id === normalized || id === original) return true;
-    if (id.startsWith(`${normalized}-`) || id.startsWith(`${original}-`)) return true;
+    if (isDatedSnapshot(normalized, id) || isDatedSnapshot(original, id)) return true;
   }
   return false;
 }
