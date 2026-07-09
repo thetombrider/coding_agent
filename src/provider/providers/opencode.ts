@@ -1,10 +1,10 @@
 /**
  * Opencode providers — hosted model gateways from opencode.ai.
  *
- * Opencode Go  (`opencode-go`): flat-rate subscription ($10/month) serving 14
+ * Opencode Go  (`opencode-go`): flat-rate subscription ($10/month) serving 20
  *   open coding models over two protocols:
- *   • 8 models via OpenAI-compatible  /chat/completions  (@ai-sdk/openai)
- *   • 6 models via Anthropic Messages  /messages          (@ai-sdk/anthropic)
+ *   • 13 models via OpenAI-compatible  /chat/completions  (@ai-sdk/openai)
+ *   • 7 models via Anthropic Messages  /messages          (@ai-sdk/anthropic)
  *   Both share the same base URL and API key.
  *
  * Opencode Zen (`opencode-zen`): pay-as-you-go curated model gateway; fully
@@ -46,19 +46,25 @@ const OPENCODE_GO_ANTHROPIC_MODELS = new Set([
   "qwen3.7-max",
   "qwen3.7-plus",
   "qwen3.6-plus",
+  "qwen3.5-plus",
 ]);
 
-/** All 14 Go model ids (used for supportsModel and picker). */
+/** All Go model ids published on the gateway (used for supportsModel). */
 const OPENCODE_GO_ALL_MODELS = new Set([
   // OpenAI-compatible (/chat/completions)
   "glm-5.2",
   "glm-5.1",
+  "glm-5",
   "kimi-k2.7-code",
   "kimi-k2.6",
+  "kimi-k2.5",
   "deepseek-v4-pro",
   "deepseek-v4-flash",
   "mimo-v2.5",
   "mimo-v2.5-pro",
+  "mimo-v2-pro",
+  "mimo-v2-omni",
+  "hy3-preview",
   // Anthropic-compatible (/messages)
   "minimax-m3",
   "minimax-m2.7",
@@ -66,24 +72,31 @@ const OPENCODE_GO_ALL_MODELS = new Set([
   "qwen3.7-max",
   "qwen3.7-plus",
   "qwen3.6-plus",
+  "qwen3.5-plus",
 ]);
 
-/** Curated picker list for Go: OpenAI-compat models first, then Anthropic-compat. */
+/** Featured Go models for the picker; the live catalog appends the rest. */
 export const OPENCODE_GO_PICKER_MODELS = [
   "kimi-k2.7-code",
   "kimi-k2.6",
+  "kimi-k2.5",
   "glm-5.2",
   "deepseek-v4-pro",
   "deepseek-v4-flash",
   "glm-5.1",
+  "glm-5",
   "mimo-v2.5-pro",
   "mimo-v2.5",
+  "mimo-v2-pro",
+  "mimo-v2-omni",
+  "hy3-preview",
   "minimax-m3",
   "minimax-m2.7",
   "qwen3.7-max",
   "qwen3.7-plus",
-  "minimax-m2.5",
   "qwen3.6-plus",
+  "qwen3.5-plus",
+  "minimax-m2.5",
 ] as const;
 
 /**
@@ -95,29 +108,65 @@ export const OPENCODE_GO_PICKER_MODELS = [
  * thresholds.
  */
 const OPENCODE_OFFLINE_CONTEXT_WINDOWS: Record<string, number> = {
-  // Go tier (14 models)
+  // Go tier
   "glm-5.2": 1_000_000,
   "glm-5.1": 202_752,
+  "glm-5": 202_752,
   "kimi-k2.7-code": 262_144,
   "kimi-k2.6": 262_144,
+  "kimi-k2.5": 262_144,
   "deepseek-v4-pro": 1_000_000,
   "deepseek-v4-flash": 1_000_000,
   "mimo-v2.5-pro": 1_048_576,
   "mimo-v2.5": 1_000_000,
+  "mimo-v2-pro": 1_048_576,
+  "mimo-v2-omni": 262_144,
+  "hy3-preview": 256_000,
   "minimax-m3": 1_000_000,
   "minimax-m2.7": 204_800,
   "minimax-m2.5": 204_800,
   "qwen3.7-max": 1_000_000,
   "qwen3.7-plus": 1_000_000,
   "qwen3.6-plus": 1_000_000,
-  // Zen tier picker (10 models)
+  "qwen3.5-plus": 262_144,
+  // Zen tier
+  "big-pickle": 200_000,
+  "claude-fable-5": 1_000_000,
+  "claude-haiku-4-5": 200_000,
+  "claude-opus-4-1": 200_000,
+  "claude-opus-4-5": 200_000,
+  "claude-opus-4-6": 1_000_000,
+  "claude-opus-4-7": 1_000_000,
+  "claude-opus-4-8": 1_000_000,
+  "claude-sonnet-4": 1_000_000,
   "claude-sonnet-4-5": 1_000_000,
   "claude-sonnet-4-6": 1_000_000,
-  "claude-opus-4-5": 200_000,
+  "gpt-5": 400_000,
+  "gpt-5-codex": 400_000,
+  "gpt-5-nano": 400_000,
+  "gpt-5.1": 400_000,
+  "gpt-5.1-codex": 400_000,
+  "gpt-5.1-codex-max": 400_000,
+  "gpt-5.1-codex-mini": 400_000,
+  "gpt-5.2": 400_000,
+  "gpt-5.2-codex": 400_000,
+  "gpt-5.3-codex": 400_000,
+  "gpt-5.3-codex-spark": 128_000,
   "gpt-5.4": 1_050_000,
   "gpt-5.4-mini": 400_000,
+  "gpt-5.4-nano": 400_000,
+  "gpt-5.4-pro": 1_050_000,
+  "gpt-5.5": 1_050_000,
+  "gpt-5.5-pro": 1_050_000,
   "grok-build-0.1": 256_000,
   "gemini-3-flash": 1_048_576,
+  "gemini-3.1-pro": 1_048_576,
+  "gemini-3.5-flash": 1_048_576,
+  "mimo-v2.5-free": 200_000,
+  "minimax-m3-free": 200_000,
+  "nemotron-3-ultra-free": 1_000_000,
+  "north-mini-code-free": 256_000,
+  "qwen3.6-plus-free": 262_144,
   "deepseek-v4-flash-free": 200_000,
 };
 
@@ -199,18 +248,28 @@ export const opencodeGoProvider: Provider = {
 
 // ── Opencode Zen ──────────────────────────────────────────────────────────────
 
-/** Curated picker list for Zen; full catalog discoverable via /models endpoint. */
+/** Featured Zen models for the picker; the live catalog appends the rest. */
 export const OPENCODE_ZEN_PICKER_MODELS = [
   "claude-sonnet-4-5",
   "claude-sonnet-4-6",
   "claude-opus-4-5",
+  "claude-opus-4-6",
+  "claude-opus-4-7",
+  "claude-opus-4-8",
   "gpt-5.4",
   "gpt-5.4-mini",
+  "gpt-5.4-pro",
+  "gpt-5.5",
+  "gpt-5.5-pro",
   "kimi-k2.6",
+  "kimi-k2.5",
   "grok-build-0.1",
   "gemini-3-flash",
+  "gemini-3.1-pro",
+  "gemini-3.5-flash",
   "deepseek-v4-flash",
   "deepseek-v4-flash-free",
+  "deepseek-v4-pro",
 ] as const;
 
 /** Opencode Zen — pay-as-you-go curated model gateway (fully OpenAI-compatible). */

@@ -117,7 +117,17 @@ describe("opencode providers", () => {
       saveConfig({ provider: { opencode: { apiKey: "sk-opencode-test" } } });
       vi.resetModules();
       const { opencodeGoProvider: provider } = await import("./opencode.js");
-      for (const modelId of ["kimi-k2.7-code", "glm-5.2", "deepseek-v4-flash", "mimo-v2.5-pro"]) {
+      for (const modelId of [
+        "kimi-k2.7-code",
+        "kimi-k2.5",
+        "glm-5.2",
+        "glm-5",
+        "deepseek-v4-flash",
+        "mimo-v2.5-pro",
+        "mimo-v2-pro",
+        "mimo-v2-omni",
+        "hy3-preview",
+      ]) {
         const model = provider.languageModel(modelId);
         expect(model, `${modelId} should be defined`).toBeDefined();
         expect(typeof model).toBe("object");
@@ -129,15 +139,34 @@ describe("opencode providers", () => {
       saveConfig({ provider: { opencode: { apiKey: "sk-opencode-test" } } });
       vi.resetModules();
       const { opencodeGoProvider: provider } = await import("./opencode.js");
-      for (const modelId of ["minimax-m3", "qwen3.7-max", "minimax-m2.5", "qwen3.6-plus"]) {
+      for (const modelId of [
+        "minimax-m3",
+        "qwen3.7-max",
+        "minimax-m2.5",
+        "qwen3.6-plus",
+        "qwen3.5-plus",
+      ]) {
         const model = provider.languageModel(modelId);
         expect(model, `${modelId} should be defined`).toBeDefined();
         expect(typeof model).toBe("object");
       }
     });
 
-    it("has all 14 models in pickerModels", () => {
-      expect(opencodeGoProvider.pickerModels).toHaveLength(14);
+    it("has 20 featured models in pickerModels", () => {
+      expect(opencodeGoProvider.pickerModels).toHaveLength(20);
+    });
+
+    it("supports all Go gateway models", () => {
+      for (const modelId of [
+        "glm-5",
+        "kimi-k2.5",
+        "mimo-v2-omni",
+        "mimo-v2-pro",
+        "qwen3.5-plus",
+        "hy3-preview",
+      ]) {
+        expect(opencodeGoProvider.metadata.supportsModel(modelId)).toBe(true);
+      }
     });
 
     it("has sensible defaults", () => {
@@ -155,16 +184,22 @@ describe("opencode providers", () => {
       const cases: Array<[string, number]> = [
         ["kimi-k2.7-code", 262_144],
         ["kimi-k2.6", 262_144],
+        ["kimi-k2.5", 262_144],
         ["glm-5.2", 1_000_000],
         ["glm-5.1", 202_752],
+        ["glm-5", 202_752],
         ["deepseek-v4-pro", 1_000_000],
         ["deepseek-v4-flash", 1_000_000],
         ["mimo-v2.5-pro", 1_048_576],
         ["mimo-v2.5", 1_000_000],
+        ["mimo-v2-pro", 1_048_576],
+        ["mimo-v2-omni", 262_144],
+        ["hy3-preview", 256_000],
         ["minimax-m3", 1_000_000],
         ["minimax-m2.7", 204_800],
         ["qwen3.7-max", 1_000_000],
         ["qwen3.6-plus", 1_000_000],
+        ["qwen3.5-plus", 262_144],
       ];
       const catalog = modelsDevCatalogFixture({
         "opencode-go": Object.fromEntries(cases),
@@ -222,6 +257,22 @@ describe("opencode providers", () => {
       const model = provider.languageModel("kimi-k2.6");
       expect(model).toBeDefined();
       expect(typeof model).toBe("object");
+    });
+
+    it("has 20 featured models in pickerModels", () => {
+      expect(opencodeZenProvider.pickerModels).toHaveLength(20);
+    });
+
+    it("supports additional Zen gateway models", () => {
+      for (const modelId of [
+        "claude-opus-4-8",
+        "gpt-5.5-pro",
+        "gemini-3.1-pro",
+        "big-pickle",
+        "mimo-v2.5-free",
+      ]) {
+        expect(opencodeZenProvider.metadata.supportsModel(modelId)).toBe(true);
+      }
     });
 
     it("has sensible defaults", () => {

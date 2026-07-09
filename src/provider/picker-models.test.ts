@@ -137,6 +137,111 @@ describe("picker-models", () => {
     await expect(loadPicker("fake-catalog")).resolves.toEqual(["good/model"]);
   });
 
+  it("appends live catalog models for opencode-zen", async () => {
+    const { registerProvider } = await import("./registry.js");
+    const { loadPickerModels: loadPicker } = await import("./picker-models.js");
+    const fake: Provider = {
+      id: "opencode-zen",
+      displayName: "Fake Opencode Zen",
+      authStrategy: "api-key",
+      isConfigured: () => true,
+      normalizeModelId: (id) => id,
+      languageModel: () => ({}) as never,
+      metadata: {
+        id: "opencode-zen",
+        supportsModel: () => true,
+        getContextWindow: async () => 1000,
+        listModelIds: async () => ["featured/model", "extra/model-b", "extra/model-a"],
+      },
+      pickerModels: ["featured/model"],
+      defaultSlots: {
+        main: "featured/model",
+        explore: "featured/model",
+        delegate_read: "featured/model",
+        compaction: "featured/model",
+      },
+    };
+    registerProvider(fake);
+    await expect(loadPicker("opencode-zen")).resolves.toEqual([
+      "featured/model",
+      "extra/model-a",
+      "extra/model-b",
+    ]);
+  });
+
+  it("deduplicates live catalog extras against curated aliases", async () => {
+    const { registerProvider } = await import("./registry.js");
+    const { loadPickerModels: loadPicker } = await import("./picker-models.js");
+    const fake: Provider = {
+      id: "opencode-zen",
+      displayName: "Fake Opencode Zen",
+      authStrategy: "api-key",
+      isConfigured: () => true,
+      normalizeModelId: (id) => id,
+      languageModel: () => ({}) as never,
+      metadata: {
+        id: "opencode-zen",
+        supportsModel: () => true,
+        getContextWindow: async () => 1000,
+        listModelIds: async () => [
+          "claude-haiku-4-5",
+          "claude-haiku-4-5-20251001",
+          "extra/model",
+        ],
+      },
+      pickerModels: ["claude-haiku-4-5"],
+      defaultSlots: {
+        main: "claude-haiku-4-5",
+        explore: "claude-haiku-4-5",
+        delegate_read: "claude-haiku-4-5",
+        compaction: "claude-haiku-4-5",
+      },
+    };
+    registerProvider(fake);
+    await expect(loadPicker("opencode-zen")).resolves.toEqual([
+      "claude-haiku-4-5",
+      "extra/model",
+    ]);
+  });
+
+  it("keeps distinct models that share a numeric prefix with the base id", async () => {
+    const { registerProvider } = await import("./registry.js");
+    const { loadPickerModels: loadPicker } = await import("./picker-models.js");
+    const fake: Provider = {
+      id: "opencode-zen",
+      displayName: "Fake Opencode Zen",
+      authStrategy: "api-key",
+      isConfigured: () => true,
+      normalizeModelId: (id) => id,
+      languageModel: () => ({}) as never,
+      metadata: {
+        id: "opencode-zen",
+        supportsModel: () => true,
+        getContextWindow: async () => 1000,
+        listModelIds: async () => [
+          "gpt-5.4",
+          "gpt-5.4-nano",
+          "gpt-5.4-mini",
+          "gpt-5.4-pro",
+        ],
+      },
+      pickerModels: ["gpt-5.4"],
+      defaultSlots: {
+        main: "gpt-5.4",
+        explore: "gpt-5.4",
+        delegate_read: "gpt-5.4",
+        compaction: "gpt-5.4",
+      },
+    };
+    registerProvider(fake);
+    await expect(loadPicker("opencode-zen")).resolves.toEqual([
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+      "gpt-5.4-pro",
+    ]);
+  });
+
   it("keeps curated alias ids that match dated catalog snapshots", async () => {
     const { registerProvider } = await import("./registry.js");
     const { loadPickerModels: loadPicker } = await import("./picker-models.js");
