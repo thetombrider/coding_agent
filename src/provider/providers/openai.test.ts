@@ -7,7 +7,7 @@ import { resetOpenAiCompatibleModelsCache } from "../openai-compatible.js";
 import { resetModelsDevCache } from "../modelsdev.js";
 
 function mockFetch(handlers: Record<string, { ok?: boolean; status?: number; body: unknown }>) {
-  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     const handler = Object.entries(handlers).find(([pattern]) => url.includes(pattern))?.[1];
     if (!handler) {

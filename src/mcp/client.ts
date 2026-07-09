@@ -53,7 +53,12 @@ export interface ConnectedMcpServer {
 
 export async function connectServer(name: string, config: McpServerConfig): Promise<ConnectedMcpServer> {
   const client = new Client({ name: "orin", version: "0.1.0" });
-  await client.connect(makeTransport(name, config));
-  const { tools } = await client.listTools();
-  return { client, tools, name };
+  try {
+    await client.connect(makeTransport(name, config));
+    const { tools } = await client.listTools();
+    return { client, tools, name };
+  } catch (err) {
+    await client.close().catch(() => {});
+    throw err;
+  }
 }

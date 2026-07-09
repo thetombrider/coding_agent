@@ -77,7 +77,9 @@ describe("loadMcpConfig", () => {
     );
     const { loadMcpConfig } = await import("./config.js");
     const { config, warnings } = loadMcpConfig();
-    expect(config.servers.fs?.args).toEqual([
+    const fs = config.servers.fs;
+    if (!fs || fs.type !== "stdio") throw new Error("expected stdio server");
+    expect(fs.args).toEqual([
       "-y",
       "@modelcontextprotocol/server-filesystem",
       ".",
