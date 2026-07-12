@@ -49,7 +49,7 @@ describe("provider registry", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("registers OpenRouter, OpenAI, and Regolo providers", async () => {
+  it("registers built-in providers", async () => {
     const { getProvider, listProviders, metadataProviders } = await import("./registry.js");
     const openrouter = getProvider("openrouter");
     expect(openrouter?.id).toBe("openrouter");
@@ -58,10 +58,12 @@ describe("provider registry", () => {
     expect(listProviders().some((p) => p.id === "openai")).toBe(true);
     expect(listProviders().some((p) => p.id === "regolo")).toBe(true);
     expect(listProviders().some((p) => p.id === "cerebras")).toBe(true);
+    expect(listProviders().some((p) => p.id === "vercel")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openrouter")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openai")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "regolo")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "cerebras")).toBe(true);
+    expect(metadataProviders().some((m) => m.id === "vercel")).toBe(true);
   });
 
   it("resolves the active provider from config", async () => {
