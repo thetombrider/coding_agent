@@ -1,6 +1,6 @@
 import { bold, createTextAttributes, fg, italic, StyledText, type TextChunk } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
-import { For, Index, type JSX, Show } from "solid-js";
+import { createMemo, For, Index, type JSX, Show } from "solid-js";
 import {
   type Block,
   displayWidth,
@@ -104,12 +104,12 @@ function rowLines(cells: string[], widths: number[], header: boolean): StyledTex
 function TableBlock(props: { headers: string[]; rows: string[][] }) {
   const dimensions = useTerminalDimensions();
   const columns = () => props.headers.length;
-  const rows = () => props.rows.map((row) => normalizeRow(row, columns()));
-  const widths = () => {
+  const rows = createMemo(() => props.rows.map((row) => normalizeRow(row, columns())));
+  const widths = createMemo(() => {
     const natural = tableColumnWidths(props.headers, rows());
     const available = dimensions().width - TABLE_CHROME;
     return available > 0 ? fitColumnWidths(natural, available) : natural;
-  };
+  });
   const border = (left: string, mid: string, right: string) =>
     `${left}${widths().map((w) => "─".repeat(w + 2)).join(mid)}${right}`;
 

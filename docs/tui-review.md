@@ -6,136 +6,51 @@ preload, `jsx: preserve`, `jsxImportSource: @opentui/solid`, proper deps.
 
 Severity legend: 🔴 bug · 🟡 antipattern · 🔵 inconsistency · ⚪ note
 
+> Re-verified 2026-07-13 against current `src/tui/**`. B1, B2, B3, A1, A2, A3,
+> I1, I3 were already fixed and have been removed from this doc (see git
+> history for the original write-ups). Everything below still reproduces in
+> the current code.
+
 ---
 
 ## Bugs
 
-### B1 · `views.tsx:471` — dead ternary, both branches return 0
-```tsx
-<box flexDirection="row" marginBottom={subagent().tools.length ? 0 : 0}>
-```
-Both branches yield `0`. One was likely meant to be non-zero (e.g. `1`) to
-add spacing when subagent tools exist. As written the condition is dead code.
-
-### B2 · `views.tsx:156-159` — `formatPerMRate` has a redundant branch
-```ts
-function formatPerMRate(rate: number): string {
-  if (rate >= 1) return `$${rate.toFixed(2)}`;
-  if (rate >= 0.1) return `$${rate.toFixed(2)}`;   // ← same format as above
-  return `$${rate.toFixed(3)}`;
-}
-```
-The `rate >= 0.1` and `rate >= 1` branches produce identical output, so
-sub-dollar rates between 0.1–0.99 get 2-decimal formatting when they likely
-should differ (e.g. the `>= 0.1` branch was probably meant to use a different
-precision, or the threshold was meant to be lower). Sub-0.1 rates correctly
-get 3 decimals.
-
-### B3 · `app.tsx:1329-1335` — plain `c` copy can double-act with input typing
-```tsx
-if (isPlainSelectionCopyShortcut(key)) {       // plain `c`, no modifiers
-  const selected = readRendererSelection(renderer);
-  if (selected) {
-    void performCopy(selected);
-    return;                                    // no key.preventDefault()
-  }
-}
-```
-Unlike the approval handler (line 1370, which calls `key.preventDefault()`),
-this early copy block does **not** preventDefault. When a drag-selection is
-active during the `input`/`question` phase and the user presses plain `c`,
-the global handler copies the selection AND the still-focused `<input>`
-types a stray `c` into the prompt. The approval block's own comment
-(lines 1367-1369) documents that without preventDefault the input captures
-the keystroke too — so this is a known hazard that this path doesn't guard.
-
-### B4 · `app.tsx:1487,1502,1522,1539` — `key.name !== undefined` swallows
-Enter-adjacent modifier combos in sub-menus
-```tsx
-// sessions delete menu, skills detail menu, mcp delete/detail menus
-if (key.name !== undefined) return;
-```
-These lines intentionally swallow all named keys so Enter is handled by the
-submit path. But `key.name` for a raw Enter is `"enter"` (defined) — this is
-correct. The risk: modifier-only keypresses where `key.name === undefined`
-(e.g. a bare Shift press) fall through to the `up`/`down`/`escape` handlers
-below, which is harmless. Marking as a note rather than a real bug after
-re-checking — documenting because the pattern is subtle and easy to break
-on refactor.
+No open bugs. The four originally logged here are resolved:
+- B1 (`views.tsx` dead ternary) — fixed, now `subagent().tools.length ? 1 : 0`.
+- B2 (`formatPerMRate` redundant branch) — fixed, now two branches (`>= 0.1` / else).
+- B3 (plain `c` copy missing `preventDefault`) — fixed, both call sites
+  (`app.tsx:1449`, `app.tsx:1768`) now call `key.preventDefault()`.
+- B4 (`key.name !== undefined` swallow) — was already reclassified as a note
+  on the prior pass, not a real bug; see N1-adjacent behavior is unchanged,
+  still correct. No entry needed here.
 
 ---
 
 ## Antipatterns
 
-### A1 · `<For>` used over primitive arrays (should be `<Index>`)
-Rule 19: `<For>` for arrays of objects (item is reactive); `<Index>` for
-primitives (item() is reactive). The codebase uses `<For>` for `string[]`
-in many places. Low risk in practice because the arrays are recreated each
-render (new references → For re-runs), but duplicate strings can confuse
-For's referential keying during streaming updates.
-
-| File | Line | Array |
-|------|------|-------|
-| `app.tsx` | 1918 | `[...pickerModels()]` (model ids) |
-| `app.tsx` | 1973 | `APPROVAL_MODES` |
-| `app.tsx` | 2053 | `SESSION_ISOLATION_MODES` |
-| `app.tsx` | 2074 | `ISOLATION_MODES` |
-| `app.tsx` | 2112 | `modelSlotList()` |
-| `app.tsx` | 2235 | `mcpServerDetailLines(s())` |
-| `diff.tsx` | 24 | `lines()` (diff lines — duplicates common) |
-| `expandable.tsx` | 45 | `formatted().lines` (tool output — duplicates common, streams) |
-| `markdown.tsx` | 154,162,177,191 | `block.body.split("\n")`, list items, blockquote/paragraph lines |
-| `logo.tsx` | 61 | `LOGO_LINES` (static — zero risk) |
-
-The `diff.tsx` and `expandable.tsx` cases are the highest risk: diff output
-and tool output frequently contain duplicate lines and re-evaluate during
-streaming, where For's referential keying can drop or mis-style duplicates.
-
-### A2 · `markdown.tsx:136` — props destructured, breaking reactivity
-```tsx
-function BlockView(props: { block: Block; first: boolean }) {
-  const block = props.block;   // ← captures once, won't update
-  switch (block.type) { … }
-```
-Rule 6: don't destructure props. Every other component in the TUI correctly
-uses `props.xxx` or `() => props.xxx` getters (`views.tsx:466`, `510`, etc.);
-`BlockView` is the sole exception. Works today because `<For>` recreates
-`BlockView` for new block references, but would silently break if blocks
-were ever mutated in place.
-
-### A3 · `scroll-rail.tsx:33` — bare expression as reactive dependency
-```tsx
-const layout = () => {
-  props.revision;              // bare read — no assignment, no use
-  return scrollRailMetrics(props.scrollRef());
-};
-```
-Reading `props.revision` solely to create a reactive dependency works, but
-a minifier/tree-shaker could legally remove it as a no-op statement (it has
-no observable side effect in pure JS). Should be `const _ = props.revision;`
-or integrated into the return expression.
-
 ### A4 · Many `<Show>` without `fallback` (rule 18)
-`scroll-rail.tsx:40-43` documents that no-fallback `<Show>` yields `""` (an
-orphan text node) in the server/test renderer. Despite this known issue,
-many `<Show>` components lack fallbacks:
+Still true. `scroll-rail.tsx:40-43` documents that no-fallback `<Show>`
+yields `""` (an orphan text node) in the server/test renderer. Most `<Show>`
+usages in the TUI still lack a fallback:
 
-- `views.tsx`: lines 63, 335, 348, 352, 440, 443, 447, 452, 455, 458, 494,
-  518, 523, 529, 536, 558, 563
-- `markdown.tsx`: 200
-- `expandable.tsx`: 58
-- `app.tsx`: 1860, 1863, 1866 (nested in MCP wizard — these are conditional
-  hints inside an already-mounted subtree, lower risk)
+- `views.tsx`: lines 63, 348, 361, 365, 455, 458, 462, 467, 470, 473, 577,
+  581, 586, 644, 668, 692, 697, 703, 710, 732, 737
+- `markdown.tsx`: line 201
+- `expandable.tsx`: line 58
+- `app.tsx`: 2020, 2023, 2026 (MCP wizard hints — conditional text inside an
+  already-mounted subtree, lower risk)
 
-### A5 · Missing `createMemo` for repeatedly-evaluated derived getters
-Several getters are called 3-5× per render, each call re-running computation:
-- `views.tsx`: `summary()` 3× (419,441,449), `hasPlainOutput()` 5×
-  (377,385,404,421,458), `showDiff()` 3× (374,395,455)
-- `markdown.tsx`: `widths()` 3+× via `border()`/`rowLines()`, `rows()` 2×
-- `expandable.tsx`: `formatted()` 3× (31,45,58) — each re-runs
-  `formatToolOutputForDisplay` which splits/processes the full output
+(Note: the multi-line `<Show when=… fallback=…>` blocks in `views.tsx`
+`ToolBlock`/`ApprovalBar` and `expandable.tsx`'s outer scrollable switch *do*
+have a fallback a few lines down — those aren't included above.)
 
-### A6 · `app.tsx:338-347` — effect reads signals only for side-effect
+### A5 · Missing `createMemo` for repeatedly-evaluated derived getters — fixed
+`views.tsx` (`summary()`, `hasPlainOutput()`, `showDiff()`) and
+`expandable.tsx` (`formatted()`) were already `createMemo`. The remaining
+gap, `markdown.tsx` `TableBlock`'s `widths()`/`rows()`, is now also wrapped
+in `createMemo`. No open items for this antipattern.
+
+### A6 · `app.tsx:378-386` — effect reads signals only for side-effect
 ```tsx
 createEffect(() => {
   completed();
@@ -145,92 +60,76 @@ createEffect(() => {
   queueMicrotask(bumpScrollRail);
 });
 ```
-`completed()` and `live()` are called solely to create reactive dependencies
-(their return values are discarded). This is a known Solid pattern but is
-fragile — same class as A3. A named memo or comment-protected read would be
-clearer.
+Still present (line numbers shifted from 338-347). Lower severity now: the
+code has since grown an explanatory comment ("re-measure the rail when they
+toggle — otherwise it keeps a stale height and overflows over the approval
+bar"), so the pattern is intentional and documented, just still fragile in
+the same way as before.
 
 ---
 
 ## Inconsistencies
 
-### I1 · Props-access style differs across components
-- Most components: `props.xxx` in JSX, or `const x = () => props.xxx` getter
-  (`views.tsx:466`, `510`, `app.tsx:1839`).
-- `markdown.tsx:136`: `const block = props.block` (captures once — see A2).
-- `scroll-rail.tsx:33`: bare `props.revision;` (see A3).
-
 ### I2 · `revision` prop passed as value vs `scrollRef` as factory
-`app.tsx:1733` passes `revision={scrollRailRevision()}` (calls the signal,
-passes a number), while `app.tsx:1732` passes `scrollRef={() => scrollRef}`
-(factory). Both are correct for their respective prop types (value vs
-accessor), but the differing patterns side-by-side can confuse readers.
-
-### I3 · `formatPerMRate` thresholds don't match display intent
-See B2 — the `>= 1` and `>= 0.1` branches are identical, which is either a
-copy-paste error or an incomplete refactor. Inconsistent with the `>= 0.1`
-→ `toFixed(3)` pattern that the `< 0.1` branch implies was the goal.
+Still present. `app.tsx:1873` passes `scrollRef={() => scrollRef}` (factory)
+while `app.tsx:1874` passes `revision={scrollRailRevision()}` (value). Both
+are correct for their respective prop types; still just a readability wrinkle
+for anyone scanning the two side by side.
 
 ---
 
 ## Notes (uncertain / worth flagging)
 
-### N1 · `app.tsx:1370` — `preventDefault()` called for ALL keys in approval
+### N1 · `app.tsx:1487` — `preventDefault()` called for ALL keys in approval
 ```tsx
 if (phase === "approval") {
   key.preventDefault();        // before any key check
   if (key.name === "y") { … }
 ```
-`preventDefault` is called unconditionally for every key in approval phase,
-before checking which key. This is defensive (the comment at 1367-1369
-explains it prevents the unfocused input from capturing `y`/`n`), but
-calling it for arrow/page keys too is broader than necessary. Harmless
-since the input isn't focused during approval (`focused={phase !==
-"approval"}` at line 2346), but suggests the input may have historically
-captured keys even when unfocused.
+Still unconditional for every key in approval phase (line shifted from
+1370). Harmless — the input isn't focused during approval (see N3) — but
+confirms the input historically needed this guard.
 
-### N2 · `app.tsx:1707` — `<For each={completed()}>` is correct (objects)
-`completed()` returns `Turn[]` (objects), so `<For>` is the right choice
-per rule 19. The `turnKey={...}` prop uses `i()` (index accessor) — correct.
+### N2 · `app.tsx:1848` — `<For each={completed()}>` is correct (objects)
+`completed()` returns `Turn[]` (objects), so `<For>` remains the right
+choice per rule 19 (line shifted from 1707).
 
-### N3 · `app.tsx:2346` — input focused during `question` and `running`
+### N3 · `app.tsx:2513` — input focused during `question` and `running`
+`inputFocused` is now a `createMemo` (`app.tsx:399-403`):
 ```tsx
-focused={state().phase !== "approval"}
+const inputFocused = createMemo(() => {
+  if (state().phase === "approval") return false;
+  if (palette()?.phase === "mcp") return false;
+  return true;
+});
 ```
-The input is focused during `input`, `question`, and `running` phases. This
-is intentional (lets the user type ahead / type a custom question reply),
-but means the global keyboard handler and the input both see keystrokes
-during those phases — the source of B3.
+Same effective behavior as before: focused during `input`, `question`, and
+`running` phases (plus now explicitly blurred while the `/mcp` palette is
+open, to stop mouse-report leaks). Intentional (type-ahead), but the global
+keyboard handler and the input both still see keystrokes in those phases.
 
-### N4 · `session.ts:664` — `process.exit` is in a comment, not code
-The grep hit on `process.exit` in `session.ts` is a comment explaining that
-`process.exit` fires the `"exit"` event (which `restoreTerminal` hooks for
-cleanup). The actual code at line 667 is `process.once("exit",
-onProcessExit)` — correct defensive cleanup. The real `process.exit`
-calls are in `main.ts` and `cli/mcp.ts` (CLI-level fatal errors outside the
-TUI render loop), not inside the TUI.
+### N4 · `session.ts:713` — `process.exit` is in a comment, not code
+Still accurate. The comment explains `restoreTerminal`'s exit-hook cleanup;
+the actual `process.once("exit", onProcessExit)` is at line 715. Real
+`process.exit` calls remain in `main.ts` and `cli/mcp.ts` only, not inside
+the TUI.
 
 ### N5 · `views.tsx:79-92` — todo reads are non-reactive by design
-`item.status`/`item.content` are plain property reads on `TodoItem` objects
-(not a Solid store). The UI relies on `<For>` recreating children when the
-`todos` array is replaced with fresh object references. Works because
-`rebuildTodosFromMessages` returns new objects, but would silently break if
-items were ever mutated in place.
+Still accurate. `item.status`/`item.content` are plain property reads on
+`TodoItem` objects (not a Solid store); relies on `<For>` recreating
+children when the `todos` array is replaced with fresh object references.
 
-### N6 · `expandable.tsx:43-64` — inline component definition
-`const Lines = () => (...)` defines a component inside `ToolOutputView`.
-Works in Solid (outer function runs once, so `Lines` is stable), but inline
-component definitions can confuse the compiler's optimization passes.
-Could be called as `{Lines()}` to inline into the parent scope, or
-extracted to module scope.
+### N6 · `expandable.tsx:43` — inline component definition
+Still present. `const Lines = () => (...)` defines a component inside
+`ToolOutputView`. Works in Solid, but inline component definitions can
+confuse compiler optimization passes.
 
-### N7 · `markdown.tsx:145` — `createTextAttributes` called per render
+### N7 · `markdown.tsx:144` — `createTextAttributes` called per render
 ```tsx
-attributes={createTextAttributes({ bold: true, underline: block.level === 1 })}
+attributes={createTextAttributes({ bold: true, underline: props.block.level === 1 })}
 ```
-Constructs a new bitmask on every reactive evaluation. Minor — could be
-memoized since `block.level` is static per instance (block is captured
-once per A2).
+Still constructs a new bitmask on every reactive evaluation. Minor — could
+be memoized since `block.level` is static per instance.
 
 ---
 
@@ -241,36 +140,36 @@ once per A2).
 - **No `process.exit` inside the TUI** — exit routes through `props.onExit()`
   → `renderer.destroy()`.
 - **No Solid naming errors** — no `<tab-select>`/`<ascii-font>` hyphens; no
-  `onChange` on Solid inputs (uses `onInput` at `app.tsx:2351`).
+  `onChange` on Solid inputs (uses `onInput` at `app.tsx:2518`).
 - **No text-styling props** — uses `attributes={BOLD}` (imperative bitmask
   via `createTextAttributes`) and nested modifier tags, never
   `bold={true}`/`italic={true}` props on `<text>`.
 - **Colors all have `#`** — no missing-prefix hex colors found.
 - **`spinner.ts`** — proper `onCleanup(() => clearInterval(id))`.
-- **`controller.ts:265-272`** — notifies listeners via `queueMicrotask` to
-  avoid synchronous-write-during-render errors. Good defensive pattern.
-- **`controller.ts:628,664`** — approval/question rejection gates on the
+- **`controller.ts:316`** — notifies listeners via `queueMicrotask` to avoid
+  synchronous-write-during-render errors. Good defensive pattern.
+- **`controller.ts:744`** — approval/question rejection gates on the
   resolver, not the phase (handles sibling tool_start racing the phase).
   Well-commented.
-- **`app.tsx:402-406,420-427`** — async effects guard against stale provider
-  switches (`if (provider === providerId)`).
+- **`app.tsx`** — async effects guard against stale provider switches
+  (`if (provider === providerId)`).
 - **`crash.ts`** — robust best-effort diagnostics, never throws from
   finally/exit handlers.
 - **`terminal.ts`** — `restoreTerminal` is best-effort, tolerant of closed
   stdout, never throws.
+- **Since the prior review**: `markdown.tsx`'s `BlockView` stopped
+  destructuring `props.block`, `scroll-rail.tsx` made its bare
+  `props.revision` read explicit (`void props.revision`), every
+  primitive-array `<For>` (in `diff.tsx`, `expandable.tsx`, `markdown.tsx`,
+  and the pickers/mode lists in `app.tsx`) was switched to `<Index>`, and
+  `markdown.tsx` `TableBlock`'s `widths()`/`rows()` are now `createMemo`.
 
 ---
 
 ## Recommended fix priority
 
-1. **B1** `views.tsx:471` — fix the dead ternary (likely `1` in one branch).
-2. **B2** `views.tsx:156-159` — fix `formatPerMRate` redundant branch.
-3. **B3** `app.tsx:1329` — add `key.preventDefault()` to the plain-`c`
-   selection-copy block (match the approval block's pattern).
-4. **A1** `diff.tsx:24`, `expandable.tsx:45` — switch to `<Index>` for the
-   duplicate-prone streaming string arrays (highest-risk For-over-strings).
-5. **A2** `markdown.tsx:136` — change `const block = props.block` to
-   `const block = () => props.block` and update accesses, or use `props.`
-   directly.
-6. **A3** `scroll-rail.tsx:33` — assign `props.revision` to a variable.
-7. **A5** wrap the multi-call getters in `createMemo`.
+1. **A4** — add `fallback` to the `<Show>` blocks listed above, at least
+   the ones in the live conversation view (`views.tsx`) where an orphan
+   text node is most likely to matter.
+2. **N6/N7** — optional cleanup: hoist `Lines` out of `ToolOutputView`,
+   memoize the `createTextAttributes` call in `markdown.tsx`.
