@@ -10,7 +10,7 @@ import { clipboardHintText } from "./shortcuts.js";
 export type ToolStatus = "running" | "done" | "error";
 export type SessionPhase = "input" | "running" | "approval" | "question";
 
-/** Nested tools run inside a parent `task` subagent loop. */
+/** Nested tools run inside a parent `task` / `task_parallel` subagent loop. */
 export interface SubagentContext {
   id: string;
   agent: string;
@@ -19,13 +19,16 @@ export interface SubagentContext {
   tools: ToolEntry[];
 }
 
+const SUBAGENT_PARENT_TOOLS = new Set(["task", "task_parallel"]);
+
 export interface ToolEntry {
   id: string;
   name: string;
   args: unknown;
   status: ToolStatus;
   output?: string;
-  subagent?: SubagentContext;
+  /** One entry for serial `task`; multiple for concurrent `task_parallel` children. */
+  subagents?: SubagentContext[];
 }
 
 export interface PendingApproval {
@@ -195,24 +198,33 @@ function toolInputProgressHint(name: string, chars: number, subagentAgent?: stri
 
 function findSubagentAgent(tools: ToolEntry[], subagentId: string): string | undefined {
   for (const tool of tools) {
-    if (tool.subagent?.id === subagentId) return tool.subagent.agent;
+    for (const sub of tool.subagents ?? []) {
+      if (sub.id === subagentId) return sub.agent;
+    }
   }
   return undefined;
 }
 
-function attachSubagentToRunningTask(
+function attachSubagentToRunningParent(
   tools: ToolEntry[],
   subagent: Omit<SubagentContext, "tools">,
 ): ToolEntry[] {
-  let attached = false;
+  let serialTaskAttached = false;
   return tools.map((tool) => {
-    if (attached || tool.name !== "task" || tool.status !== "running" || tool.subagent) {
+    if (!SUBAGENT_PARENT_TOOLS.has(tool.name) || tool.status !== "running") {
       return tool;
     }
-    attached = true;
+    const existing = tool.subagents ?? [];
+    if (existing.some((s) => s.id === subagent.id)) {
+      return tool;
+    }
+    if (tool.name === "task") {
+      if (serialTaskAttached || existing.length > 0) return tool;
+      serialTaskAttached = true;
+    }
     return {
       ...tool,
-      subagent: { ...subagent, tools: [] },
+      subagents: [...existing, { ...subagent, tools: [] }],
     };
   });
 }
@@ -224,8 +236,12 @@ function upsertSubagentTool(
   patch: Partial<ToolEntry> & Pick<ToolEntry, "name" | "args">,
 ): ToolEntry[] {
   return tools.map((tool) => {
-    if (tool.subagent?.id !== subagentId) return tool;
-    const subTools = [...tool.subagent.tools];
+    const subs = tool.subagents;
+    if (!subs) return tool;
+    const subIdx = subs.findIndex((s) => s.id === subagentId);
+    if (subIdx === -1) return tool;
+    const sub = subs[subIdx]!;
+    const subTools = [...sub.tools];
     const idx = subTools.findIndex((t) => t.id === toolId);
     if (idx === -1) {
       subTools.push({
@@ -238,14 +254,21 @@ function upsertSubagentTool(
     } else {
       subTools[idx] = { ...subTools[idx]!, ...patch };
     }
-    return { ...tool, subagent: { ...tool.subagent, tools: subTools } };
+    const nextSubs = [...subs];
+    nextSubs[subIdx] = { ...sub, tools: subTools };
+    return { ...tool, subagents: nextSubs };
   });
 }
 
 function finalizeSubagent(tools: ToolEntry[], subagentId: string): ToolEntry[] {
   return tools.map((tool) => {
-    if (tool.subagent?.id !== subagentId) return tool;
-    return { ...tool, subagent: { ...tool.subagent, active: false } };
+    if (!tool.subagents) return tool;
+    return {
+      ...tool,
+      subagents: tool.subagents.map((s) =>
+        s.id === subagentId ? { ...s, active: false } : s,
+      ),
+    };
   });
 }
 
@@ -667,7 +690,8 @@ export function createSessionController(meta: SessionMeta): SessionController {
               upsertSubagentTool(state.currentTools, event.subagentId, event.id, {
                 name: event.name,
                 args: state.currentTools
-                  .flatMap((t) => t.subagent?.tools ?? [])
+                  .flatMap((t) => t.subagents ?? [])
+                  .flatMap((s) => s.tools)
                   .find((t) => t.id === event.id)?.args ?? {},
                 status: event.isError ? "error" : "done",
                 output: event.output,
@@ -697,7 +721,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
           break;
         case "subagent_start":
           setCurrentTools(
-            attachSubagentToRunningTask(state.currentTools, {
+            attachSubagentToRunningParent(state.currentTools, {
               id: event.id,
               agent: event.agent,
               description: event.description,
