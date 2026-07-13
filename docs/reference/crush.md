@@ -51,7 +51,7 @@ Crush                      →  LSP, hooks UX, permissions granularity, TUI poli
 | 12 | Auto-background after N seconds on slow foreground cmds | tools | `src/tools/bash.ts` | 💡 Crush defaults 60s; Orin uses explicit `background: true` |
 | 13 | SQLite session/message persistence | sessions | `src/session/*` (JSONL) | ✅ different trade-off (see §13) |
 | 14 | Compaction via `Summarize` (summary message in DB) | Phase 7 | `src/agent/compaction.ts` | ✅ aligned; Crush also tracks `IsSummaryMessage` |
-| 15 | Prompt queue while session busy | TUI | — | 💡 missing — user can't enqueue during a turn |
+| 15 | Prompt queue while session busy | TUI | — | 💡 #338 |
 | 16 | `question` tool (structured user prompts in TUI) | approval / UX | approval bar only | 💡 missing — no multi-choice ask tool |
 | 17 | `crush_info` introspection tool (config/LSP/MCP/skills dump) | meta | `/settings`, palettes | ⚠️ partial — no agent-callable introspection |
 | 18 | Client/server via Unix socket / named pipe | detached agents | `src/ratel/*` (partial) | 🔜 informs headless/CI embedding |
@@ -328,18 +328,17 @@ offline.
 
 ## Recommended follow-ups (concrete)
 
-1. **New issue — LSP diagnostics layer** (§3, §4): lazy manager, `lsp_diagnostics` tool,
-   post-edit diagnostic append. Highest-value Crush differentiator for Orin.
-2. **Phase 10 — hook protocol parity** (§5): hook metadata on events, allow → skip permission,
-   Claude Code env aliases, document subagent hook exclusion.
-3. **Phase 10 — context file breadth** (§11): expand default rules file search paths to match
-   Crush/Cursor/Claude Code conventions.
-4. **New issue — `question` tool** (§9): structured user prompts (choices, yes/no, free text).
-5. **Low-cost — `orin_info` tool** (§10): agent-callable redacted config dump.
-6. **Phase 4 — session-scoped path grants** (§6): remember per-tool/path approvals for the session.
-7. **TUI — prompt queue** (§14): enqueue user messages while agent is busy.
-8. **Phase 6 — `multiedit`** (§4): sequential edits with partial-failure reporting.
-9. **Tools — read staleness tracker** (§15): warn when editing files not read since mtime change.
+Tracking issues filed from this study (issue #327):
+
+1. **#360 — LSP diagnostics layer** (§3, §4): lazy manager, `lsp_diagnostics` tool, post-edit diagnostic append.
+2. **#362 — hook protocol parity** (§5): hook metadata on events, allow → skip permission, Claude Code env aliases, subagent hook exclusion.
+3. **#363 — context file breadth** (§11): expand default rules file search paths to match Crush/Cursor/Claude Code conventions.
+4. **#174 — `askuser` tool** (§9): already shipped; structured user prompts (choices, yes/no, free text).
+5. **#365 — `orin_info` tool** (§10): agent-callable redacted config dump.
+6. **#361 — session-scoped path grants** (§6): remember per-tool/path approvals for the session.
+7. **#338 — prompt queue + mid-loop steering** (§14): enqueue user messages while agent is busy (merged from duplicate #364).
+8. **#366 — `multiedit`** (§4): sequential edits with partial-failure reporting.
+9. **#367 — read staleness tracker** (§15): warn when editing files not read since mtime change.
 
 ## Sources
 
