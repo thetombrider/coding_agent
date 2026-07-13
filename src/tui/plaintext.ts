@@ -1,4 +1,5 @@
 import type { SessionState, ToolEntry, Turn } from "./controller.js";
+import { toolDisplayOutput } from "./tool-output.js";
 import { toolSummary } from "./views.js";
 
 export function toolEntryToPlainText(entry: ToolEntry): string {
@@ -11,7 +12,8 @@ export function toolEntryToPlainText(entry: ToolEntry): string {
       lines.push(`  ${toolEntryToPlainText(child).replace(/\n/g, "\n  ")}`);
     }
   }
-  if (entry.output) lines.push(entry.output);
+  const output = toolDisplayOutput(entry);
+  if (output) lines.push(output);
   return lines.join("\n");
 }
 
@@ -79,7 +81,7 @@ export function pickFocusedCopyText(
     const turn = turns[t]!;
     for (let i = turn.tools.length - 1; i >= 0; i--) {
       const tool = turn.tools[i]!;
-      if (tool.output) return toolEntryToPlainText(tool);
+      if (toolDisplayOutput(tool)) return toolEntryToPlainText(tool);
     }
   }
 

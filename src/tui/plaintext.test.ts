@@ -59,6 +59,17 @@ describe("plaintext", () => {
     expect(text).toContain("It has two deps.");
   });
 
+  it("includes written file content from write tool args", () => {
+    const text = toolEntryToPlainText({
+      id: "1",
+      name: "write",
+      args: { path: "out.ts", content: "export const x = 1;\n" },
+      status: "done",
+      output: "Wrote out.ts (18 bytes)",
+    });
+    expect(text).toBe("write  out.ts\nexport const x = 1;\n");
+  });
+
   it("serializes the visible conversation", () => {
     const state = baseState();
     state.completedTurns = [
