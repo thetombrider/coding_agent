@@ -14,7 +14,7 @@ import { SymbolIndex } from "./index.js";
 import { ensureParserReady, isIndexablePath } from "./parser.js";
 import type { IndexStats, SearchMode, SearchOpts } from "./types.js";
 
-const INDEX_GLOBS = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs"];
+const INDEX_GLOBS = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.py"];
 const WARM_CONCURRENCY = 8;
 
 async function listIndexableFiles(workspace: Workspace, cwd: string): Promise<string[]> {

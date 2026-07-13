@@ -29,6 +29,9 @@ const ENCLOSING_TYPES = new Set([
   "class_declaration",
   "class",
   "abstract_class_declaration",
+  "function_definition",
+  "class_definition",
+  "decorated_definition",
 ]);
 
 function line1(node: Node): number {
@@ -76,7 +79,13 @@ function findEnclosingId(node: Node, file: string, symbols: Symbol[]): string | 
       if (hit) return hit.id;
       const name = nameFromEnclosing(cur);
       if (name) {
-        const kind = cur.type.includes("method") ? "method" : cur.type.includes("class") ? "class" : "function";
+        const kind = cur.type.includes("method")
+        ? "method"
+        : cur.type.includes("class")
+          ? "class"
+          : cur.type === "function_definition" || cur.type === "decorated_definition"
+            ? "function"
+            : "function";
         return symbolId(file, kind, name, start);
       }
     }
