@@ -3,7 +3,7 @@ import { useTerminalDimensions } from "@opentui/solid";
 import { formatMcpToolLabel, isMcpTool } from "../mcp/names.js";
 import type { ModelPricing } from "../config/config.js";
 import { createSignal, createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js";
-import type { SubagentContext, ToolEntry, Turn } from "./controller.js";
+import type { SubagentContext, ToolEntry, Turn, TurnBlock } from "./controller.js";
 import type { TodoItem, TodoStatus } from "../todos/types.js";
 import { countCompletedTodos, hasActiveTodos } from "../todos/store.js";
 import type { SessionPhase } from "./controller.js";
@@ -103,6 +103,20 @@ export function TodoSidebar(props: { todos: TodoItem[]; phase: SessionPhase }) {
       </box>
     </Show>
   );
+}
+
+/** Id of the reasoning block that should show the live spinner, if any. */
+export function activeReasoningBlockId(
+  blocks: TurnBlock[],
+  opts: { reasoningStreaming?: boolean; assistantText?: string },
+): string | null {
+  if (!opts.reasoningStreaming || opts.assistantText) return null;
+  const last = blocks[blocks.length - 1];
+  return last?.type === "reasoning" ? last.id : null;
+}
+
+function resolveStreamingFlag(streaming?: boolean | (() => boolean)): boolean {
+  return typeof streaming === "function" ? streaming() : !!streaming;
 }
 
 export function shortModel(model: string): string {
@@ -298,13 +312,15 @@ export function toolSummary(
 function ReasoningBlock(props: {
   id: string;
   text: string;
-  streaming?: boolean;
+  /** Boolean or accessor — accessors stay in sync when sibling blocks are appended. */
+  streaming?: boolean | (() => boolean);
   /** Extra gap when this block follows a tool call. */
   spacedAbove?: boolean;
 }) {
   const text = () => props.text;
   const toolExpand = useToolExpand();
   const hasText = () => text().length > 0;
+  const streaming = () => resolveStreamingFlag(props.streaming);
   const [localExpanded, setLocalExpanded] = createSignal(toolExpand?.isExpanded(props.id) ?? false);
 
   const expanded = () => localExpanded();
@@ -318,9 +334,9 @@ function ReasoningBlock(props: {
     setExpanded(!expanded());
   };
 
-  const visible = () => hasText() || !!props.streaming;
+  const visible = () => hasText() || streaming();
   const glyph = () => {
-    if (props.streaming) return spinnerFrame();
+    if (streaming()) return spinnerFrame();
     return expanded() ? "▾" : "▸";
   };
 
@@ -339,7 +355,7 @@ function ReasoningBlock(props: {
   });
 
   const hint = () => {
-    if (props.streaming && !hasText()) return "Thinking…";
+    if (streaming() && !hasText()) return "Thinking…";
     if (!hasText() || expanded()) return "";
     return outputExpandHint(text());
   };
@@ -355,7 +371,7 @@ function ReasoningBlock(props: {
         onMouseDown={() => toggleExpanded()}
       >
         <box flexDirection="row">
-          <text selectable={false} fg={theme.accent} attributes={props.streaming ? BOLD : 0}>
+          <text selectable={false} fg={theme.accent} attributes={streaming() ? BOLD : 0}>
             {glyph()} thinking
           </text>
           <Show when={hint()}>
@@ -686,6 +702,12 @@ export function TurnView(props: {
   const hasBlocks = () => turn().blocks.length > 0;
   const showLegacyReasoning = () =>
     !hasBlocks() && (!!turn().reasoningText || props.reasoningStreaming);
+  const activeReasoningId = createMemo(() =>
+    activeReasoningBlockId(turn().blocks, {
+      reasoningStreaming: props.reasoningStreaming,
+      assistantText: turn().assistantText,
+    }),
+  );
 
   return (
     <box flexDirection="column" marginBottom={1}>
@@ -704,21 +726,19 @@ export function TurnView(props: {
         <ReasoningBlock
           id={props.reasoningId ?? "reasoning"}
           text={turn().reasoningText ?? ""}
-          streaming={props.reasoningStreaming}
+          streaming={() => !!props.reasoningStreaming}
         />
       </Show>
       <Show when={hasBlocks()}>
         <For each={turn().blocks}>
           {(block, index) => {
             if (block.type === "reasoning") {
-              const lastBlock = turn().blocks[turn().blocks.length - 1];
-              const isLast = lastBlock?.type === "reasoning" && lastBlock.id === block.id;
               const spacedAbove = index() > 0 && turn().blocks[index() - 1]?.type === "tool";
               return (
                 <ReasoningBlock
                   id={`${props.turnKey}/${block.id}`}
                   text={block.text}
-                  streaming={props.reasoningStreaming && isLast && !turn().assistantText}
+                  streaming={() => activeReasoningId() === block.id}
                   spacedAbove={spacedAbove}
                 />
               );

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeReasoningBlockId,
   contextBadge,
   costBadge,
   formatContextWindowLabel,
@@ -13,12 +14,43 @@ import {
   wrapLineCount,
   TOOL_SUMMARY_INLINE_MAX,
 } from "./views.js";
+import type { TurnBlock } from "./controller.js";
 import type { TodoItem } from "../todos/types.js";
 
 const todos: TodoItem[] = [
   { id: "1", content: "First", status: "completed" },
   { id: "2", content: "Second", status: "in_progress" },
 ];
+
+describe("activeReasoningBlockId", () => {
+  const reasoning = (id: string, text = "thought"): TurnBlock => ({ type: "reasoning", id, text });
+  const tool = (id: string): TurnBlock => ({
+    type: "tool",
+    entry: { id, name: "read", args: {}, status: "done" },
+  });
+
+  it("returns the last reasoning block while streaming before assistant text", () => {
+    const blocks = [reasoning("a"), tool("t1"), reasoning("b")];
+    expect(activeReasoningBlockId(blocks, { reasoningStreaming: true })).toBe("b");
+  });
+
+  it("returns null when the last block is a tool", () => {
+    const blocks = [reasoning("a"), tool("t1")];
+    expect(activeReasoningBlockId(blocks, { reasoningStreaming: true })).toBeNull();
+  });
+
+  it("returns null once assistant text has started", () => {
+    const blocks = [reasoning("a")];
+    expect(
+      activeReasoningBlockId(blocks, { reasoningStreaming: true, assistantText: "Answer." }),
+    ).toBeNull();
+  });
+
+  it("returns null when streaming is off", () => {
+    const blocks = [reasoning("a")];
+    expect(activeReasoningBlockId(blocks, { reasoningStreaming: false })).toBeNull();
+  });
+});
 
 describe("showTodoSidebar", () => {
   it("shows when there are pending or in_progress tasks", () => {
