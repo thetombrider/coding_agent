@@ -18,6 +18,31 @@ describe("createSessionController", () => {
     expect(turn?.assistantText).toBe("Answer.");
   });
 
+  it("inserts a newline between assistant text streams across LLM calls", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("multi-round");
+
+    controller.handleEvent({ type: "text_delta", text: "Checking " });
+    controller.handleEvent({
+      type: "tool_start",
+      id: "read1",
+      name: "read",
+      args: { path: "a.ts" },
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "read1",
+      name: "read",
+      output: "ok",
+    });
+    controller.handleEvent({ type: "llm_start", id: "call-2", model: "test/model" });
+    controller.handleEvent({ type: "text_delta", text: "Done." });
+    controller.finalizeTurn();
+
+    const turn = controller.getState().completedTurns[0];
+    expect(turn?.assistantText).toBe("Checking \nDone.");
+  });
+
   it("drops empty reasoning blocks left by llm_start without reasoning deltas", () => {
     const controller = createSessionController(meta);
     controller.beginTurn("tool then text");

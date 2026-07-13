@@ -544,9 +544,14 @@ export function createSessionController(meta: SessionMeta): SessionController {
         }
         case "llm_start": {
           if (event.subagentId) break;
+          const streamingText =
+            state.streamingText.length > 0 && !state.streamingText.endsWith("\n")
+              ? state.streamingText + "\n"
+              : state.streamingText;
           const lastBlock = state.currentBlocks[state.currentBlocks.length - 1];
           if (lastBlock?.type === "reasoning") {
             update({
+              streamingText,
               streamingReasoningSegments: state.streamingReasoningSegments.map(
                 (s) => (s.id === lastBlock.id ? { ...s, text: s.text + "\n" } : s),
               ),
@@ -561,6 +566,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
               (b) => b.type !== "reasoning" || b.text.length > 0,
             );
             update({
+              streamingText,
               streamingReasoningSegments: [
                 ...state.streamingReasoningSegments,
                 { id: segId, text: "" },

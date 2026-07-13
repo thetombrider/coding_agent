@@ -90,7 +90,7 @@ describe("messagesToTurns", () => {
 
     const turns = messagesToTurns(messages);
     expect(turns).toHaveLength(1);
-    expect(turns[0]?.assistantText).toBe("Checking Now reading Done.");
+    expect(turns[0]?.assistantText).toBe("Checking \nNow reading \nDone.");
     expect(turns[0]?.tools).toHaveLength(2);
     expect(turns[0]?.tools[0]).toMatchObject({ id: "tc1", name: "bash", status: "done" });
     expect(turns[0]?.tools[1]).toMatchObject({ id: "tc2", name: "read", status: "done", output: "# Orin" });
