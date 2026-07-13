@@ -6,6 +6,7 @@ import { openRouterProvider } from "./providers/openrouter.js";
 import { openaiProvider } from "./providers/openai.js";
 import { regoloProvider } from "./providers/regolo.js";
 import { cerebrasProvider } from "./providers/cerebras.js";
+import { vercelProvider } from "./providers/vercel.js";
 import type { AuthStrategy, ModelMetadataProvider, Provider, ProviderConfigField } from "./types.js";
 export const DEFAULT_PROVIDER_ID = "openrouter";
 
@@ -129,6 +130,7 @@ registerProvider(openRouterProvider);
 registerProvider(openaiProvider);
 registerProvider(regoloProvider);
 registerProvider(cerebrasProvider);
+registerProvider(vercelProvider);
 registerProvider(anthropicProvider);
 registerProvider(opencodeGoProvider);
 registerProvider(opencodeZenProvider);
