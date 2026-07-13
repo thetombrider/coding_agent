@@ -8,6 +8,9 @@ import type { Provider } from "../types.js";
 
 /** Curated OpenAI models for the `/model` picker (native ids, not OpenRouter slugs). */
 export const OPENAI_PICKER_MODELS = [
+  "gpt-5.6",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
   "gpt-5.5",
   "gpt-5.5-pro",
   "gpt-5.4",
@@ -27,6 +30,10 @@ export const OPENAI_PICKER_MODELS = [
  * entry; the catalog is the source of truth when online.
  */
 const OPENAI_OFFLINE_CONTEXT_WINDOWS: Record<string, number> = {
+  "gpt-5.6": 1_050_000,
+  "gpt-5.6-sol": 1_050_000,
+  "gpt-5.6-terra": 1_050_000,
+  "gpt-5.6-luna": 1_050_000,
   "gpt-5.5": 1_050_000,
   "gpt-5.5-pro": 1_050_000,
   "gpt-5.4": 1_050_000,
@@ -68,10 +75,10 @@ const openaiCompatibleCfg: OpenAiCompatibleProviderConfig = {
   modelsListUrl: "https://api.openai.com/v1/models",
   pickerModels: OPENAI_PICKER_MODELS,
   defaultSlots: {
-    main: "gpt-5.5",
-    explore: "gpt-5.4-mini",
-    delegate_read: "gpt-5.4-mini",
-    compaction: "gpt-5.4-mini",
+    main: "gpt-5.6",
+    explore: "gpt-5.6-terra",
+    delegate_read: "gpt-5.6-terra",
+    compaction: "gpt-5.6-terra",
   },
   // `-pro` models are only available on the Responses API; route them there
   // instead of Chat Completions (see issue #321).

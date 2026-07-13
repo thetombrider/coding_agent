@@ -56,7 +56,9 @@ describe("openai provider", () => {
   });
 
   it("lists current flagship models in the picker", () => {
-    expect(OPENAI_PICKER_MODELS[0]).toBe("gpt-5.5");
+    expect(OPENAI_PICKER_MODELS[0]).toBe("gpt-5.6");
+    expect(OPENAI_PICKER_MODELS).toContain("gpt-5.6-terra");
+    expect(OPENAI_PICKER_MODELS).toContain("gpt-5.6-luna");
     expect(OPENAI_PICKER_MODELS).toContain("gpt-5.4-mini");
     expect(OPENAI_PICKER_MODELS).toContain("o3");
     expect(OPENAI_PICKER_MODELS).toContain("o4-mini");
@@ -144,6 +146,8 @@ describe("openai provider", () => {
           openai: {
             id: "openai",
             models: {
+              "gpt-5.6": { id: "gpt-5.6", limit: { context: 1050000, output: 128000 } },
+              "gpt-5.6-terra": { id: "gpt-5.6-terra", limit: { context: 1050000, output: 128000 } },
               "gpt-5.5": { id: "gpt-5.5", limit: { context: 1050000, output: 128000 } },
               "gpt-5.4-mini": { id: "gpt-5.4-mini", limit: { context: 400000, output: 128000 } },
             },
@@ -157,6 +161,8 @@ describe("openai provider", () => {
     vi.resetModules();
     const { openaiProvider: provider } = await import("./openai.js");
 
+    await expect(provider.metadata.getContextWindow("gpt-5.6")).resolves.toBe(1_050_000);
+    await expect(provider.metadata.getContextWindow("gpt-5.6-terra")).resolves.toBe(1_050_000);
     await expect(provider.metadata.getContextWindow("gpt-5.5")).resolves.toBe(1_050_000);
     await expect(provider.metadata.getContextWindow("openai/gpt-5.5")).resolves.toBe(1_050_000);
     await expect(provider.metadata.getContextWindow("gpt-5.4-mini")).resolves.toBe(400_000);
@@ -172,6 +178,7 @@ describe("openai provider", () => {
     vi.resetModules();
     const { openaiProvider: provider } = await import("./openai.js");
 
+    await expect(provider.metadata.getContextWindow("gpt-5.6")).resolves.toBe(1_050_000);
     await expect(provider.metadata.getContextWindow("gpt-5.5")).resolves.toBe(1_050_000);
     await expect(provider.metadata.getContextWindow("o4-mini")).resolves.toBe(200_000);
   });
