@@ -6,6 +6,7 @@ import {
   formatToolOutputForDisplay,
   MAX_OUTPUT_DISPLAY_LINES,
   outputExpandHint,
+  toolDisplayOutput,
 } from "./tool-output.js";
 
 describe("tool-output", () => {
@@ -41,6 +42,49 @@ describe("tool-output", () => {
     expect(formatHoverExpandFooter("grep", "hello", false)).toBe("grep · click to expand");
     expect(formatHoverExpandFooter("grep", "a\nb\nc", false)).toBe("grep · 3 lines · click to expand");
     expect(formatHoverExpandFooter("thinking", "text", true)).toBe("thinking · expanded · c copy");
+  });
+});
+
+describe("toolDisplayOutput", () => {
+  it("returns write content from args when done", () => {
+    const content = "const x = 1;\nexport { x };\n";
+    expect(
+      toolDisplayOutput({
+        name: "write",
+        args: { path: "out.ts", content },
+        status: "done",
+        output: "Wrote out.ts (24 bytes)",
+      }),
+    ).toBe(content);
+  });
+
+  it("falls back to tool output for non-write tools and running writes", () => {
+    expect(
+      toolDisplayOutput({
+        name: "read",
+        args: { path: "a.ts" },
+        status: "done",
+        output: "file body",
+      }),
+    ).toBe("file body");
+
+    expect(
+      toolDisplayOutput({
+        name: "write",
+        args: { path: "a.ts", content: "pending" },
+        status: "running",
+        output: undefined,
+      }),
+    ).toBeUndefined();
+
+    expect(
+      toolDisplayOutput({
+        name: "write",
+        args: { path: "a.ts" },
+        status: "done",
+        output: "Wrote a.ts (0 bytes)",
+      }),
+    ).toBe("Wrote a.ts (0 bytes)");
   });
 });
 

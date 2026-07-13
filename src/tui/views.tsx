@@ -14,7 +14,7 @@ import { ScrollRail } from "./scroll-rail.js";
 import { spinnerFrame } from "./spinner.js";
 import { hiddenNativeScrollbar, scrollbars, surfaceSelection, theme } from "./theme.js";
 import { useToolExpand } from "./tool-expand.js";
-import { outputExpandHint } from "./tool-output.js";
+import { outputExpandHint, toolDisplayOutput } from "./tool-output.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -375,6 +375,8 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
   const expandKey = () => props.expandKey;
   const nested = () => props.nested ?? false;
   const toolExpand = useToolExpand();
+  const displayOutput = createMemo(() => toolDisplayOutput(entry()));
+
   const showDiff = createMemo(() =>
     entry().name === "edit"
     && entry().status === "done"
@@ -383,7 +385,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
   );
 
   const hasPlainOutput = createMemo(() =>
-    !!entry().output
+    !!displayOutput()
     && entry().status !== "running"
     && !showDiff(),
   );
@@ -406,7 +408,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
     toolExpand?.registerToggle(expandKey(), toggleExpanded);
     toolExpand?.registerCopyTarget(expandKey(), {
       label: entry().name,
-      getOutput: () => entry().output,
+      getOutput: () => displayOutput(),
       isExpanded: () => expanded() || showDiff(),
     });
   });
@@ -433,7 +435,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
   const summary = createMemo(() => toolSummary(entry().name, entry().args, { truncate: running() }));
   const wrapSummary = () => { const s = summary(); return !running() && !!s && shouldWrapToolSummary(s); };
   const inlineSummary = () => !!summary() && !wrapSummary();
-  const expandHint = () => (hasPlainOutput() && !expanded() ? outputExpandHint(entry().output!) : "");
+  const expandHint = () => (hasPlainOutput() && !expanded() ? outputExpandHint(displayOutput()!) : "");
 
   // Two-tone line via sibling <text> nodes in a row. Each <text fg> reliably
   // colors its run, and plain-string children update on the in-place replaceText
@@ -471,7 +473,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
         <DiffView patch={entry().output!} />
       </Show>
       <Show when={hasPlainOutput() && expanded()}>
-        <ToolOutputView output={entry().output!} />
+        <ToolOutputView output={displayOutput()!} />
       </Show>
     </box>
   );

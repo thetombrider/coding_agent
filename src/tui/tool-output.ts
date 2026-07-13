@@ -1,4 +1,20 @@
+import type { ToolEntry } from "./controller.js";
+
 export const MAX_OUTPUT_DISPLAY_LINES = 200;
+
+/** Text shown when a tool block is expanded or copied. For `write`, uses the
+ *  file body from tool args so the UI matches `read` without duplicating content
+ *  in the agent's tool-result message. */
+export function toolDisplayOutput(entry: Pick<ToolEntry, "name" | "args" | "output" | "status">): string | undefined {
+  if (entry.name === "write" && entry.status !== "running") {
+    const args = entry.args;
+    if (args && typeof args === "object" && "content" in args) {
+      const content = (args as Record<string, unknown>).content;
+      if (typeof content === "string") return content;
+    }
+  }
+  return entry.output;
+}
 
 // When an expanded tool output is taller than this, it is rendered inside a
 // fixed-height scrollable window instead of pushing the rest of the
