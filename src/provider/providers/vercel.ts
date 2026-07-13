@@ -7,7 +7,7 @@ export const VERCEL_PICKER_MODELS = [
   "openai/gpt-5.5",
   "openai/gpt-5.4-mini",
   "google/gemini-3.5-flash",
-  "xai/grok-4",
+  "xai/grok-4.3",
 ] as const;
 
 /**
@@ -27,5 +27,7 @@ export const vercelProvider = createOpenAiCompatibleProvider({
     delegate_read: "openai/gpt-5.4-mini",
     compaction: "openai/gpt-5.4-mini",
   },
-  getContextWindow: (modelId) => lookupModelsDevContextWindow("vercel-ai-gateway", modelId),
+  // Vercel's /v1/models endpoint omits context windows. Source them from
+  // models.dev instead — the `vercel` provider entry uses provider/model ids.
+  getContextWindow: (modelId) => lookupModelsDevContextWindow("vercel", modelId),
 });
