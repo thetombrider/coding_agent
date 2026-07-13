@@ -1,6 +1,7 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { z } from "zod";
 import type { AnyTool } from "../tools/registry.js";
+import { buildMcpProviderSchema, schemaFromProviderInput } from "../tools/provider-schema.js";
 import { MCP_TOOL_SEP } from "./names.js";
 import type { RemoteTool } from "./client.js";
 
@@ -42,11 +43,17 @@ export function toLocalTool(
 ): AnyTool {
   const localName = `${serverName}${MCP_TOOL_SEP}${remote.name}`;
   const isAutoApproved = autoApproveIds?.has(localName) ?? false;
+  const rawInputSchema =
+    remote.inputSchema && typeof remote.inputSchema === "object"
+      ? (remote.inputSchema as Record<string, unknown>)
+      : undefined;
+  const provider = buildMcpProviderSchema(localName, rawInputSchema);
 
   return {
     name: localName,
     description: remote.description ?? "",
-    schema: passthroughSchema,
+    schema: rawInputSchema ? schemaFromProviderInput(rawInputSchema) : passthroughSchema,
+    ...provider,
     needsApproval: isAutoApproved ? () => false : () => true,
     async execute(args, _ctx, signal) {
       const result = await client.callTool(

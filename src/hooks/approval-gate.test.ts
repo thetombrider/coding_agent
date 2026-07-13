@@ -113,6 +113,51 @@ describe("installApprovalGate", () => {
     expect(confirm).toHaveBeenCalledWith("bash", { command: "git diff" });
   });
 
+  it("emits providerInputSchema for MCP tools awaiting approval", async () => {
+    const inputSchema = {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    };
+    const mcpTool: Tool<Record<string, unknown>> = {
+      name: "fs__read_file",
+      description: "read via MCP",
+      schema: z.record(z.string(), z.unknown()),
+      providerInputSchema: inputSchema,
+      needsApproval: () => true,
+      async execute() {
+        return { output: "ok" };
+      },
+    };
+    const hooks = createHookRegistry();
+    const events: unknown[] = [];
+    hooks.observe((event) => {
+      events.push(event);
+    });
+    installApprovalGate(hooks, {
+      mode: "normal",
+      autoAcceptCli: false,
+      tools: [mcpTool],
+      confirm: vi.fn().mockResolvedValue(true),
+    });
+
+    await hooks.fireHook(
+      "before_tool",
+      { id: "tc1", name: "fs__read_file", args: { path: "a.txt" } },
+      ctx,
+    );
+
+    expect(events).toEqual([
+      {
+        type: "approval_required",
+        id: "tc1",
+        name: "fs__read_file",
+        args: { path: "a.txt" },
+        providerInputSchema: inputSchema,
+      },
+    ]);
+  });
+
   // Issue #142: switching approval mode mid-session must not crash the loop.
   // The TUI mutates the shared ref's `mode` between turns; the gate reads it
   // live on each before_tool, so every mode must resolve cleanly.

@@ -1885,6 +1885,7 @@ export function App(props: {
             <ApprovalBar
               name={pending().name}
               args={pending().args}
+              providerInputSchema={pending().providerInputSchema}
               scrollRef={(r) => {
                 approvalScrollRef = r;
               }}

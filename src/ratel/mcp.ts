@@ -3,6 +3,7 @@ import type { ToolCatalog } from "@ratel-ai/sdk";
 import type { McpServerHandle } from "./register-mcp.js";
 import { registerMcpServer } from "./register-mcp.js";
 import type { AnyTool } from "../tools/registry.js";
+import { buildMcpProviderSchema, schemaFromProviderInput } from "../tools/provider-schema.js";
 import { renderMcpContent } from "../mcp/adapter.js";
 import { makeTransport } from "../mcp/client.js";
 import { loadMcpConfig, type McpScope, type McpServerConfig } from "../mcp/config.js";
@@ -31,10 +32,16 @@ function isDisabled(config: McpServerConfig): boolean {
 /** Wrap a catalog MCP tool for Orin's approval gate and output rendering. */
 export function wrapCatalogMcpTool(catalog: ToolCatalog, toolId: string, autoApproved = false): AnyTool {
   const meta = catalog.get(toolId);
+  const rawInputSchema =
+    meta?.inputSchema && typeof meta.inputSchema === "object"
+      ? (meta.inputSchema as Record<string, unknown>)
+      : undefined;
+  const provider = buildMcpProviderSchema(toolId, rawInputSchema);
   return {
     name: toolId,
     description: meta?.description ?? "",
-    schema: z.record(z.string(), z.unknown()),
+    schema: rawInputSchema ? schemaFromProviderInput(rawInputSchema) : z.record(z.string(), z.unknown()),
+    ...provider,
     needsApproval: autoApproved ? () => false : () => true,
     async execute(args, _ctx, _signal) {
       const result = await catalog.invoke(toolId, args as Record<string, unknown>);

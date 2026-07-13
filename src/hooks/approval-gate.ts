@@ -24,9 +24,20 @@ export function installApprovalGate(
     const tool = ref.tools.find((t) => t.name === name);
     const display = tool?.approvalDisplayArgs?.(args) ?? { name, args };
     const autoApproved = isAutoApprovedBash(name, args);
+    const displayTool =
+      display.name !== name
+        ? ref.tools.find((t) => t.name === display.name) ?? tool
+        : tool;
+    const providerInputSchema = displayTool?.providerInputSchema;
 
     if (isToolBlocked(ref.mode, name)) {
-      hooks.emit({ type: "approval_required", id, name: display.name, args: display.args });
+      hooks.emit({
+        type: "approval_required",
+        id,
+        name: display.name,
+        args: display.args,
+        providerInputSchema,
+      });
       return { block: true, reason: `Tool ${name} blocked in plan mode.` };
     }
 
@@ -40,7 +51,13 @@ export function installApprovalGate(
 
     if (!requiresApproval) return;
 
-    hooks.emit({ type: "approval_required", id, name: display.name, args: display.args });
+    hooks.emit({
+      type: "approval_required",
+      id,
+      name: display.name,
+      args: display.args,
+      providerInputSchema,
+    });
     const approved = await (ref.confirm ?? confirmTool)(display.name, display.args);
     if (!approved) {
       return { block: true, reason: "Tool execution denied by user." };

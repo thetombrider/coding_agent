@@ -214,6 +214,24 @@ describe("toolSummary — askuser", () => {
   });
 });
 
+describe("toolSummary — MCP", () => {
+  it("uses provider schema for structured arg labels", () => {
+    const summary = toolSummary(
+      "fs__read_file",
+      { path: "README.md" },
+      {
+        providerInputSchema: {
+          type: "object",
+          properties: { path: { type: "string", description: "File path" } },
+          required: ["path"],
+        },
+      },
+    );
+    expect(summary).toContain("path=README.md");
+    expect(summary).toContain("File path");
+  });
+});
+
 describe("shouldWrapToolSummary", () => {
   it("keeps short summaries on the header row", () => {
     expect(shouldWrapToolSummary("src/hooks/registry.ts")).toBe(false);
