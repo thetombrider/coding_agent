@@ -59,6 +59,9 @@ export function messagesToTurns(messages: Message[]): Turn[] {
         if (block.type === "reasoning") {
           pendingReasoning += block.text;
         } else if (block.type === "text") {
+          if (current.assistantText.length > 0 && !current.assistantText.endsWith("\n")) {
+            current.assistantText += "\n";
+          }
           current.assistantText += block.text;
         } else if (block.type === "toolCall" && !current.toolById.has(block.id)) {
           if (pendingReasoning) {
