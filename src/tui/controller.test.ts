@@ -406,18 +406,115 @@ describe("createSessionController", () => {
 
     const task = controller.getState().completedTurns[0]?.tools[0];
     expect(task?.name).toBe("task");
-    expect(task?.subagent?.agent).toBe("explore");
-    expect(task?.subagent?.tools).toHaveLength(1);
-    expect(task?.subagent?.tools[0]?.name).toBe("read");
-    expect(task?.subagent?.active).toBe(false);
+    expect(task?.subagents).toHaveLength(1);
+    expect(task?.subagents?.[0]?.agent).toBe("explore");
+    expect(task?.subagents?.[0]?.tools).toHaveLength(1);
+    expect(task?.subagents?.[0]?.tools[0]?.name).toBe("read");
+    expect(task?.subagents?.[0]?.active).toBe(false);
 
     const taskBlock = controller.getState().completedTurns[0]?.blocks.find(
       (b) => b.type === "tool" && b.entry.id === "task1",
     );
     expect(taskBlock?.type).toBe("tool");
     if (taskBlock?.type === "tool") {
-      expect(taskBlock.entry.subagent?.agent).toBe("explore");
-      expect(taskBlock.entry.subagent?.tools[0]?.name).toBe("read");
+      expect(taskBlock.entry.subagents?.[0]?.agent).toBe("explore");
+      expect(taskBlock.entry.subagents?.[0]?.tools[0]?.name).toBe("read");
+    }
+  });
+
+  it("nests concurrent subagent tool calls under a running task_parallel tool", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("implement in parallel");
+
+    controller.handleEvent({
+      type: "tool_start",
+      id: "parallel1",
+      name: "task_parallel",
+      args: {
+        tasks: [
+          { description: "add feature A", prompt: "implement A", agent: "implement" },
+          { description: "add feature B", prompt: "implement B", agent: "implement" },
+        ],
+      },
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "subA",
+      description: "add feature A",
+      agent: "implement",
+    });
+    controller.handleEvent({
+      type: "subagent_start",
+      id: "subB",
+      description: "add feature B",
+      agent: "implement",
+    });
+    controller.handleEvent({
+      type: "tool_start",
+      id: "writeA",
+      name: "write",
+      args: { path: "a.ts", content: "export const a = 1;" },
+      subagentId: "subA",
+    });
+    controller.handleEvent({
+      type: "tool_start",
+      id: "writeB",
+      name: "write",
+      args: { path: "b.ts", content: "export const b = 2;" },
+      subagentId: "subB",
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "writeA",
+      name: "write",
+      output: "ok",
+      subagentId: "subA",
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "writeB",
+      name: "write",
+      output: "ok",
+      subagentId: "subB",
+    });
+    controller.handleEvent({
+      type: "subagent_end",
+      id: "subA",
+      agent: "implement",
+      turns: 1,
+      summary: "Added feature A",
+    });
+    controller.handleEvent({
+      type: "subagent_end",
+      id: "subB",
+      agent: "implement",
+      turns: 1,
+      summary: "Added feature B",
+    });
+    controller.handleEvent({
+      type: "tool_end",
+      id: "parallel1",
+      name: "task_parallel",
+      output: "Parallel fan-out complete",
+    });
+    controller.finalizeTurn();
+
+    const parallel = controller.getState().completedTurns[0]?.tools[0];
+    expect(parallel?.name).toBe("task_parallel");
+    expect(parallel?.subagents).toHaveLength(2);
+    expect(parallel?.subagents?.map((s) => s.agent)).toEqual(["implement", "implement"]);
+    expect(parallel?.subagents?.[0]?.tools[0]?.name).toBe("write");
+    expect(parallel?.subagents?.[1]?.tools[0]?.name).toBe("write");
+    expect(parallel?.subagents?.every((s) => !s.active)).toBe(true);
+
+    const parallelBlock = controller.getState().completedTurns[0]?.blocks.find(
+      (b) => b.type === "tool" && b.entry.id === "parallel1",
+    );
+    expect(parallelBlock?.type).toBe("tool");
+    if (parallelBlock?.type === "tool") {
+      expect(parallelBlock.entry.subagents).toHaveLength(2);
+      expect(parallelBlock.entry.subagents?.[0]?.tools).toHaveLength(1);
+      expect(parallelBlock.entry.subagents?.[1]?.tools).toHaveLength(1);
     }
   });
 
@@ -507,8 +604,8 @@ describe("createSessionController", () => {
     );
     expect(taskBlock?.type).toBe("tool");
     if (taskBlock?.type === "tool") {
-      expect(taskBlock.entry.subagent?.tools).toHaveLength(1);
-      expect(taskBlock.entry.subagent?.tools[0]?.name).toBe("read");
+      expect(taskBlock.entry.subagents?.[0]?.tools).toHaveLength(1);
+      expect(taskBlock.entry.subagents?.[0]?.tools[0]?.name).toBe("read");
     }
   });
 

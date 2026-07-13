@@ -667,11 +667,14 @@ function ToolBlock(props: { entry: ToolEntry; expandKeyPrefix: string }) {
       >
         <SkillBlock entry={props.entry} expandKey={expandKey()} />
       </Show>
-      <Show when={props.entry.subagent}>
+      <For each={props.entry.subagents ?? []}>
         {(subagent) => (
-          <SubagentBlock subagent={subagent()} expandKeyPrefix={expandKey()} />
+          <SubagentBlock
+            subagent={subagent}
+            expandKeyPrefix={`${expandKey()}/${subagent.id}`}
+          />
         )}
-      </Show>
+      </For>
     </box>
   );
 }

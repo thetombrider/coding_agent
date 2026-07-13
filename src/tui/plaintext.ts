@@ -6,9 +6,9 @@ export function toolEntryToPlainText(entry: ToolEntry): string {
   const summary = toolSummary(entry.name, entry.args, { truncate: false });
   const header = `${entry.name}${summary ? `  ${summary}` : ""}`;
   const lines = [header];
-  if (entry.subagent) {
-    lines.push(`subagent (${entry.subagent.agent}): ${entry.subagent.description}`);
-    for (const child of entry.subagent.tools) {
+  for (const sub of entry.subagents ?? []) {
+    lines.push(`subagent (${sub.agent}): ${sub.description}`);
+    for (const child of sub.tools) {
       lines.push(`  ${toolEntryToPlainText(child).replace(/\n/g, "\n  ")}`);
     }
   }
