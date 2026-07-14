@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ModelMessage } from "ai";
-import { collectStreamEvents, streamAssistant, toAiMessages } from "./stream.js";
+import { collectStreamEvents, normalizeToolInput, streamAssistant, toAiMessages } from "./stream.js";
 import { createFauxProvider } from "./faux.js";
 import type { Message } from "../types.js";
 import type { StreamEvent } from "./types.js";
@@ -185,6 +185,29 @@ describe("collectStreamEvents", () => {
   });
 });
 
+describe("normalizeToolInput", () => {
+  it("returns parsed JSON for string input", () => {
+    expect(normalizeToolInput('{"path":"a.ts"}')).toEqual({ value: { path: "a.ts" } });
+  });
+
+  it("returns empty object and error for malformed JSON strings", () => {
+    const result = normalizeToolInput('{"path":');
+    expect(result.value).toEqual({});
+    expect(result.error).toMatch(/invalid JSON/);
+  });
+
+  it("returns empty object and error for missing input", () => {
+    const result = normalizeToolInput(undefined);
+    expect(result.value).toEqual({});
+    expect(result.error).toBe("missing tool arguments");
+  });
+
+  it("passes through already-parsed objects", () => {
+    const input = { path: "a.ts", content: "hello" };
+    expect(normalizeToolInput(input)).toEqual({ value: input });
+  });
+});
+
 describe("streamAssistant tool-input streaming", () => {
   it("emits tool_input_start then a running char count on each tool_input_delta", async () => {
     const delta1 = '{"path":"a.ts",';
@@ -213,6 +236,61 @@ describe("streamAssistant tool-input streaming", () => {
       id: "call_1",
       name: "write",
       chars: delta1.length + delta2.length,
+    });
+  });
+});
+
+describe("streamAssistant malformed tool arguments", () => {
+  it("does not throw when tool-call input is invalid JSON string", async () => {
+    const { streamText } = await import("ai");
+    vi.mocked(streamText).mockReturnValueOnce({
+      fullStream: (async function* () {
+        yield {
+          type: "tool-call",
+          toolCallId: "call_bad",
+          toolName: "read",
+          input: '{"path":',
+        };
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+      finishReason: Promise.resolve("tool-calls"),
+    } as never);
+
+    const messages: Message[] = [{ role: "user", content: [{ type: "text", text: "hi" }] }];
+    const message = await streamAssistant(messages, { model: "faux:test" }, () => {});
+
+    expect(message.content).toContainEqual({
+      type: "toolCall",
+      id: "call_bad",
+      name: "read",
+      arguments: {},
+    });
+    expect(message.content.some((c) => c.type === "text" && c.text.includes("malformed arguments"))).toBe(true);
+  });
+
+  it("does not throw when tool-call input is missing", async () => {
+    const { streamText } = await import("ai");
+    vi.mocked(streamText).mockReturnValueOnce({
+      fullStream: (async function* () {
+        yield {
+          type: "tool-call",
+          toolCallId: "call_empty",
+          toolName: "read",
+          input: undefined,
+        };
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+      finishReason: Promise.resolve("tool-calls"),
+    } as never);
+
+    const messages: Message[] = [{ role: "user", content: [{ type: "text", text: "hi" }] }];
+    const message = await streamAssistant(messages, { model: "faux:test" }, () => {});
+
+    expect(message.content).toContainEqual({
+      type: "toolCall",
+      id: "call_empty",
+      name: "read",
+      arguments: {},
     });
   });
 });
