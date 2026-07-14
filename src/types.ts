@@ -60,6 +60,10 @@ export interface AgentContext {
   askUser?: AskUserFn;
   /** Tree-sitter symbol index for structured codebase lookup. */
   symbols?: SymbolService;
+  /** Set while invoke_tool runs so inner tools inherit the outer call id. */
+  invokeToolCallId?: string;
+  /** Set while an inner tool runs through invoke_tool (skips duplicate approval). */
+  invokeToolInner?: string;
 }
 
 export type SessionEvent =

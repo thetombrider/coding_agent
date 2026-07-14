@@ -8,6 +8,8 @@
  * within a single turn a read enqueued after a write to the same file observes
  * the write's result instead of stale data.
  */
+import { INVOKE_TOOL_ID, unwrapInvokeArgs } from "../ratel/catalog.js";
+
 interface KeyState {
   /** Resolves when the most recently enqueued write has settled. */
   lastWrite: Promise<unknown>;
@@ -88,6 +90,18 @@ export function mutationLock(
   resolvePath: (cwd: string, path: string) => string,
   cwd: string,
 ): MutationLock | null {
+  if (name === INVOKE_TOOL_ID) {
+    if (typeof args !== "object" || args === null) return null;
+    const toolId = (args as { toolId?: unknown }).toolId;
+    if (typeof toolId !== "string" || !toolId) return null;
+    return mutationLock(
+      toolId,
+      unwrapInvokeArgs(args as Parameters<typeof unwrapInvokeArgs>[0]),
+      resolvePath,
+      cwd,
+    );
+  }
+
   const mode: MutationMode | null = WRITE_TOOL_NAMES.has(name)
     ? "exclusive"
     : READ_TOOL_NAMES.has(name)

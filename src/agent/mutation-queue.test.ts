@@ -134,4 +134,14 @@ describe("mutation helpers", () => {
     expect(mutationLock("grep", { pattern: "x" }, (cwd, p) => `${cwd}/${p}`, "/proj")).toBeNull();
     expect(mutationLock("read", {}, (cwd, p) => `${cwd}/${p}`, "/proj")).toBeNull();
   });
+
+  it("classifies invoke_tool read/write through to the inner tool", () => {
+    const lock = mutationLock(
+      "invoke_tool",
+      { toolId: "read", args: { path: "src/foo.ts" } },
+      (cwd, p) => `${cwd}/${p}`,
+      "/proj",
+    );
+    expect(lock).toEqual({ key: "/proj/src/foo.ts", mode: "shared" });
+  });
 });

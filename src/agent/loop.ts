@@ -5,6 +5,7 @@ import type { StreamAssistantFn, AssistantMessage } from "../provider/types.js";
 import { enrichAssistantMessage, formatToolValidationErrors } from "../provider/tool-call-parser.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { OrinRatelBundle } from "../ratel/catalog.js";
+import { INVOKE_TOOL_ID } from "../ratel/catalog.js";
 import type { AgentContext, Message, SessionEventCallback } from "../types.js";
 import { activeProviderId } from "../provider/registry.js";
 import { resolveProviderSlot } from "../config/models.js";
@@ -19,6 +20,7 @@ import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, mutationLock } from "./mutation-queue.js";
 import { isAbortError } from "../util/abort.js";
 import { isCriticalSystemError } from "../util/system-error.js";
+import { executeHookedTool } from "./tool-execution.js";
 
 const CONTEXT_FULL_MESSAGE =
   "The conversation context is full and automatic compaction could not reduce it further. "
@@ -162,49 +164,20 @@ async function executeSingleTool(
 
   const args = argsResult.data;
 
-  const hookResult = await hooks.fireHook(
-    "before_tool",
-    { id: call.id, name: call.name, args },
-    ctx,
-    options.signal,
-  );
-  if (hookResult && "block" in hookResult && hookResult.block) {
-    const output = `[Blocked: ${hookResult.reason}]`;
-    const msg = toolResultMessage(call.id, call.name, output, true);
-    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-    hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
-    return { message: msg };
-  }
-
-  const effectiveArgs = hookResult && "args" in hookResult ? hookResult.args : args;
-  hooks.emit({ type: "tool_start", id: call.id, name: call.name, args: effectiveArgs });
+  const prevInvokeCallId = ctx.invokeToolCallId;
+  if (call.name === INVOKE_TOOL_ID) ctx.invokeToolCallId = call.id;
 
   try {
-    const result = await tool.execute(
-      effectiveArgs,
+    const result = await executeHookedTool({
+      call: { id: call.id, name: call.name, args },
+      tool,
       ctx,
-      options.signal ?? new AbortController().signal,
-    );
-    let output = result.output;
-    const afterResult = await hooks.fireHook(
-      "after_tool",
-      { name: call.name, args: effectiveArgs, output },
-      ctx,
-      options.signal,
-    );
-    if (afterResult && "output" in afterResult) {
-      output = afterResult.output;
-    }
-
-    const msg = toolResultMessage(call.id, call.name, output, result.isError);
-    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-    hooks.emit({
-      type: "tool_end",
-      id: call.id,
-      name: call.name,
-      output,
-      isError: result.isError,
+      hooks,
+      signal: options.signal ?? new AbortController().signal,
     });
+
+    const msg = toolResultMessage(call.id, call.name, result.output, result.isError);
+    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     return { message: msg, terminate: result.terminate };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -218,6 +191,10 @@ async function executeSingleTool(
     options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
     hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
     return critical ? { message: msg, terminate: true, systemError: true } : { message: msg };
+  } finally {
+    if (call.name === INVOKE_TOOL_ID) {
+      ctx.invokeToolCallId = prevInvokeCallId;
+    }
   }
 }
 

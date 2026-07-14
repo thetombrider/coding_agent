@@ -25,6 +25,7 @@ export function installApprovalGate(
   ref: ApprovalGateRef,
 ): () => void {
   return hooks.on("before_tool", async ({ id, name, args }, ctx) => {
+    if (ctx.invokeToolInner) return;
     const tool = ref.tools.find((t) => t.name === name);
     const display = tool?.approvalDisplayArgs?.(args) ?? { name, args };
     const autoApproved = isAutoApprovedBash(name, args);
