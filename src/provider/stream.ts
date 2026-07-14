@@ -60,6 +60,32 @@ export function toAiMessages(messages: Message[]): ModelMessage[] {
   return result;
 }
 
+/** Normalize provider tool input to a plain object; never throws. */
+export function normalizeToolInput(
+  input: unknown,
+): { value: unknown; error?: string } {
+  if (input === undefined || input === null) {
+    return { value: {}, error: "missing tool arguments" };
+  }
+  if (typeof input === "string") {
+    try {
+      return { value: JSON.parse(input) };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return { value: {}, error: `invalid JSON: ${detail}` };
+    }
+  }
+  return { value: input };
+}
+
+function safeStringifyToolInput(input: unknown): string {
+  try {
+    return JSON.stringify(input ?? {});
+  } catch {
+    return "{}";
+  }
+}
+
 export const streamAssistant: StreamAssistantFn = async (
   messages,
   options,
@@ -71,7 +97,7 @@ export const streamAssistant: StreamAssistantFn = async (
   let reasoningBuffer = "";
   const toolCalls = new Map<
     string,
-    { id: string; name: string; arguments: string }
+    { id: string; name: string; input: unknown; parseError?: string }
   >();
   const toolInputProgress = new Map<string, { name: string; chars: number }>();
 
@@ -103,17 +129,19 @@ export const streamAssistant: StreamAssistantFn = async (
           break;
         }
         case "tool-call": {
+          const { value, error } = normalizeToolInput(part.input);
           const entry = {
             id: part.toolCallId,
             name: part.toolName,
-            arguments: JSON.stringify(part.input),
+            input: value,
+            parseError: error,
           };
           toolCalls.set(part.toolCallId, entry);
           emit({
             type: "tool_call_delta",
             id: part.toolCallId,
             name: part.toolName,
-            argumentsDelta: entry.arguments,
+            argumentsDelta: safeStringifyToolInput(value),
           });
           break;
         }
@@ -147,12 +175,25 @@ export const streamAssistant: StreamAssistantFn = async (
       content.push({ type: "text", text: textBuffer });
     }
 
+    const parseFailures: string[] = [];
     for (const tc of toolCalls.values()) {
+      if (tc.parseError) {
+        parseFailures.push(`"${tc.name}" (${tc.id}): ${tc.parseError}`);
+      }
       content.push({
         type: "toolCall",
         id: tc.id,
         name: tc.name,
-        arguments: JSON.parse(tc.arguments),
+        arguments: tc.input,
+      });
+    }
+    if (parseFailures.length > 0) {
+      content.push({
+        type: "text",
+        text:
+          "Some tool calls had malformed arguments and could not be parsed. "
+          + parseFailures.join("; ")
+          + ". The tools will receive validation errors so the model can retry.",
       });
     }
 
