@@ -13,7 +13,11 @@ export interface ApprovalGateRef {
   mode: ApprovalMode;
   autoAcceptCli: boolean;
   tools: AnyTool[];
-  confirm?: (name: string, args: unknown) => Promise<boolean>;
+  confirm?: (
+    name: string,
+    args: unknown,
+    providerInputSchema?: Record<string, unknown>,
+  ) => Promise<boolean>;
 }
 
 export function installApprovalGate(
@@ -58,7 +62,11 @@ export function installApprovalGate(
       args: display.args,
       providerInputSchema,
     });
-    const approved = await (ref.confirm ?? confirmTool)(display.name, display.args);
+    const approved = await (ref.confirm ?? confirmTool)(
+      display.name,
+      display.args,
+      providerInputSchema,
+    );
     if (!approved) {
       return { block: true, reason: "Tool execution denied by user." };
     }

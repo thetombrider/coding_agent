@@ -110,7 +110,7 @@ describe("installApprovalGate", () => {
       ctx,
     );
 
-    expect(confirm).toHaveBeenCalledWith("bash", { command: "git diff" });
+    expect(confirm).toHaveBeenCalledWith("bash", { command: "git diff" }, undefined);
   });
 
   it("emits providerInputSchema for MCP tools awaiting approval", async () => {
