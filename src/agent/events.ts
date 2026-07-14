@@ -58,7 +58,7 @@ export type AgentEvent =
   | { type: "assistant_message"; id: string; message: AssistantMessage; subagentId?: string }
   | { type: "tool_start"; id: string; name: string; args: unknown; subagentId?: string }
   | { type: "tool_end"; id: string; name: string; output: string; isError?: boolean; subagentId?: string }
-  | { type: "approval_required"; id: string; name: string; args: unknown; subagentId?: string }
+  | { type: "approval_required"; id: string; name: string; args: unknown; providerInputSchema?: Record<string, unknown>; subagentId?: string }
   | { type: "todo_update"; todos: TodoItem[] }
   | { type: "todo_proposal"; todos: TodoItem[]; subagentId?: string }
   | { type: "subagent_start"; id: string; description: string; prompt?: string; agent: string; isolation?: "shared" | "worktree" | "sandbox"; model?: string }

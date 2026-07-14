@@ -1,6 +1,7 @@
 import { createTextAttributes, type ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { formatMcpToolLabel, isMcpTool } from "../mcp/names.js";
+import { formatMcpArgsSummary } from "../tools/provider-schema.js";
 import type { ModelPricing } from "../config/config.js";
 import { createSignal, createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js";
 import type { SubagentContext, ToolEntry, Turn, TurnBlock } from "./controller.js";
@@ -257,11 +258,15 @@ function truncateReadSummary(label: string, max: number): string {
 export function toolSummary(
   name: string,
   args: unknown,
-  opts?: { truncate?: boolean },
+  opts?: { truncate?: boolean; providerInputSchema?: Record<string, unknown> },
 ): string {
   const truncate = opts?.truncate ?? true;
   const clip = (label: string, max = TOOL_SUMMARY_MAX) =>
     truncate ? truncateToolSummary(label, max) : label;
+
+  if (isMcpTool(name) && opts?.providerInputSchema) {
+    return clip(formatMcpArgsSummary(args, opts.providerInputSchema));
+  }
 
   if (args && typeof args === "object") {
     const record = args as Record<string, unknown>;
@@ -811,6 +816,7 @@ export function Header(props: {
 export function ApprovalBar(props: {
   name: string;
   args: unknown;
+  providerInputSchema?: Record<string, unknown>;
   /** Receives the inner scrollbox ref so the host can drive keyboard scrolling. */
   scrollRef?: (ref: ScrollBoxRenderable | undefined) => void;
   /** Re-read scroll geometry when this changes (mouse or keyboard scrolling). */
@@ -819,7 +825,11 @@ export function ApprovalBar(props: {
   onScroll: () => void;
 }) {
   const label = () => (isMcpTool(props.name) ? formatMcpToolLabel(props.name) : props.name);
-  const summary = () => toolSummary(props.name, props.args, { truncate: false });
+  const summary = () =>
+    toolSummary(props.name, props.args, {
+      truncate: false,
+      providerInputSchema: props.providerInputSchema,
+    });
   // The prompt is one logical line; "—  y / n" is appended so the affordance
   // stays visible even when the command scrolls past it.
   const prompt = () => `allow ${label()}?  ${summary()}  —  y / n`;

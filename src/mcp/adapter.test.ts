@@ -23,7 +23,11 @@ describe("toLocalTool", () => {
   const remote = {
     name: "read_file",
     description: "Read a file",
-    inputSchema: { type: "object" as const, properties: {} },
+    inputSchema: {
+      type: "object" as const,
+      properties: { path: { type: "string", description: "Path to read" } },
+      required: ["path"],
+    },
   };
 
   it("namespaces tools and requires approval", async () => {
@@ -35,6 +39,12 @@ describe("toLocalTool", () => {
 
     const tool = toLocalTool(client, "fs", remote);
     expect(tool.name).toBe("fs__read_file");
+    expect(tool.providerInputSchema).toEqual(remote.inputSchema);
+    expect(tool.providerSchemaMeta).toMatchObject({
+      source: "mcp",
+      serverId: "fs",
+      toolName: "read_file",
+    });
     expect(tool.needsApproval?.({}, testAgentContext("/tmp"))).toBe(true);
 
     const result = await tool.execute({ path: "a.txt" }, testAgentContext("/tmp"), new AbortController().signal);

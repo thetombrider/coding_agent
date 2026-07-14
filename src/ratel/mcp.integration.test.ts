@@ -26,7 +26,11 @@ function mockMcpServer(
       id,
       name: tool.name,
       description: tool.description,
-      inputSchema: { type: "object", properties: {} },
+      inputSchema: {
+        type: "object",
+        properties: { path: { type: "string", description: "Path to read" } },
+        required: ["path"],
+      },
       outputSchema: { type: "object" },
       execute: async () => ({
         content: [{ type: "text", text: `${id} ok` }],
@@ -120,6 +124,18 @@ describe("loadMcpIntoRatelCatalog (mock MCP)", () => {
 
     expect(result.output).toBe("fs__read_file ok");
     expect(result.isError).toBeUndefined();
+    expect(tool.providerInputSchema).toEqual({
+      type: "object",
+      properties: { path: { type: "string", description: "Path to read" } },
+      required: ["path"],
+    });
+    expect(tool.providerSchemaMeta).toMatchObject({
+      source: "mcp",
+      serverId: "fs",
+      toolName: "read_file",
+    });
+    expect(tool.schema.safeParse({}).success).toBe(false);
+    expect(tool.schema.safeParse({ path: "a.txt" }).success).toBe(true);
   });
 });
 

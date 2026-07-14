@@ -34,6 +34,7 @@ export interface ToolEntry {
 export interface PendingApproval {
   name: string;
   args: unknown;
+  providerInputSchema?: Record<string, unknown>;
 }
 
 /** A question the agent asked the user, awaiting a choice via `askuser`. */
@@ -636,7 +637,11 @@ export function createSessionController(meta: SessionMeta): SessionController {
         case "approval_required":
           update({
             phase: "approval",
-            pendingApproval: { name: event.name, args: event.args },
+            pendingApproval: {
+              name: event.name,
+              args: event.args,
+              providerInputSchema: event.providerInputSchema,
+            },
             statusHint: `Approve ${event.name}?  y / n`,
           });
           break;
