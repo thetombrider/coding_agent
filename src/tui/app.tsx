@@ -422,11 +422,29 @@ export function App(props: {
   let inputRef: InputRenderable | undefined;
 
   /** /mcp is keyboard-driven — blur the prompt so hover mouse reports cannot leak in. */
+  const isSessionsSidebarFocused = createMemo(() =>
+    sidebarVisibility().left
+    && sessionsSidebar().focused
+    && palette() === null
+    && configPrompt() === null
+    && mcpWizard() === null
+    && !e2bPrompt()
+    && !exaPrompt()
+    && state().phase === "input"
+    && !submitting(),
+  );
+
   const inputFocused = createMemo(() => {
     if (state().phase === "approval") return false;
     if (palette()?.phase === "mcp") return false;
+    if (isSessionsSidebarFocused()) return false;
     return true;
   });
+
+  const swallowSidebarKey = (key: { preventDefault: () => void; stopPropagation: () => void }) => {
+    key.preventDefault();
+    key.stopPropagation();
+  };
 
   const scrubLeakedPromptInput = () => {
     if (!inputRef) return;
@@ -474,6 +492,7 @@ export function App(props: {
       menu: "list",
       focused: true,
     });
+    queueMicrotask(() => inputRef?.blur());
     if (sessions.length === 0) {
       props.controller.setStatusHint("No sessions found.");
     } else {
@@ -483,6 +502,9 @@ export function App(props: {
 
   const unfocusSessionsSidebar = () => {
     setSessionsSidebar((s) => ({ ...s, menu: "list", focused: false }));
+    if (state().phase !== "approval") {
+      queueMicrotask(() => inputRef?.focus());
+    }
   };
 
   const syncSessionsSidebarIndex = () => {
@@ -1778,48 +1800,47 @@ export function App(props: {
     }
 
     const sb = sessionsSidebar();
-    if (
-      sidebarVisibility().left
-      && sb.focused
-      && palette() === null
-      && !configPrompt()
-      && mcpWizard() === null
-      && !e2bPrompt()
-      && !exaPrompt()
-      && state().phase === "input"
-      && !submitting()
-    ) {
+    if (isSessionsSidebarFocused()) {
       const sessions = sessionsList();
       if (sb.menu === "delete") {
         if (key.name === "left" || key.name === "escape") {
+          swallowSidebarKey(key);
           setSessionsSidebar({ ...sb, menu: "list" });
           props.controller.setStatusHint(sessionsSidebarHint("list", true));
           return;
         }
         if (key.name === "enter" || key.name === "return") {
+          swallowSidebarKey(key);
           confirmSessionDelete();
           return;
         }
-        if (key.name !== undefined) return;
+        if (key.name !== undefined) {
+          swallowSidebarKey(key);
+          return;
+        }
       }
 
       if (key.name === "up") {
+        swallowSidebarKey(key);
         setSessionsSidebar({ ...sb, index: Math.max(0, sb.index - 1) });
         props.controller.setStatusHint(sessionsSidebarHint("list", true));
         return;
       }
       if (key.name === "down") {
+        swallowSidebarKey(key);
         const maxIdx = Math.max(0, sessions.length - 1);
         setSessionsSidebar({ ...sb, index: Math.min(maxIdx, sb.index + 1) });
         props.controller.setStatusHint(sessionsSidebarHint("list", true));
         return;
       }
       if (key.name === "right" && sessions.length > 0) {
+        swallowSidebarKey(key);
         setSessionsSidebar({ ...sb, menu: "delete" });
         props.controller.setStatusHint(sessionsSidebarHint("delete", true));
         return;
       }
       if (key.name === "enter" || key.name === "return") {
+        swallowSidebarKey(key);
         const session = sessions[sb.index];
         if (session) {
           unfocusSessionsSidebar();
@@ -1828,12 +1849,23 @@ export function App(props: {
         return;
       }
       if (key.name === "escape") {
+        swallowSidebarKey(key);
         unfocusSessionsSidebar();
         props.controller.setStatusHint(IDLE_STATUS_HINT);
         return;
       }
       if (key.name === "tab") {
+        swallowSidebarKey(key);
         unfocusSessionsSidebar();
+        return;
+      }
+      if (
+        key.name === "pageup"
+        || key.name === "pagedown"
+        || key.name === "home"
+        || key.name === "end"
+      ) {
+        swallowSidebarKey(key);
         return;
       }
     } else if (
@@ -1883,23 +1915,25 @@ export function App(props: {
         }
       }
     }
-    const page = Math.max(3, Math.floor(scrollRef.viewport.height / 2));
-    switch (key.name) {
-      case "up":
-        scrollRef.scrollBy({ x: 0, y: -2 });
-        return;
-      case "down":
-        scrollRef.scrollBy({ x: 0, y: 2 });
-        return;
-      case "pageup":
-        scrollRef.scrollBy({ x: 0, y: -page });
-        return;
-      case "pagedown":
-        scrollRef.scrollBy({ x: 0, y: page });
-        return;
-      case "end":
-        scrollRef.scrollTo({ x: 0, y: scrollRef.scrollHeight });
-        return;
+    if (!isSessionsSidebarFocused()) {
+      const page = Math.max(3, Math.floor(scrollRef.viewport.height / 2));
+      switch (key.name) {
+        case "up":
+          scrollRef.scrollBy({ x: 0, y: -2 });
+          return;
+        case "down":
+          scrollRef.scrollBy({ x: 0, y: 2 });
+          return;
+        case "pageup":
+          scrollRef.scrollBy({ x: 0, y: -page });
+          return;
+        case "pagedown":
+          scrollRef.scrollBy({ x: 0, y: page });
+          return;
+        case "end":
+          scrollRef.scrollTo({ x: 0, y: scrollRef.scrollHeight });
+          return;
+      }
     }
   });
 
