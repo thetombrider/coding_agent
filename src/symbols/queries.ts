@@ -33,13 +33,45 @@ const JS_REFERENCES = `
 (import_clause (identifier) @name) @reference.import
 `;
 
+const PYTHON_DEFINITIONS = `
+(function_definition name: (identifier) @name) @definition.function
+(class_definition name: (identifier) @name) @definition.class
+(class_definition
+  body: (block
+    (function_definition name: (identifier) @name))) @definition.method
+(class_definition
+  body: (block
+    (decorated_definition
+      definition: (function_definition name: (identifier) @name)))) @definition.method
+(decorated_definition
+  definition: (function_definition name: (identifier) @name)) @definition.function
+(decorated_definition
+  definition: (class_definition name: (identifier) @name)) @definition.class
+`;
+
+const PYTHON_REFERENCES = `
+(call
+  function: [
+    (identifier) @name
+    (attribute attribute: (identifier) @name)
+  ]) @reference.call
+(import_statement
+  name: (dotted_name (identifier) @name)) @reference.import
+(import_from_statement
+  name: (dotted_name (identifier) @name)) @reference.import
+(import_from_statement
+  name: (aliased_import name: (dotted_name (identifier) @name))) @reference.import
+`;
+
 function definitionsFor(dialect: Dialect): string {
   if (dialect === "javascript") return JS_DEFINITIONS;
+  if (dialect === "python") return PYTHON_DEFINITIONS;
   return TS_DEFINITIONS;
 }
 
 function referencesFor(dialect: Dialect): string {
   if (dialect === "javascript") return JS_REFERENCES;
+  if (dialect === "python") return PYTHON_REFERENCES;
   return TS_REFERENCES;
 }
 

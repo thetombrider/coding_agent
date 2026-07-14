@@ -70,6 +70,24 @@ describe("SymbolService cache persistence", () => {
     expect(loadCache(cwd)?.files["src/app.ts"]).toBeDefined();
   });
 
+  it("incrementally re-indexes changed Python files", async () => {
+    await writeFile(join(cwd, "src/util.py"), "def foo():\n    return 1\n");
+
+    const workspace = createLocalWorkspace();
+    const first = createSymbolService();
+    await first.warmIndex(workspace, cwd);
+
+    await writeFile(join(cwd, "src/util.py"), "def foo():\n    return 1\n\ndef bar():\n    return 2\n");
+
+    const extractSpy = vi.spyOn(extract, "extractFromSource");
+    const second = createSymbolService();
+    await second.warmIndex(workspace, cwd);
+    expect(extractSpy).toHaveBeenCalledTimes(1);
+    expect(extractSpy.mock.calls[0]?.[0]).toBe("src/util.py");
+    const { symbols } = second.query("bar", "definitions");
+    expect(symbols.some((s) => s.name === "bar")).toBe(true);
+  });
+
   it("falls back to full warm when cache is corrupt", async () => {
     const workspace = createLocalWorkspace();
     await mkdir(join(home, ".orin", "index"), { recursive: true });

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { Language, Parser } from "web-tree-sitter";
 
-export type Dialect = "typescript" | "tsx" | "javascript";
+export type Dialect = "typescript" | "tsx" | "javascript" | "python";
 
 let initPromise: Promise<void> | null = null;
 const languages = new Map<Dialect, Language>();
@@ -64,6 +64,9 @@ export async function getLanguage(dialect: Dialect): Promise<Language> {
     case "javascript":
       lang = await loadWasm("tree-sitter-javascript", "tree-sitter-javascript.wasm");
       break;
+    case "python":
+      lang = await loadWasm("tree-sitter-python", "tree-sitter-python.wasm");
+      break;
   }
   languages.set(dialect, lang);
   return lang;
@@ -74,6 +77,7 @@ export function dialectForPath(path: string): Dialect | null {
   if (lower.endsWith(".tsx")) return "tsx";
   if (lower.endsWith(".ts")) return "typescript";
   if (/\.(jsx?|mjs|cjs)$/.test(lower)) return "javascript";
+  if (lower.endsWith(".py")) return "python";
   return null;
 }
 
