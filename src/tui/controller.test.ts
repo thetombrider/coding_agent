@@ -106,6 +106,47 @@ describe("createSessionController", () => {
     expect(controller.getState().pendingApproval).toBeNull();
   });
 
+  it("queues a second concurrent approval instead of clobbering the first", async () => {
+    const controller = createSessionController(meta);
+
+    // Two gated tools in the same parallel batch both call requestApproval
+    // before either resolves.
+    const first = controller.requestApproval("bash", { command: "ls" });
+    const second = controller.requestApproval("write", { path: "a.txt", content: "hi" });
+
+    expect(controller.getState().pendingApproval).toEqual({
+      name: "bash",
+      args: { command: "ls" },
+    });
+
+    controller.respondApproval(true);
+    await expect(first).resolves.toBe(true);
+
+    expect(controller.getState().phase).toBe("approval");
+    expect(controller.getState().pendingApproval).toEqual({
+      name: "write",
+      args: { path: "a.txt", content: "hi" },
+    });
+
+    controller.respondApproval(false);
+    await expect(second).resolves.toBe(false);
+    expect(controller.getState().pendingApproval).toBeNull();
+    expect(controller.getState().phase).toBe("running");
+  });
+
+  it("rejectPendingApproval abandons every queued approval, not just the visible one", async () => {
+    const controller = createSessionController(meta);
+    const first = controller.requestApproval("bash", { command: "ls" });
+    const second = controller.requestApproval("write", { path: "a.txt", content: "hi" });
+
+    controller.rejectPendingApproval();
+
+    await expect(first).resolves.toBe(false);
+    await expect(second).resolves.toBe(false);
+    expect(controller.getState().pendingApproval).toBeNull();
+    expect(controller.getState().phase).toBe("running");
+  });
+
   it("rejectPendingApproval denies a waiting approval gate", async () => {
     const controller = createSessionController(meta);
     const pending = controller.requestApproval("bash", { command: "ls" });

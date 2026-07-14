@@ -111,7 +111,11 @@ export type SessionListener = (state: SessionState) => void;
 
 export interface SessionController {
   handleEvent: (event: AgentEvent) => void;
-  requestApproval: (name: string, args: unknown) => Promise<boolean>;
+  requestApproval: (
+    name: string,
+    args: unknown,
+    providerInputSchema?: Record<string, unknown>,
+  ) => Promise<boolean>;
   respondApproval: (approved: boolean) => void;
   /** Deny a pending approval gate, if any — used when stopping a turn. */
   rejectPendingApproval: () => void;
@@ -304,7 +308,16 @@ export function createSessionController(meta: SessionMeta): SessionController {
   };
 
   const listeners = new Set<SessionListener>();
-  let approvalResolver: ((approved: boolean) => void) | null = null;
+  // Tool calls within one turn run concurrently (see executeToolsParallel), so
+  // more than one gated tool can call requestApproval before either resolves.
+  // A single resolver slot would let a second call clobber the first's promise,
+  // hanging the turn. Queue them and show one approval at a time.
+  const approvalQueue: Array<{
+    name: string;
+    args: unknown;
+    providerInputSchema?: Record<string, unknown>;
+    resolve: (approved: boolean) => void;
+  }> = [];
   // Tool calls within one turn run concurrently (see executeToolsParallel), so
   // more than one `askuser` call can be in flight at once. A single resolver
   // slot would let a second call's requestQuestion clobber the first's before
@@ -395,6 +408,28 @@ export function createSessionController(meta: SessionMeta): SessionController {
     setCurrentTools(next);
   };
 
+  /** Show the next queued approval, or clear the modal if none remain. */
+  const advanceApprovalQueue = () => {
+    const next = approvalQueue[0];
+    if (next) {
+      update({
+        phase: "approval",
+        pendingApproval: {
+          name: next.name,
+          args: next.args,
+          providerInputSchema: next.providerInputSchema,
+        },
+        statusHint: `Approve ${next.name}?  y / n`,
+      });
+    } else {
+      update({
+        pendingApproval: null,
+        phase: "running",
+        statusHint: RUNNING_HINT,
+      });
+    }
+  };
+
   /** Show the next queued question, or clear the modal if none remain. */
   const advanceQuestionQueue = () => {
     const next = questionQueue[0];
@@ -451,6 +486,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
       // resolved, but clear any stragglers so a stale entry can't block
       // future questions from ever reaching the front of the queue.
       questionQueue.length = 0;
+      approvalQueue.length = 0;
       update({
         completedTurns: [
           ...state.completedTurns,
@@ -477,6 +513,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
     clearHistory() {
       questionQueue.length = 0;
+      approvalQueue.length = 0;
       update({
         completedTurns: [],
         currentUserText: "",
@@ -495,6 +532,7 @@ export function createSessionController(meta: SessionMeta): SessionController {
 
     loadHistory(turns) {
       questionQueue.length = 0;
+      approvalQueue.length = 0;
       update({
         completedTurns: turns,
         currentUserText: "",
@@ -635,6 +673,9 @@ export function createSessionController(meta: SessionMeta): SessionController {
         case "assistant_message":
           break;
         case "approval_required":
+          // requestApproval owns the modal once queued; ignore late events from
+          // parallel gates so they don't clobber the head of the queue.
+          if (approvalQueue.length > 0 || state.pendingApproval !== null) break;
           update({
             phase: "approval",
             pendingApproval: {
@@ -754,39 +795,38 @@ export function createSessionController(meta: SessionMeta): SessionController {
       }
     },
 
-    requestApproval(name, args) {
+    requestApproval(name, args, providerInputSchema) {
       return new Promise<boolean>((resolve) => {
-        approvalResolver = resolve;
-        update({
-          phase: "approval",
-          pendingApproval: { name, args },
-          statusHint: `Approve ${name}?  y / n`,
-        });
+        approvalQueue.push({ name, args, providerInputSchema, resolve });
+        // Only the head of the queue drives the UI — a gate pushed while
+        // another is already showing waits its turn.
+        if (approvalQueue.length === 1) {
+          update({
+            phase: "approval",
+            pendingApproval: { name, args, providerInputSchema },
+            statusHint: `Approve ${name}?  y / n`,
+          });
+        }
       });
     },
 
     respondApproval(approved) {
-      approvalResolver?.(approved);
-      approvalResolver = null;
-      update({
-        pendingApproval: null,
-        phase: "running",
-        statusHint: RUNNING_HINT,
-      });
+      const current = approvalQueue.shift();
+      if (!current) return;
+      current.resolve(approved);
+      advanceApprovalQueue();
     },
 
     rejectPendingApproval() {
-      // Gate on the resolver, not the phase: a sibling tool's tool_start can
+      // Gate on the queue, not the phase: a sibling tool's tool_start can
       // flip the phase off "approval" while the gate is still awaiting, and a
       // stop must still deny it rather than leave the loop blocked.
-      if (!approvalResolver) return;
-      approvalResolver(false);
-      approvalResolver = null;
-      update({
-        pendingApproval: null,
-        phase: "running",
-        statusHint: RUNNING_HINT,
-      });
+      // Stopping the turn abandons every queued approval, not just the one
+      // on screen.
+      if (approvalQueue.length === 0) return;
+      const pending = approvalQueue.splice(0, approvalQueue.length);
+      for (const item of pending) item.resolve(false);
+      advanceApprovalQueue();
     },
 
     requestQuestion(question, options) {
