@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { randomUUID } from "node:crypto";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import type { StreamAssistantFn } from "../provider/types.js";
+import type { StreamAssistantFn, AssistantMessage } from "../provider/types.js";
 import { enrichAssistantMessage, formatToolValidationErrors } from "../provider/tool-call-parser.js";
 import type { AnyTool } from "../tools/registry.js";
 import type { OrinRatelBundle } from "../ratel/catalog.js";
@@ -19,6 +19,10 @@ import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, mutationLock } from "./mutation-queue.js";
 import { isAbortError } from "../util/abort.js";
 import { isCriticalSystemError } from "../util/system-error.js";
+
+const CONTEXT_FULL_MESSAGE =
+  "The conversation context is full and automatic compaction could not reduce it further. "
+  + "Start a new session (/sessions) or send a shorter message to continue.";
 
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
@@ -240,7 +244,12 @@ export async function runLoop(
 
     const contextWindow = await getContextWindow(options.model);
 
-    if (shouldCompact(ctx.messages, contextWindow, lastKnownInputTokens || undefined)) {
+    const compactionNeeded = shouldCompact(
+      ctx.messages,
+      contextWindow,
+      lastKnownInputTokens || undefined,
+    );
+    if (compactionNeeded) {
       await hooks.fireHook("before_compact", { messages: ctx.messages }, ctx, options.signal);
       const compactionModel = resolveProviderSlot(activeProviderId(), "compaction");
       ctx.messages = await compactMessages(
@@ -252,6 +261,26 @@ export async function runLoop(
         ctx.loopHost?.recordLlmCall,
         options.signal,
       );
+
+      if (options.signal?.aborted) {
+        hooks.emit({ type: "loop_end", reason: "cancelled" });
+        break;
+      }
+
+      if (shouldCompact(ctx.messages, contextWindow, lastKnownInputTokens || undefined)) {
+        const ts = () => new Date().toISOString();
+        const errorContent = [{ type: "text" as const, text: CONTEXT_FULL_MESSAGE }];
+        const errorMessage: AssistantMessage = {
+          role: "assistant",
+          content: errorContent,
+          model: options.model,
+        };
+        ctx.messages.push(errorMessage);
+        options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: errorContent });
+        hooks.emit({ type: "assistant_message", id: randomUUID(), message: errorMessage });
+        hooks.emit({ type: "loop_end", reason: "error" });
+        break;
+      }
     }
     const turnIndex = currentTurnCount(ctx.messages);
     ctx.messages = evictStaleToolResults(ctx.messages, turnIndex);
