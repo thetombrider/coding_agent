@@ -6,6 +6,11 @@ type HandlerMap = {
   [K in keyof HookMap]: Array<HookHandler<K>>;
 };
 
+export type HookRegistryOptions = {
+  /** Rethrow observer errors instead of logging (for tests). */
+  strictObservers?: boolean;
+};
+
 export type HookRegistryImpl = HookRegistry & {
   fireHook<K extends keyof HookMap>(
     event: K,
@@ -39,7 +44,21 @@ function hasMessages(value: unknown): value is { messages: HookMap["before_promp
   return typeof value === "object" && value !== null && "messages" in value;
 }
 
-export function createHookRegistry(): HookRegistryImpl {
+function hookErrorReason(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return `Hook error: ${message}`;
+}
+
+export function logHookError(scope: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`[orin hooks] ${scope} failed: ${message}\n`);
+  if (err instanceof Error && err.stack) {
+    process.stderr.write(`${err.stack}\n`);
+  }
+}
+
+export function createHookRegistry(options: HookRegistryOptions = {}): HookRegistryImpl {
+  const { strictObservers = false } = options;
   const handlers: HandlerMap = {
     before_tool: [],
     after_tool: [],
@@ -69,9 +88,15 @@ export function createHookRegistry(): HookRegistryImpl {
 
   function emit(event: AgentEvent): void {
     for (const fn of observers) {
+      if (strictObservers) {
+        fn(event);
+        continue;
+      }
       void Promise.resolve()
         .then(() => fn(event))
-        .catch(() => {});
+        .catch((err) => {
+          logHookError("observer", err);
+        });
     }
   }
 
@@ -82,11 +107,17 @@ export function createHookRegistry(): HookRegistryImpl {
   ): Promise<HookMap["before_tool"]["out"] | void> {
     let currentArgs = input.args;
     for (const handler of handlers.before_tool) {
-      const result = await handler(
-        { id: input.id, name: input.name, args: currentArgs },
-        ctx,
-        signal,
-      );
+      let result: HookMap["before_tool"]["out"] | void;
+      try {
+        result = await handler(
+          { id: input.id, name: input.name, args: currentArgs },
+          ctx,
+          signal,
+        );
+      } catch (err) {
+        logHookError("before_tool handler", err);
+        return { block: true, reason: hookErrorReason(err) };
+      }
       if (isBlockResult(result)) return result;
       if (hasArgs(result)) currentArgs = result.args;
     }
@@ -100,11 +131,17 @@ export function createHookRegistry(): HookRegistryImpl {
   ): Promise<HookMap["after_tool"]["out"] | void> {
     let currentOutput = input.output;
     for (const handler of handlers.after_tool) {
-      const result = await handler(
-        { name: input.name, args: input.args, output: currentOutput },
-        ctx,
-        signal,
-      );
+      let result: HookMap["after_tool"]["out"] | void;
+      try {
+        result = await handler(
+          { name: input.name, args: input.args, output: currentOutput },
+          ctx,
+          signal,
+        );
+      } catch (err) {
+        logHookError("after_tool handler", err);
+        continue;
+      }
       if (hasOutput(result)) currentOutput = result.output;
     }
     if (currentOutput !== input.output) return { output: currentOutput };
@@ -117,11 +154,17 @@ export function createHookRegistry(): HookRegistryImpl {
   ): Promise<HookMap["before_prompt"]["out"] | void> {
     let currentMessages = input.messages;
     for (const handler of handlers.before_prompt) {
-      const result = await handler(
-        { messages: currentMessages, model: input.model },
-        ctx,
-        signal,
-      );
+      let result: HookMap["before_prompt"]["out"] | void;
+      try {
+        result = await handler(
+          { messages: currentMessages, model: input.model },
+          ctx,
+          signal,
+        );
+      } catch (err) {
+        logHookError("before_prompt handler", err);
+        continue;
+      }
       if (hasMessages(result)) currentMessages = result.messages;
     }
     if (currentMessages !== input.messages) return { messages: currentMessages };
@@ -134,7 +177,11 @@ export function createHookRegistry(): HookRegistryImpl {
     signal?: AbortSignal,
   ): Promise<void> {
     for (const handler of handlers[event]) {
-      await handler(input, ctx, signal);
+      try {
+        await handler(input, ctx, signal);
+      } catch (err) {
+        logHookError(`${event} handler`, err);
+      }
     }
   }
 
