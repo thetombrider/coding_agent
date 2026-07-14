@@ -8,6 +8,7 @@ import {
   isPlainSelectionCopyShortcut,
   isSelectionCopyShortcut,
   isSelectionHintShortcut,
+  isTogglePanelsShortcut,
 } from "./shortcuts.js";
 
 const key = (name: string, mods: Partial<{ ctrl: boolean; meta: boolean; shift: boolean }> = {}) => ({
@@ -55,6 +56,12 @@ describe("shortcuts", () => {
     expect(isSelectionHintShortcut(key("v"))).toBe(true);
     expect(isSelectionHintShortcut(key("v", { ctrl: true }))).toBe(false);
     expect(isSelectionHintShortcut(key("v", { meta: true }))).toBe(false);
+  });
+
+  it("detects panel toggle shortcut", () => {
+    expect(isTogglePanelsShortcut(key("\\", { ctrl: true }))).toBe(true);
+    expect(isTogglePanelsShortcut(key("\\", { ctrl: true, shift: true }))).toBe(false);
+    expect(isTogglePanelsShortcut(key("\\"))).toBe(false);
   });
 
   it("shows Terminal.app-specific clipboard hints", () => {

@@ -16,10 +16,11 @@ import { spinnerFrame } from "./spinner.js";
 import { hiddenNativeScrollbar, scrollbars, surfaceSelection, theme } from "./theme.js";
 import { useToolExpand } from "./tool-expand.js";
 import { outputExpandHint, toolDisplayOutput } from "./tool-output.js";
+import { INFO_SIDEBAR_WIDTH } from "./sidebar-state.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
-export const TODO_SIDEBAR_WIDTH = 30;
+export const TODO_SIDEBAR_WIDTH = INFO_SIDEBAR_WIDTH;
 
 function todoCheckbox(status: TodoStatus, running: boolean): string {
   switch (status) {
@@ -54,11 +55,49 @@ export function showTodoSidebar(todos: TodoItem[], phase: SessionPhase): boolean
   return phase === "running";
 }
 
+export function TodoList(props: { todos: TodoItem[]; phase: SessionPhase }) {
+  const todos = () => props.todos;
+  const completed = () => countCompletedTodos(todos());
+  const running = () => props.phase === "running";
+
+  return (
+    <>
+      <text selectable={false} fg={theme.muted} attributes={BOLD}>
+        tasks {completed()}/{todos().length}
+      </text>
+      <For each={todos()}>
+        {(item) => {
+          const checked = () => item.status === "completed";
+          const active = () => item.status === "in_progress" && running();
+          return (
+            <box flexDirection="row" marginTop={0}>
+              <text
+                selectable={false}
+                fg={todoStatusColor(item.status)}
+                attributes={active() ? BOLD : 0}
+              >
+                [{todoCheckbox(item.status, running())}]
+              </text>
+              <text
+                selectable={false}
+                fg={checked() ? theme.muted : todoStatusColor(item.status)}
+                attributes={active() ? BOLD : 0}
+                wrapMode="word"
+                flexGrow={1}
+              >
+                {" "}{item.content}
+              </text>
+            </box>
+          );
+        }}
+      </For>
+    </>
+  );
+}
+
 export function TodoSidebar(props: { todos: TodoItem[]; phase: SessionPhase }) {
   const todos = () => props.todos;
   const visible = () => showTodoSidebar(todos(), props.phase);
-  const completed = () => countCompletedTodos(todos());
-  const running = () => props.phase === "running";
 
   return (
     <Show when={visible()}>
@@ -72,37 +111,79 @@ export function TodoSidebar(props: { todos: TodoItem[]; phase: SessionPhase }) {
         borderColor={theme.border}
         backgroundColor={theme.codeBg}
       >
-        <text selectable={false} fg={theme.muted} attributes={BOLD}>
-          tasks {completed()}/{todos().length}
-        </text>
-        <For each={todos()}>
-          {(item) => {
-            const checked = () => item.status === "completed";
-            const active = () => item.status === "in_progress" && running();
-            return (
-              <box flexDirection="row" marginTop={0}>
-                <text
-                  selectable={false}
-                  fg={todoStatusColor(item.status)}
-                  attributes={active() ? BOLD : 0}
-                >
-                  [{todoCheckbox(item.status, running())}]
-                </text>
-                <text
-                  selectable={false}
-                  fg={checked() ? theme.muted : todoStatusColor(item.status)}
-                  attributes={active() ? BOLD : 0}
-                  wrapMode="word"
-                  flexGrow={1}
-                >
-                  {" "}{item.content}
-                </text>
-              </box>
-            );
-          }}
-        </For>
+        <TodoList todos={props.todos} phase={props.phase} />
       </box>
     </Show>
+  );
+}
+
+export type InfoSidebarProps = {
+  model: string;
+  approval: string;
+  cwd: string;
+  provider?: string;
+  sandbox?: string;
+  costUsd?: number | null;
+  tokenTotals?: number;
+  contextTokens?: number;
+  contextWindow?: number;
+  branch?: string;
+  sessionIsolation?: import("../agent/session-isolation.js").SessionIsolationMode;
+  faux?: boolean;
+  todos: TodoItem[];
+  phase: SessionPhase;
+};
+
+function infoPath(props: Pick<InfoSidebarProps, "cwd" | "branch" | "sessionIsolation">): string {
+  const home = process.env.HOME;
+  const root =
+    props.sessionIsolation === "worktree" && props.branch ? props.branch : props.cwd;
+  return home && root.startsWith(home) ? `~${root.slice(home.length)}` : root;
+}
+
+export function InfoSidebar(props: InfoSidebarProps) {
+  const todos = () => props.todos;
+  const showTodos = () => showTodoSidebar(todos(), props.phase);
+  const badge = () =>
+    costBadge({ costUsd: props.costUsd, tokenTotals: props.tokenTotals, faux: props.faux });
+  const context = () =>
+    contextBadge({ contextTokens: props.contextTokens, contextWindow: props.contextWindow });
+  const sandboxLabel = () =>
+    props.sandbox && props.sandbox !== "local" ? props.sandbox : "";
+
+  return (
+    <box
+      flexShrink={0}
+      width={INFO_SIDEBAR_WIDTH}
+      flexDirection="column"
+      marginLeft={1}
+      paddingLeft={1}
+      border={["left"]}
+      borderColor={theme.border}
+      backgroundColor={theme.codeBg}
+    >
+      <text selectable={false} fg={theme.muted} attributes={BOLD}>Orin</text>
+      <Show when={props.provider}>
+        <text selectable={false} fg={theme.secondary} wrapMode="word">{props.provider}</text>
+      </Show>
+      <text selectable={false} fg={theme.fg} wrapMode="word">{shortModel(props.model)}</text>
+      <text selectable={false} fg={theme.secondary} wrapMode="word">{props.approval}</text>
+      <Show when={sandboxLabel()}>
+        <text selectable={false} fg={theme.secondary} wrapMode="word">{sandboxLabel()}</text>
+      </Show>
+      <text selectable={false} fg={theme.secondary} wrapMode="word">{infoPath(props)}</text>
+      <Show when={badge()}>
+        <text selectable={false} fg={theme.muted} wrapMode="word">{badge()}</text>
+      </Show>
+      <Show when={context()}>
+        <text selectable={false} fg={theme.muted} wrapMode="word">{context()}</text>
+      </Show>
+      <Show when={showTodos()}>
+        <box flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
+          <TodoList todos={props.todos} phase={props.phase} />
+        </box>
+      </Show>
+    </box>
   );
 }
 
