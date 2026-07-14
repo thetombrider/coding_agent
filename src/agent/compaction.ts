@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { z } from "zod";
 import { resolveLanguageModel } from "../provider/registry.js";
 import { getContextWindow } from "../provider/context-window.js";
 import { aiSdkUsageToUsage, type AiSdkUsage } from "../telemetry/cost.js";
@@ -74,7 +75,9 @@ export function estimateMessageTokens(messages: Message[]): number {
   let chars = 0;
   for (const m of messages) {
     for (const block of m.content) {
-      if (block.type === "text" || block.type === "reasoning")
+      // Reasoning is kept for the UI but stripped by toAiMessages before the
+      // next provider call — do not count it toward compaction budgets (#379).
+      if (block.type === "text")
         chars += block.text?.length ?? 0;
       else if (block.type === "toolCall")
         chars += block.name.length + JSON.stringify(block.arguments).length;
@@ -85,16 +88,107 @@ export function estimateMessageTokens(messages: Message[]): number {
   return Math.ceil(chars / 3.5);
 }
 
+export interface ToolSchemaEstimate {
+  name: string;
+  description: string;
+  schema: z.ZodType;
+}
+
+/** Fixed provider payload outside ctx.messages (system, tool schemas, injections). */
+export interface ProviderOverhead {
+  system?: string;
+  tools?: ToolSchemaEstimate[];
+  /** Extra tokens from before_prompt injections not stored in ctx.messages. */
+  injectionTokens?: number;
+}
+
+export function estimateSystemTokens(system?: string): number {
+  if (!system?.trim()) return 0;
+  return Math.ceil(system.length / 3.5);
+}
+
+export function estimateToolSchemaTokens(tools: ToolSchemaEstimate[]): number {
+  let chars = 0;
+  for (const t of tools) {
+    chars += t.name.length + t.description.length + 20;
+    try {
+      chars += JSON.stringify(z.toJSONSchema(t.schema)).length;
+    } catch {
+      chars += 200;
+    }
+  }
+  return Math.ceil(chars / 3.5);
+}
+
+export function estimateProviderOverhead(overhead: ProviderOverhead = {}): number {
+  return (
+    estimateSystemTokens(overhead.system)
+    + estimateToolSchemaTokens(overhead.tools ?? [])
+    + Math.max(0, overhead.injectionTokens ?? 0)
+  );
+}
+
+/** Message tokens plus fixed provider overhead — matches the next LLM request shape. */
+export function estimateProviderContextTokens(
+  messages: Message[],
+  overhead?: ProviderOverhead,
+): number {
+  return estimateMessageTokens(messages) + estimateProviderOverhead(overhead);
+}
+
+/** Tokens injected by before_prompt hooks that are not in ctx.messages. */
+export function estimateInjectionTokens(
+  promptMessages: Message[],
+  ctxMessages: Message[],
+): number {
+  return Math.max(0, estimateMessageTokens(promptMessages) - estimateMessageTokens(ctxMessages));
+}
+
+/** Fingerprint of prompt shape — invalidate cached usage when it changes (#380). */
+export function computePromptShapeKey(
+  system: string | undefined,
+  tools: Array<{ name: string }>,
+  promptMessages: Message[],
+  ctxMessages: Message[],
+): string {
+  const toolNames = tools.map((t) => t.name).sort().join(",");
+  const injection = estimateInjectionTokens(promptMessages, ctxMessages);
+  return `${system?.length ?? 0}:${toolNames}:${injection}`;
+}
+
+export interface ShouldCompactOptions {
+  knownTokens?: number;
+  overhead?: ProviderOverhead;
+}
+
+function resolveCompactionTokens(
+  messages: Message[],
+  options?: number | ShouldCompactOptions,
+): number {
+  const opts: ShouldCompactOptions = typeof options === "number"
+    ? { knownTokens: options > 0 ? options : undefined }
+    : (options ?? {});
+  const estimated = estimateProviderContextTokens(messages, opts.overhead);
+  const known = opts.knownTokens ?? 0;
+  // Prefer the higher of provider-reported usage and our estimate (#380): usage
+  // can be missing/stale or omit injections/tools; estimation can miss provider
+  // tokenizer quirks. Either signal that we're near the limit should compact.
+  return known > 0 ? Math.max(known, estimated) : estimated;
+}
+
 /**
  * Returns true when the context is full enough to warrant compaction.
  * Pass `knownTokens` (from the last API response's usage.input) for an exact
- * count; omit it to fall back to character-based estimation.
+ * count; omit it to fall back to character-based estimation. Include
+ * `overhead` (system, tool schemas, injections) so the check matches the
+ * actual provider payload (#371).
  */
-export function shouldCompact(messages: Message[], windowSize: number, knownTokens?: number): boolean {
-  const tokens = knownTokens !== undefined && knownTokens > 0
-    ? knownTokens
-    : estimateMessageTokens(messages);
-  return tokens > windowSize * COMPACT_THRESHOLD;
+export function shouldCompact(
+  messages: Message[],
+  windowSize: number,
+  options?: number | ShouldCompactOptions,
+): boolean {
+  return resolveCompactionTokens(messages, options) > windowSize * COMPACT_THRESHOLD;
 }
 
 export function sliceTurns(messages: Message[]): TurnSlice[] {
@@ -156,8 +250,13 @@ function mapToolResults(
 }
 
 /** Cap individual bloated tool results when nearing the context window. */
-export function capOversizedToolResults(messages: Message[], contextWindow: number): Message[] {
-  if (!shouldCompact(messages, contextWindow)) return messages;
+export function capOversizedToolResults(
+  messages: Message[],
+  contextWindow: number,
+  overhead?: ProviderOverhead,
+): Message[] {
+  const options = overhead ? { overhead } : undefined;
+  if (!shouldCompact(messages, contextWindow, options)) return messages;
   const maxResult = scaleToWindow(MAX_TOOL_RESULT_TOKENS, contextWindow, 0.25);
   return mapToolResults(messages, (output) =>
     estimateTokens(output) > maxResult ? elideToolOutput(output) : output,
@@ -168,8 +267,13 @@ export function capOversizedToolResults(messages: Message[], contextWindow: numb
  * Walk backwards and elide older tool output once the recent budget is full.
  * Works within a single user turn — unlike turn-based eviction.
  */
-export function pruneOverflowToolResults(messages: Message[], contextWindow: number): Message[] {
-  if (!shouldCompact(messages, contextWindow)) return messages;
+export function pruneOverflowToolResults(
+  messages: Message[],
+  contextWindow: number,
+  overhead?: ProviderOverhead,
+): Message[] {
+  const options = overhead ? { overhead } : undefined;
+  if (!shouldCompact(messages, contextWindow, options)) return messages;
 
   const protectBudget = scaleToWindow(PRUNE_PROTECT_TOKENS, contextWindow, 0.5);
   const minimumToPrune = scaleToWindow(PRUNE_MINIMUM_TOKENS, contextWindow, 0.25);
@@ -468,17 +572,19 @@ export async function compactMessages(
   generate: SummariseGenerate = defaultSummariseGenerate,
   recordCall?: LlmCallRecorder,
   signal?: AbortSignal,
+  overhead?: ProviderOverhead,
 ): Promise<Message[]> {
+  const compactOptions = overhead ? { overhead } : undefined;
   const originalMessages = messages;
-  let result = capOversizedToolResults(messages, contextWindow);
-  result = pruneOverflowToolResults(result, contextWindow);
-  if (!shouldCompact(result, contextWindow)) return result;
+  let result = capOversizedToolResults(messages, contextWindow, overhead);
+  result = pruneOverflowToolResults(result, contextWindow, overhead);
+  if (!shouldCompact(result, contextWindow, compactOptions)) return result;
 
   // Resolve the cheap model's window once to avoid duplicate lookups.
   const cheapWindow = await getContextWindow(model);
 
   result = await summariseOldTurns(result, model, keepLastNTurns, generate, recordCall, cheapWindow, originalMessages, signal);
-  if (!shouldCompact(result, contextWindow)) return result;
+  if (!shouldCompact(result, contextWindow, compactOptions)) return result;
 
   let keepRecent = scaleToWindow(DEFAULT_KEEP_RECENT_TOKENS, contextWindow, 0.4);
   for (let iter = 0; iter < MAX_COMPACT_ITERATIONS; iter++) {
@@ -490,7 +596,7 @@ export async function compactMessages(
       iter === 0 ? originalMessages : undefined,
       signal,
     );
-    if (!shouldCompact(result, contextWindow)) break;
+    if (!shouldCompact(result, contextWindow, compactOptions)) break;
     keepRecent = Math.max(1, Math.floor(keepRecent / 2));
   }
   return result;
