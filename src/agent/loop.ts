@@ -24,6 +24,32 @@ const CONTEXT_FULL_MESSAGE =
   "The conversation context is full and automatic compaction could not reduce it further. "
   + "Start a new session (/sessions) or send a shorter message to continue.";
 
+function loopLimitMessage(kind: "turns" | "tools", limit: number): string {
+  const what = kind === "turns" ? "assistant round" : "tool call";
+  return (
+    `Reached the per-turn ${what} limit (${limit}). `
+    + "Send another message to continue, or adjust limits with /settings loop."
+  );
+}
+
+function pushAssistantNotice(
+  ctx: AgentContext,
+  hooks: HookRegistryImpl,
+  options: RunLoopOptions,
+  text: string,
+): void {
+  const ts = () => new Date().toISOString();
+  const content = [{ type: "text" as const, text }];
+  const message: AssistantMessage = {
+    role: "assistant",
+    content,
+    model: options.model,
+  };
+  ctx.messages.push(message);
+  options.onEvent?.({ type: "assistant_chunk", ts: ts(), content });
+  hooks.emit({ type: "assistant_message", id: randomUUID(), message });
+}
+
 export interface RunLoopOptions {
   provider: StreamAssistantFn;
   /** Full execution registry — all tools the loop may run (including via invoke_tool). */
@@ -238,6 +264,7 @@ export async function runLoop(
     }
 
     if (options.maxTurns !== undefined && assistantTurns >= options.maxTurns) {
+      pushAssistantNotice(ctx, hooks, options, loopLimitMessage("turns", options.maxTurns));
       hooks.emit({ type: "loop_end", reason: "terminate" });
       break;
     }
@@ -268,16 +295,7 @@ export async function runLoop(
       }
 
       if (shouldCompact(ctx.messages, contextWindow, lastKnownInputTokens || undefined)) {
-        const ts = () => new Date().toISOString();
-        const errorContent = [{ type: "text" as const, text: CONTEXT_FULL_MESSAGE }];
-        const errorMessage: AssistantMessage = {
-          role: "assistant",
-          content: errorContent,
-          model: options.model,
-        };
-        ctx.messages.push(errorMessage);
-        options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: errorContent });
-        hooks.emit({ type: "assistant_message", id: randomUUID(), message: errorMessage });
+        pushAssistantNotice(ctx, hooks, options, CONTEXT_FULL_MESSAGE);
         hooks.emit({ type: "loop_end", reason: "error" });
         break;
       }
@@ -419,6 +437,7 @@ export async function runLoop(
 
     totalToolCalls += toolCalls.length;
     if (options.maxToolCalls !== undefined && totalToolCalls >= options.maxToolCalls) {
+      pushAssistantNotice(ctx, hooks, options, loopLimitMessage("tools", options.maxToolCalls));
       hooks.emit({ type: "loop_end", reason: "terminate" });
       break;
     }

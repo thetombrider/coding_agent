@@ -24,7 +24,7 @@ import {
   serialSubagentPaletteHeader,
   workspaceSettingsOverview,
 } from "../agent/workspace-settings.js";
-import { hasE2BApiKey, hasExaApiKey } from "../config/config.js";
+import { hasE2BApiKey, hasExaApiKey, loadConfig, saveConfig } from "../config/config.js";
 import type { ModelPricing } from "../config/config.js";
 import { resolveDisplayModelPricing } from "../config/model-pricing.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
@@ -100,6 +100,7 @@ const HELP_LINES = [
   "/settings isolation [mode]    set subagent isolation floor (shared|worktree|sandbox)",
   "/settings session-isolation [mode]  set session isolation (shared|worktree)",
   "/settings telemetry [on|off]  opt in/out of prompt+response capture on OTLP spans",
+  "/settings loop [turns tools]     per-turn main-agent round/tool caps (0 = unlimited)",
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/settings exa                 configure Exa API key (for web_search tool)",
   "/mcp                          browse and configure MCP servers",
@@ -406,6 +407,44 @@ function handleTelemetry(value: string | undefined, ctx: CommandContext): Comman
   };
 }
 
+function loopLimitsInfo(): string {
+  const { maxTurns, maxToolCalls } = loadConfig().agent;
+  const turns = maxTurns > 0 ? String(maxTurns) : "unlimited";
+  const tools = maxToolCalls > 0 ? String(maxToolCalls) : "unlimited";
+  return (
+    "Per-turn circuit breaker (main agent):\n"
+    + `  max assistant rounds: ${turns}\n`
+    + `  max tool calls: ${tools}\n`
+    + "/settings loop <maxTurns> <maxToolCalls> to change (0 = unlimited)"
+  );
+}
+
+function handleLoopLimits(parts: string[]): CommandResult {
+  if (parts.length < 2) {
+    return { type: "info", message: loopLimitsInfo() };
+  }
+  const maxTurns = Number(parts[1]);
+  const maxToolCalls = Number(parts[2]);
+  if (!Number.isFinite(maxTurns) || maxTurns < 0 || !Number.isFinite(maxToolCalls) || maxToolCalls < 0) {
+    return {
+      type: "error",
+      message: "usage: /settings loop <maxTurns> <maxToolCalls> — non-negative integers; 0 disables a cap",
+    };
+  }
+  saveConfig({
+    agent: {
+      maxTurns: Math.floor(maxTurns),
+      maxToolCalls: Math.floor(maxToolCalls),
+    },
+  });
+  const turns = maxTurns > 0 ? String(Math.floor(maxTurns)) : "unlimited";
+  const tools = maxToolCalls > 0 ? String(Math.floor(maxToolCalls)) : "unlimited";
+  return {
+    type: "info",
+    message: `main-agent loop limits → ${turns} rounds, ${tools} tool calls`,
+  };
+}
+
 function handleSettings(arg: string, ctx: CommandContext): CommandResult {
   const parts = arg.trim().split(/\s+/).filter(Boolean);
   const sub = parts[0]?.toLowerCase();
@@ -439,6 +478,10 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
 
   if (sub === "telemetry" || sub === "capture") {
     return handleTelemetry(parts[1], ctx);
+  }
+
+  if (sub === "loop" || sub === "limits") {
+    return handleLoopLimits(parts);
   }
 
   if (sub === "e2b") {
@@ -481,7 +524,7 @@ function handleSettings(arg: string, ctx: CommandContext): CommandResult {
 
   return {
     type: "error",
-    message: `unknown setting "${sub}" — try /settings workspace, /settings isolation, /settings session-isolation, /settings telemetry, /settings e2b, /settings exa, or /settings mcp`,
+    message: `unknown setting "${sub}" — try /settings workspace, /settings isolation, /settings session-isolation, /settings loop, /settings telemetry, /settings e2b, /settings exa, or /settings mcp`,
   };
 }
 

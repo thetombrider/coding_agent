@@ -789,8 +789,9 @@ describe("runLoop", () => {
     });
 
     const assistantMessages = ctx.messages.filter((m) => m.role === "assistant");
-    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages).toHaveLength(3);
     expect(executions).toBe(2);
+    expect(lastAssistantText(ctx)).toContain("assistant round");
     expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
   });
 
@@ -837,6 +838,7 @@ describe("runLoop", () => {
     // The loop executes the first batch of 2 tool calls (totalToolCalls=2 < 3),
     // then the second batch of 2 (totalToolCalls=4 >= 3) triggers the cap.
     expect(executions).toBe(4);
+    expect(lastAssistantText(ctx)).toContain("tool call");
     expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
   });
 
