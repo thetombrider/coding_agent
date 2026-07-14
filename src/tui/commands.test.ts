@@ -395,6 +395,28 @@ describe("processCommand", () => {
       expect(r.type).toBe("error");
     });
 
+    it("shows loop limit settings and persists updates", async () => {
+      const { loadConfig } = await import("../config/config.js");
+      const info = processCommand("/settings loop", ctx);
+      expect(info.type).toBe("info");
+      if (info.type === "info") {
+        expect(info.message).toContain("max assistant rounds: 25");
+        expect(info.message).toContain("max tool calls: 50");
+      }
+
+      const updated = processCommand("/settings loop 10 20", ctx);
+      expect(updated).toMatchObject({
+        type: "info",
+        message: "main-agent loop limits → 10 rounds, 20 tool calls",
+      });
+      expect(loadConfig().agent).toEqual({ maxTurns: 10, maxToolCalls: 20 });
+    });
+
+    it("rejects invalid loop limit values", () => {
+      const r = processCommand("/settings loop 10", ctx);
+      expect(r.type).toBe("error");
+    });
+
     it("shows the isolation floor and options", () => {
       const r = processCommand("/settings isolation", { ...ctx, currentIsolation: "worktree" });
       expect(r.type).toBe("info");

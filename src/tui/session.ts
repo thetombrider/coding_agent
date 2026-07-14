@@ -9,7 +9,7 @@ import type { ApprovalMode } from "../approval/policy.js";
 import type { ApprovalGateRef } from "../hooks/approval-gate.js";
 import { installCoreHooks } from "../hooks/install.js";
 import type { HookRegistryImpl } from "../hooks/registry.js";
-import { saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveProviderModelSlot, type ModelSlot } from "../config/config.js";
+import { saveConfig, saveProviderConfig, saveE2BApiKey, saveExaApiKey, saveProviderModelSlot, resolveMainLoopLimits, type ModelSlot } from "../config/config.js";
 import { getProvider, resolveActiveProvider, activeProviderId } from "../provider/registry.js";
 import { getContextWindow } from "../provider/context-window.js";
 import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
@@ -679,6 +679,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
         sessionId: activeSessionId,
         onEvent: log.write,
         signal: abort.signal,
+        ...resolveMainLoopLimits(),
       });
     } catch (err) {
       if (abort.signal.aborted || isAbortError(err)) {

@@ -4,7 +4,7 @@ import type { ApprovalGateRef } from "./hooks/approval-gate.js";
 import { lastAssistantText } from "./agent/loop.js";
 import { parseApprovalMode } from "./approval/policy.js";
 import { parseCliArgs } from "./cli-args.js";
-import { loadConfig, ensureConfigFile } from "./config/config.js";
+import { loadConfig, ensureConfigFile, resolveMainLoopLimits } from "./config/config.js";
 import { resolveSystemPrompt } from "./prompt/system.js";
 import { resolveProviderSlot } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
@@ -347,6 +347,7 @@ async function runHeadless(opts: {
       sessionId: effectiveSessionId,
       ratel: tooling.ratel,
       featureFlag: tooling.controlArm ? "tool_pool=full" : undefined,
+      ...resolveMainLoopLimits(),
     });
   } finally {
     disposeRatelTelemetry();

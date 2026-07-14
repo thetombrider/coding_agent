@@ -216,4 +216,13 @@ describe("API key onboarding", () => {
     expect(hasExaApiKey()).toBe(true);
     expect(loadConfig().tools?.exa?.apiKey).toBe("exa-trimmed");
   });
+
+  it("defaults main-agent loop limits and resolves zero as unlimited", async () => {
+    const { loadConfig, resolveMainLoopLimits, saveConfig } = await import("./config.js");
+    expect(loadConfig().agent).toEqual({ maxTurns: 25, maxToolCalls: 50 });
+    expect(resolveMainLoopLimits()).toEqual({ maxTurns: 25, maxToolCalls: 50 });
+
+    saveConfig({ agent: { maxTurns: 0, maxToolCalls: 0 } });
+    expect(resolveMainLoopLimits()).toEqual({});
+  });
 });

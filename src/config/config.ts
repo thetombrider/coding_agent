@@ -79,6 +79,13 @@ export interface Config {
      */
     maxParallel: number;
   };
+  /** Per-turn circuit breaker for the main agent loop (not subagents). */
+  agent: {
+    /** Max assistant rounds per user turn; 0 disables the cap. */
+    maxTurns: number;
+    /** Max cumulative tool calls per user turn; 0 disables the cap. */
+    maxToolCalls: number;
+  };
   session: {
     /** Whole-session parent-loop isolation. Default `shared`. */
     isolation: SessionIsolationMode;
@@ -166,6 +173,7 @@ const DEFAULT_CONFIG: Config = {
   },
   approval: { mode: "normal", autoApprovedCommands: [] },
   subagent: { isolation: "shared", maxParallel: 4 },
+  agent: { maxTurns: 25, maxToolCalls: 50 },
   session: { isolation: "shared" },
   system: {
     prompt:
@@ -415,7 +423,27 @@ function buildConfig(): Config {
     ? Math.max(1, Math.floor(maxParallel))
     : DEFAULT_CONFIG.subagent.maxParallel;
 
+  const maxTurns = Number(merged.agent?.maxTurns);
+  const maxToolCalls = Number(merged.agent?.maxToolCalls);
+  merged.agent = {
+    maxTurns: Number.isFinite(maxTurns) && maxTurns >= 0
+      ? Math.floor(maxTurns)
+      : DEFAULT_CONFIG.agent.maxTurns,
+    maxToolCalls: Number.isFinite(maxToolCalls) && maxToolCalls >= 0
+      ? Math.floor(maxToolCalls)
+      : DEFAULT_CONFIG.agent.maxToolCalls,
+  };
+
   return merged;
+}
+
+/** Main-loop caps from config; 0 means unlimited (cap disabled). */
+export function resolveMainLoopLimits(): { maxTurns?: number; maxToolCalls?: number } {
+  const { maxTurns, maxToolCalls } = loadConfig().agent;
+  return {
+    maxTurns: maxTurns > 0 ? maxTurns : undefined,
+    maxToolCalls: maxToolCalls > 0 ? maxToolCalls : undefined,
+  };
 }
 
 /** Load config: defaults merged with `~/.orin/config.json`. Cached for performance. */
