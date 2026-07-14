@@ -414,6 +414,9 @@ export function App(props: {
 
   let scrollRef: ScrollBoxRenderable | undefined;
   let sessionListScrollRef: ScrollBoxRenderable | undefined;
+  /** In-memory scroll offset for the sessions list between focus/unfocus cycles. */
+  let sessionsListScrollTop = 0;
+  let lastSessionScrollIndex: number | undefined;
   let modelListScrollRef: ScrollBoxRenderable | undefined;
   let skillsListScrollRef: ScrollBoxRenderable | undefined;
   let approvalScrollRef: ScrollBoxRenderable | undefined;
@@ -479,20 +482,40 @@ export function App(props: {
     }
   });
 
+  const saveSessionsListScroll = () => {
+    if (sessionListScrollRef) {
+      sessionsListScrollTop = sessionListScrollRef.scrollTop;
+    }
+  };
+
+  const restoreSessionsListScroll = () => {
+    queueMicrotask(() => {
+      if (sessionListScrollRef) {
+        sessionListScrollRef.scrollTo({ x: 0, y: sessionsListScrollTop });
+      }
+    });
+  };
+
   const scrollSessionIntoView = (index: number) => {
     sessionListScrollRef?.scrollChildIntoView(`session-row-${index}`);
+    saveSessionsListScroll();
   };
 
   const focusSessionsSidebar = () => {
     const sessions = sessionsList();
     const activeIdx = sessions.findIndex((s) => s.sessionId === props.activeSessionId);
     setSidebarVisibility((v) => ({ ...v, left: true }));
-    setSessionsSidebar({
-      index: activeIdx >= 0 ? activeIdx : 0,
-      menu: "list",
-      focused: true,
+    setSessionsSidebar((s) => {
+      const index =
+        s.index >= 0 && s.index < sessions.length
+          ? s.index
+          : activeIdx >= 0
+            ? activeIdx
+            : 0;
+      return { ...s, index, menu: "list", focused: true };
     });
     queueMicrotask(() => inputRef?.blur());
+    restoreSessionsListScroll();
     if (sessions.length === 0) {
       props.controller.setStatusHint("No sessions found.");
     } else {
@@ -501,6 +524,7 @@ export function App(props: {
   };
 
   const unfocusSessionsSidebar = () => {
+    saveSessionsListScroll();
     setSessionsSidebar((s) => ({ ...s, menu: "list", focused: false }));
     if (state().phase !== "approval") {
       queueMicrotask(() => inputRef?.focus());
@@ -530,8 +554,10 @@ export function App(props: {
 
   createEffect(() => {
     const sb = sessionsSidebar();
-    if (!sidebarVisibility().left || sb.menu !== "list") return;
+    if (!sidebarVisibility().left || sb.menu !== "list" || !sb.focused) return;
     const index = sb.index;
+    if (lastSessionScrollIndex === index) return;
+    lastSessionScrollIndex = index;
     queueMicrotask(() => scrollSessionIntoView(index));
   });
 
