@@ -82,7 +82,16 @@ describe("processCommand", () => {
   });
 
   it("handles /sessions", () => {
-    expect(processCommand("/sessions", ctx).type).toBe("sessions");
+    expect(processCommand("/sessions", ctx).type).toBe("focus-sessions");
+    expect(isActionableCommandResult({ type: "focus-sessions" })).toBe(true);
+  });
+
+  it("handles /panels", () => {
+    expect(processCommand("/panels", ctx)).toEqual({ type: "toggle-panels", target: "all" });
+    expect(processCommand("/panels left", ctx)).toEqual({ type: "toggle-panels", target: "left" });
+    expect(processCommand("/panels right", ctx)).toEqual({ type: "toggle-panels", target: "right" });
+    expect(processCommand("/panels on", ctx)).toEqual({ type: "show-panels", visible: true });
+    expect(processCommand("/panels off", ctx)).toEqual({ type: "show-panels", visible: false });
   });
 
   it("handles /skills with and without a name", () => {
