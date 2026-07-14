@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { runLoop, lastAssistantText } from "../agent/loop.js";
+import * as compaction from "./compaction.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import type { AgentEvent } from "../agent/events.js";
 import { installCoreHooks } from "../hooks/install.js";
@@ -879,5 +880,118 @@ describe("runLoop", () => {
     const toolMsg = ctx.messages.find((m) => m.role === "tool");
     const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
     expect(output).toBe("stopping");
+  });
+});
+
+describe("runLoop compaction guards", () => {
+  function hooks(tools: AnyTool[] = []) {
+    const registry = createHookRegistry();
+    installCoreHooks(registry, {
+      mode: "auto-accept",
+      autoAcceptCli: true,
+      tools,
+    });
+    return registry;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const readTools = getCoreTools().filter((t) => t.name === "read");
+
+  it("does not call the provider when compaction is cancelled mid-flight (#387)", async () => {
+    vi.spyOn(compaction, "shouldCompact").mockReturnValue(true);
+    const controller = new AbortController();
+    vi.spyOn(compaction, "compactMessages").mockImplementation(async (messages) => {
+      controller.abort();
+      return messages;
+    });
+
+    const provider: StreamAssistantFn = async () => {
+      throw new Error("provider should not have been called");
+    };
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks(readTools);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: readTools,
+      model: "faux:test",
+      signal: controller.signal,
+    });
+
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "cancelled")).toBe(true);
+    expect(observed.filter((e) => e.type === "llm_start")).toHaveLength(0);
+  });
+
+  it("ends with a user-visible hint when compaction cannot shrink the context (#372)", async () => {
+    vi.spyOn(compaction, "shouldCompact").mockReturnValue(true);
+    vi.spyOn(compaction, "compactMessages").mockImplementation(async (messages) => messages);
+
+    const provider: StreamAssistantFn = async () => {
+      throw new Error("provider should not have been called");
+    };
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks(readTools);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: readTools,
+      model: "faux:test",
+    });
+
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "error")).toBe(true);
+    expect(observed.filter((e) => e.type === "llm_start")).toHaveLength(0);
+    expect(lastAssistantText(ctx)).toContain("context is full");
+  });
+
+  it("calls the provider when compaction brings the context under the limit", async () => {
+    vi.spyOn(compaction, "shouldCompact")
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    vi.spyOn(compaction, "compactMessages").mockImplementation(async (messages) => [
+      messages[0]!,
+    ]);
+
+    const provider = createStatefulFauxProvider([{ text: ["compacted ok"] }]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [
+        { role: "user", content: [{ type: "text", text: "go" }] },
+        { role: "assistant", content: [{ type: "text", text: "old history" }] },
+      ],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks(readTools);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: readTools,
+      model: "faux:test",
+    });
+
+    expect(observed.filter((e) => e.type === "llm_start")).toHaveLength(1);
+    expect(lastAssistantText(ctx)).toBe("compacted ok");
   });
 });
