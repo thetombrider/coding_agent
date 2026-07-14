@@ -12,9 +12,12 @@ import { resolveProviderSlot } from "../config/models.js";
 import { resolvePath } from "../util/paths.js";
 import {
   compactMessages,
+  computePromptShapeKey,
   currentTurnCount,
+  estimateInjectionTokens,
   evictStaleToolResults,
   shouldCompact,
+  type ProviderOverhead,
 } from "./compaction.js";
 import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, mutationLock } from "./mutation-queue.js";
@@ -220,6 +223,59 @@ async function executeToolsParallel(
   );
 }
 
+/**
+ * The text of the turn's initiating user message — the most recent user message
+ * at turn start — used to name the OTel trace root (telemetry 7a). Returns
+ * undefined when no user text is present (the trace falls back to "turn").
+ */
+function latestUserText(messages: Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    const text = m.content
+      .filter((c): c is { type: "text"; text: string } => c.type === "text")
+      .map((c) => c.text)
+      .join("")
+      .trim();
+    if (text) return text;
+  }
+  return undefined;
+}
+
+async function resolvePromptContext(
+  ctx: AgentContext,
+  hooks: HookRegistryImpl,
+  options: RunLoopOptions,
+): Promise<{
+  promptMessages: Message[];
+  providerTools: AnyTool[];
+  overhead: ProviderOverhead;
+  ratelResolution: ReturnType<NonNullable<OrinRatelBundle["resolveToolsForTurn"]>> | undefined;
+}> {
+  let promptMessages = ctx.messages;
+  const promptHook = await hooks.fireHook(
+    "before_prompt",
+    { messages: promptMessages, model: options.model },
+    ctx,
+    options.signal,
+  );
+  if (promptHook && "messages" in promptHook) {
+    promptMessages = promptHook.messages;
+  }
+
+  const userQuery = latestUserText(ctx.messages) ?? "";
+  const ratelResolution = options.ratel?.resolveToolsForTurn(userQuery);
+  const providerTools = ratelResolution?.tools ?? options.tools;
+
+  const overhead: ProviderOverhead = {
+    system: options.system,
+    tools: providerTools,
+    injectionTokens: estimateInjectionTokens(promptMessages, ctx.messages),
+  };
+
+  return { promptMessages, providerTools, overhead, ratelResolution };
+}
+
 export async function runLoop(
   ctx: AgentContext,
   hooks: HookRegistryImpl,
@@ -230,6 +286,7 @@ export async function runLoop(
   let assistantTurns = 0;
   let totalToolCalls = 0;
   let lastKnownInputTokens = 0;
+  let lastPromptShapeKey = "";
 
   const turnId = randomUUID();
   hooks.emit({ type: "turn_start", id: turnId, firstUserText: latestUserText(ctx.messages) });
@@ -248,11 +305,32 @@ export async function runLoop(
 
     const contextWindow = await getContextWindow(options.model);
 
-    const compactionNeeded = shouldCompact(
-      ctx.messages,
-      contextWindow,
-      lastKnownInputTokens || undefined,
+    const turnIndex = currentTurnCount(ctx.messages);
+    ctx.messages = evictStaleToolResults(ctx.messages, turnIndex);
+
+    let { promptMessages, providerTools, overhead, ratelResolution } = await resolvePromptContext(
+      ctx,
+      hooks,
+      options,
     );
+    const knownTools = new Set(providerTools.map((t) => t.name));
+
+    const promptShapeKey = computePromptShapeKey(
+      options.system,
+      providerTools,
+      promptMessages,
+      ctx.messages,
+    );
+    if (promptShapeKey !== lastPromptShapeKey) {
+      lastKnownInputTokens = 0;
+      lastPromptShapeKey = promptShapeKey;
+    }
+
+    const compactionOptions = {
+      knownTokens: lastKnownInputTokens || undefined,
+      overhead,
+    };
+    const compactionNeeded = shouldCompact(ctx.messages, contextWindow, compactionOptions);
     if (compactionNeeded) {
       await hooks.fireHook("before_compact", { messages: ctx.messages }, ctx, options.signal);
       const compactionModel = resolveProviderSlot(activeProviderId(), "compaction");
@@ -264,6 +342,7 @@ export async function runLoop(
         undefined,
         ctx.loopHost?.recordLlmCall,
         options.signal,
+        overhead,
       );
 
       if (options.signal?.aborted) {
@@ -271,30 +350,20 @@ export async function runLoop(
         break;
       }
 
-      if (shouldCompact(ctx.messages, contextWindow, lastKnownInputTokens || undefined)) {
+      // Messages changed — provider usage from the previous call is stale.
+      lastKnownInputTokens = 0;
+      ({ promptMessages, providerTools, overhead, ratelResolution } = await resolvePromptContext(
+        ctx,
+        hooks,
+        options,
+      ));
+
+      if (shouldCompact(ctx.messages, contextWindow, { overhead })) {
         pushAssistantNotice(ctx, hooks, options, CONTEXT_FULL_MESSAGE);
         hooks.emit({ type: "loop_end", reason: "error" });
         break;
       }
     }
-    const turnIndex = currentTurnCount(ctx.messages);
-    ctx.messages = evictStaleToolResults(ctx.messages, turnIndex);
-
-    let promptMessages = ctx.messages;
-    const promptHook = await hooks.fireHook(
-      "before_prompt",
-      { messages: promptMessages, model: options.model },
-      ctx,
-      options.signal,
-    );
-    if (promptHook && "messages" in promptHook) {
-      promptMessages = promptHook.messages;
-    }
-
-    const userQuery = latestUserText(ctx.messages) ?? "";
-    const ratelResolution = options.ratel?.resolveToolsForTurn(userQuery);
-    const providerTools = ratelResolution?.tools ?? options.tools;
-    const knownTools = new Set(providerTools.map((t) => t.name));
 
     const llmCallId = randomUUID();
     hooks.emit({
@@ -421,25 +490,6 @@ export async function runLoop(
   }
 
   return ctx;
-}
-
-/**
- * The text of the turn's initiating user message — the most recent user message
- * at turn start — used to name the OTel trace root (telemetry 7a). Returns
- * undefined when no user text is present (the trace falls back to "turn").
- */
-function latestUserText(messages: Message[]): string | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== "user") continue;
-    const text = m.content
-      .filter((c): c is { type: "text"; text: string } => c.type === "text")
-      .map((c) => c.text)
-      .join("")
-      .trim();
-    if (text) return text;
-  }
-  return undefined;
 }
 
 export function lastAssistantText(ctx: AgentContext): string {

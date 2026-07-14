@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { runLoop, lastAssistantText } from "../agent/loop.js";
 import * as compaction from "./compaction.js";
+import * as contextWindow from "../provider/context-window.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import type { AgentEvent } from "../agent/events.js";
 import { installCoreHooks } from "../hooks/install.js";
@@ -995,5 +996,37 @@ describe("runLoop compaction guards", () => {
 
     expect(observed.filter((e) => e.type === "llm_start")).toHaveLength(1);
     expect(lastAssistantText(ctx)).toBe("compacted ok");
+  });
+
+  it("triggers compaction when before_prompt injections exceed the budget (#371)", async () => {
+    vi.spyOn(contextWindow, "getContextWindow").mockResolvedValue(1000);
+    const compactSpy = vi.spyOn(compaction, "compactMessages").mockImplementation(async (messages) => [
+      messages[0]!,
+    ]);
+
+    const provider = createStatefulFauxProvider([{ text: ["ok"] }]);
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks();
+    registry.on("before_prompt", ({ messages }) => ({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "x".repeat(4000) }] },
+        ...messages,
+      ],
+    }));
+
+    await runLoop(ctx, registry, {
+      provider,
+      tools: [],
+      model: "faux:test",
+    });
+
+    expect(compactSpy).toHaveBeenCalled();
+    const overhead = compactSpy.mock.calls[0]?.[7];
+    expect(overhead?.injectionTokens).toBeGreaterThan(500);
   });
 });

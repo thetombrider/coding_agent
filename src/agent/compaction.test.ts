@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import type { Message } from "../types.js";
 import {
   capOversizedToolResults,
   compactMessages,
+  computePromptShapeKey,
   currentTurnCount,
+  estimateInjectionTokens,
   estimateMessageTokens,
+  estimateProviderContextTokens,
+  estimateSystemTokens,
+  estimateToolSchemaTokens,
   evictStaleToolResults,
   findMessageCutIndex,
   pruneOverflowToolResults,
@@ -52,6 +58,71 @@ describe("compaction", () => {
     expect(shouldCompact(messages, 1000, 900)).toBe(true);
     expect(shouldCompact(messages, 1000, 100)).toBe(false);
     expect(shouldCompact(messages, 1000, 0)).toBe(false);
+  });
+
+  it("does not count reasoning blocks toward message tokens (#379)", () => {
+    const withReasoning: Message = {
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "x".repeat(10_000) },
+        { type: "text", text: "answer" },
+      ],
+    };
+    const withoutReasoning: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "answer" }],
+    };
+    expect(estimateMessageTokens([withReasoning])).toBe(
+      estimateMessageTokens([withoutReasoning]),
+    );
+  });
+
+  it("includes system, tool schemas, and injections in shouldCompact (#371)", () => {
+    const messages = [user("small")];
+    const window = 1000;
+    expect(shouldCompact(messages, window)).toBe(false);
+
+    const bigSystem = "s".repeat(4000);
+    expect(shouldCompact(messages, window, { overhead: { system: bigSystem } })).toBe(true);
+
+    const tools = [{
+      name: "demo",
+      description: "d".repeat(4000),
+      schema: z.object({ path: z.string() }),
+    }];
+    expect(shouldCompact(messages, window, { overhead: { tools } })).toBe(true);
+    expect(shouldCompact(messages, window, { overhead: { injectionTokens: 900 } })).toBe(true);
+  });
+
+  it("uses the higher of known usage and estimated context (#380)", () => {
+    const messages = [user("hello")];
+    const window = 1000;
+    // Stale low usage but high estimated overhead should still compact.
+    expect(shouldCompact(messages, window, {
+      knownTokens: 100,
+      overhead: { injectionTokens: 900 },
+    })).toBe(true);
+    // High usage with low estimate should still compact.
+    expect(shouldCompact(messages, window, { knownTokens: 900 })).toBe(true);
+  });
+
+  it("estimates provider overhead helpers", () => {
+    expect(estimateSystemTokens("abcd")).toBeGreaterThan(0);
+    expect(estimateToolSchemaTokens([{
+      name: "read",
+      description: "Read a file",
+      schema: z.object({ path: z.string() }),
+    }])).toBeGreaterThan(0);
+
+    const ctxMessages = [user("task")];
+    const promptMessages = [user("env block\n\n" + "i".repeat(4000)), ...ctxMessages];
+    expect(estimateInjectionTokens(promptMessages, ctxMessages)).toBeGreaterThan(1000);
+    expect(estimateProviderContextTokens(ctxMessages, { injectionTokens: 500 }))
+      .toBe(estimateMessageTokens(ctxMessages) + 500);
+
+    const keyA = computePromptShapeKey("sys", [{ name: "read" }], promptMessages, ctxMessages);
+    const keyB = computePromptShapeKey("sys", [{ name: "write" }], promptMessages, ctxMessages);
+    expect(keyA).not.toBe(keyB);
   });
 
   it("evicts large tool results from turns older than keepLastK", () => {
