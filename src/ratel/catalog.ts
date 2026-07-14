@@ -15,6 +15,7 @@ import type { AnyTool } from "../tools/registry.js";
 import type { ToolResult } from "../tools/types.js";
 import type { AgentContext } from "../types.js";
 import type { RatelResolutionSnapshot } from "../agent/events.js";
+import { executeHookedTool } from "../agent/tool-execution.js";
 import { MCP_TOOL_SEP } from "../mcp/names.js";
 import { renderMcpContent } from "../mcp/adapter.js";
 import type { McpLoadResult } from "../mcp/loader.js";
@@ -344,6 +345,23 @@ export class OrinRatelBundle {
       if (!parsed.success) {
         return { output: parsed.error.message, isError: true };
       }
+
+      if (ctx.loopHost?.hooks) {
+        return executeHookedTool({
+          call: {
+            id: ctx.invokeToolCallId ?? `invoke:${toolId}`,
+            name: toolId,
+            args: parsed.data,
+          },
+          tool: orinTool,
+          ctx,
+          hooks: ctx.loopHost.hooks,
+          signal,
+          innerInvoke: true,
+          quiet: true,
+        });
+      }
+
       const result = await orinTool.execute(parsed.data, ctx, signal);
       return result;
     }
@@ -384,7 +402,7 @@ function registerOrinTool(
   });
 }
 
-function unwrapInvokeArgs(args: z.infer<typeof invokeToolSchema>): Record<string, unknown> {
+export function unwrapInvokeArgs(args: z.infer<typeof invokeToolSchema>): Record<string, unknown> {
   const nested = args.args;
   if (nested !== undefined && nested !== null && typeof nested === "object" && !Array.isArray(nested)) {
     return nested as Record<string, unknown>;

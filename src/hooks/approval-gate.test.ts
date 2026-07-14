@@ -113,6 +113,26 @@ describe("installApprovalGate", () => {
     expect(confirm).toHaveBeenCalledWith("bash", { command: "git diff" }, undefined);
   });
 
+  it("skips approval for inner tools invoked via invoke_tool", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const hooks = createHookRegistry();
+    installApprovalGate(hooks, {
+      mode: "normal",
+      autoAcceptCli: false,
+      tools: [bashTool],
+      confirm,
+    });
+
+    const ctx = { ...testAgentContext("/tmp"), invokeToolInner: "bash" };
+    await hooks.fireHook(
+      "before_tool",
+      { id: "tc1", name: "bash", args: { command: "git diff" } },
+      ctx,
+    );
+
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("emits providerInputSchema for MCP tools awaiting approval", async () => {
     const inputSchema = {
       type: "object",
