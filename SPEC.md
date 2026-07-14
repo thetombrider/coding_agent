@@ -9,7 +9,7 @@ A spec + phased build plan for an agentic coding CLI, modeled on three OSS agent
 
 > When a phase says "reference X", open that file in the repo and mirror the *approach*, not the code verbatim. These are MIT/OSS but we are writing our own implementation.
 
-**Further reading (patterns study, not primary references):** **Cline** and **Kilo Code** (Roo lineage) — see [`docs/reference/cline-kilo.md`](docs/reference/cline-kilo.md) for patterns mapped to these phases (robust diff editing → Phase 6, orchestrator/subtasks → Phase 8, shadow-git checkpoints, context condensing → Phase 7).
+**Further reading (patterns study, not primary references):** **Cline** and **Kilo Code** (Roo lineage) — see [`docs/reference/cline-kilo.md`](docs/reference/cline-kilo.md) for patterns mapped to these phases (robust diff editing → Phase 6, orchestrator/subtasks → Phase 8, shadow-git checkpoints, context condensing → Phase 7). **Charm Crush** — see [`docs/reference/crush.md`](docs/reference/crush.md) for LSP integration, hooks/permissions UX, client/server headless embedding, and TUI patterns (issue #327).
 
 ---
 
