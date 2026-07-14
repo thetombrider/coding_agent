@@ -59,11 +59,13 @@ describe("provider registry", () => {
     expect(listProviders().some((p) => p.id === "regolo")).toBe(true);
     expect(listProviders().some((p) => p.id === "cerebras")).toBe(true);
     expect(listProviders().some((p) => p.id === "vercel")).toBe(true);
+    expect(listProviders().some((p) => p.id === "cloudflare")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openrouter")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "openai")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "regolo")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "cerebras")).toBe(true);
     expect(metadataProviders().some((m) => m.id === "vercel")).toBe(true);
+    expect(metadataProviders().some((m) => m.id === "cloudflare")).toBe(true);
   });
 
   it("resolves the active provider from config", async () => {

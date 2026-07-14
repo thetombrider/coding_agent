@@ -50,7 +50,7 @@ export interface Config {
     openai?: { apiKey?: string };
     litellm?: { baseUrl?: string };
     vercel?: { apiKey?: string };
-    cloudflare?: { apiKey?: string; accountId?: string };
+    cloudflare?: { apiKey?: string; accountId?: string; gatewayId?: string };
     regolo?: { apiKey?: string };
     cerebras?: { apiKey?: string };
     opencode?: { apiKey?: string };
