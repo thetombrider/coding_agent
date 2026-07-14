@@ -67,6 +67,28 @@ export function isOpenAiProModel(modelId: string): boolean {
   return /-pro(-|$)/.test(normalizeOpenAiModelId(modelId));
 }
 
+/**
+ * Reasoning models (o-series, gpt-5 family except chat variants). Mirrors the
+ * allowlist in `@ai-sdk/openai`'s `getOpenAILanguageModelCapabilities`.
+ *
+ * Chat Completions rejects function tools together with reasoning effort for
+ * these models; the Responses API is the supported path for tool use and is
+ * recommended by OpenAI for reasoning workloads generally.
+ */
+export function isOpenAiReasoningModel(modelId: string): boolean {
+  const id = normalizeOpenAiModelId(modelId);
+  if (id.startsWith("o1")) return true;
+  if (id.startsWith("o3")) return true;
+  if (id.startsWith("o4-mini")) return true;
+  if (id.startsWith("gpt-5") && !id.startsWith("gpt-5-chat")) return true;
+  return false;
+}
+
+/** Route models that must be served by `/v1/responses` instead of chat completions. */
+export function shouldUseOpenAiResponsesApi(modelId: string): boolean {
+  return isOpenAiProModel(modelId) || isOpenAiReasoningModel(modelId);
+}
+
 const openaiCompatibleCfg: OpenAiCompatibleProviderConfig = {
   id: "openai",
   displayName: "OpenAI",
@@ -80,9 +102,9 @@ const openaiCompatibleCfg: OpenAiCompatibleProviderConfig = {
     delegate_read: "gpt-5.6-terra",
     compaction: "gpt-5.6-terra",
   },
-  // `-pro` models are only available on the Responses API; route them there
-  // instead of Chat Completions (see issue #321).
-  responsesApiModel: isOpenAiProModel,
+  // Reasoning and `-pro` models must use the Responses API — Chat Completions
+  // rejects function tools with reasoning effort (see issues #321, #394).
+  responsesApiModel: shouldUseOpenAiResponsesApi,
   // OpenAI's /v1/models lists ids only — no context_length. Source windows from
   // models.dev (same catalog opencode uses), then offline picker defaults, then
   // any context fields the live catalog happens to publish.
