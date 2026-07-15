@@ -22,7 +22,7 @@ export function SidebarShell(props: {
       paddingRight={1}
       border={props.edge === "left" ? ["right"] : ["left"]}
       borderColor={props.focused ? theme.accent : theme.border}
-      backgroundColor={theme.codeBg}
+      backgroundColor={theme.bg}
     >
       <text selectable={false} fg={theme.muted} attributes={BOLD}>
         {props.title}
