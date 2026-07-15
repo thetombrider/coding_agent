@@ -20,7 +20,7 @@ import {
   type ProviderOverhead,
 } from "./compaction.js";
 import { getContextWindow } from "../provider/context-window.js";
-import { MutationQueue, mutationLock } from "./mutation-queue.js";
+import { MutationQueue, mutationLocks, runWithMutationLocks } from "./mutation-queue.js";
 import { isAbortError } from "../util/abort.js";
 import { isCriticalSystemError } from "../util/system-error.js";
 import { executeHookedTool } from "./tool-execution.js";
@@ -213,12 +213,9 @@ async function executeToolsParallel(
 
   return Promise.all(
     calls.map((call) => {
-      const lock = mutationLock(call.name, call.arguments, resolvePath, ctx.cwd);
+      const locks = mutationLocks(call.name, call.arguments, resolvePath, ctx.cwd);
       const run = () => executeSingleTool(call, registry, ctx, hooks, options, ts);
-      if (!lock) return run();
-      return lock.mode === "exclusive"
-        ? mutationQueue.runExclusive(lock.key, run)
-        : mutationQueue.runShared(lock.key, run);
+      return runWithMutationLocks(mutationQueue, locks, run);
     }),
   );
 }

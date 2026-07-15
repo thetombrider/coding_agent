@@ -291,6 +291,125 @@ describe("runLoop", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("serializes grep and write on the same file in one turn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "orin-grep-write-"));
+    const filePath = join(dir, "data.txt");
+    await writeFile(filePath, "needle\n", "utf8");
+
+    const slowWrite: Tool<{ path: string; content: string }> = {
+      name: "write",
+      description: "slow write",
+      schema: z.object({ path: z.string(), content: z.string() }),
+      async execute({ path, content }, ctx) {
+        await new Promise((r) => setTimeout(r, 30));
+        await writeFile(join(ctx.cwd, path), content, "utf8");
+        return { output: "written" };
+      },
+    };
+
+    const grep: Tool<{ pattern: string; path?: string }> = {
+      name: "grep",
+      description: "grep file",
+      schema: z.object({ pattern: z.string(), path: z.string().optional() }),
+      async execute({ pattern, path }, ctx) {
+        const fullPath = join(ctx.cwd, path ?? ".");
+        const content = await readFile(fullPath, "utf8");
+        const matches = content
+          .split("\n")
+          .filter((line) => line.includes(pattern))
+          .join("\n");
+        return { output: matches || "(no matches)" };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [
+          { id: "tc1", name: "write", arguments: { path: "data.txt", content: "updated\n" } },
+          { id: "tc2", name: "grep", arguments: { pattern: "updated", path: "data.txt" } },
+        ],
+      },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: dir,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const result = await runLoop(ctx, hooks([slowWrite, grep]), {
+      provider,
+      tools: [slowWrite, grep],
+      model: "faux:test",
+    });
+
+    const grepResult = result.messages.find(
+      (m) => m.role === "tool" && m.content.some((c) => c.type === "toolResult" && c.toolCallId === "tc2"),
+    );
+    const output = grepResult?.content.find((c) => c.type === "toolResult")?.output ?? "";
+    expect(output).toBe("updated");
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("serializes bash redirection and write on the same file in one turn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "orin-bash-write-"));
+    const filePath = join(dir, "out.txt");
+    await writeFile(filePath, "stale\n", "utf8");
+
+    const bash: Tool<{ command: string }> = {
+      name: "bash",
+      description: "slow bash write",
+      schema: z.object({ command: z.string() }),
+      async execute({ command }, ctx) {
+        const match = command.match(/>\s*(\S+)/);
+        const target = match?.[1];
+        if (!target) return { output: "no target" };
+        await new Promise((r) => setTimeout(r, 30));
+        await writeFile(join(ctx.cwd, target), "from-bash\n", "utf8");
+        return { output: "done" };
+      },
+    };
+
+    const read: Tool<{ path: string }> = {
+      name: "read",
+      description: "read",
+      schema: z.object({ path: z.string() }),
+      async execute({ path }, ctx) {
+        return { output: await readFile(join(ctx.cwd, path), "utf8") };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [
+          { id: "tc1", name: "bash", arguments: { command: "echo fresh > out.txt" } },
+          { id: "tc2", name: "read", arguments: { path: "out.txt" } },
+        ],
+      },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: dir,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const result = await runLoop(ctx, hooks([bash, read]), {
+      provider,
+      tools: [bash, read],
+      model: "faux:test",
+    });
+
+    const readResult = result.messages.find(
+      (m) => m.role === "tool" && m.content.some((c) => c.type === "toolResult" && c.toolCallId === "tc2"),
+    );
+    const output = readResult?.content.find((c) => c.type === "toolResult")?.output ?? "";
+    expect(output).toBe("from-bash\n");
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("executes read from XML embedded in faux assistant text", async () => {
     const provider = createStatefulFauxProvider([
       {
