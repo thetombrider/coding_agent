@@ -24,12 +24,12 @@ export function SidebarShell(props: {
       borderColor={props.focused ? theme.accent : theme.border}
       backgroundColor={theme.bg}
     >
-      <text selectable={false} fg={theme.muted} attributes={BOLD}>
-        {props.title}
-      </text>
-      <box flexDirection="column" flexGrow={1} minHeight={0} marginTop={0}>
-        {props.children}
+      <box flexShrink={0} marginBottom={1}>
+        <text selectable={false} fg={theme.muted} attributes={BOLD}>
+          {props.title}
+        </text>
       </box>
+      {props.children}
     </box>
   );
 }
