@@ -1941,12 +1941,10 @@ export function App(props: {
     <ToolExpandProvider value={toolExpand}>
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.bg} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       {/*
-        Clip the scroll row to its own bounds. When the approval bar appears the
-        row shrinks (flexGrow/flexShrink), but the ScrollRail (stale metrics) and
-        the sidebars (long todo lists) have flexShrink=0 children that would
-        otherwise overflow downward; the approval bar, a later sibling, then
-        paints over that overflow — the "approval bar overlapping the rail /
-        sidebar" bug. overflow:hidden + minHeight:0 keeps everything inside the row.
+        Sidebars flank the full center column (conversation + prompts + input) so
+        panel backgrounds run flush to the footer. The inner conversation row clips
+        overflow so the scroll rail and long todo lists cannot paint over the
+        approval bar.
       */}
       <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         <Show when={sidebarVisibility().left}>
@@ -1963,6 +1961,8 @@ export function App(props: {
           />
         </Show>
 
+        <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
+          <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         <scrollbox
           ref={scrollRef}
           flexGrow={1}
@@ -2019,26 +2019,7 @@ export function App(props: {
           trackColor={scrollbars.main.track}
           thumbColor={scrollbars.main.thumb}
         />
-
-        <Show when={sidebarVisibility().right}>
-          <InfoSidebar
-            model={state().meta.model}
-            approval={state().meta.approval}
-            cwd={state().meta.cwd}
-            branch={state().meta.branch}
-            sessionIsolation={state().meta.sessionIsolation}
-            provider={state().meta.provider}
-            sandbox={state().meta.sandbox}
-            costUsd={state().meta.costUsd}
-            tokenTotals={state().meta.tokenTotals}
-            contextTokens={state().meta.contextTokens}
-            contextWindow={state().meta.contextWindow}
-            faux={state().meta.faux}
-            todos={state().todos}
-            phase={state().phase}
-          />
-        </Show>
-      </box>
+          </box>
 
       <Show when={state().pendingApproval}>
         {(pending) => (
@@ -2069,7 +2050,7 @@ export function App(props: {
         )}
       </Show>
 
-      <box flexShrink={0} flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
+      <box flexShrink={0} flexDirection="column" paddingTop={1} border={["top"]} borderColor={theme.border}>
         <Show when={configPrompt()}>
           {(prompt) => (
             <box
@@ -2630,6 +2611,27 @@ export function App(props: {
           </Show>
           <text fg={theme.muted}>{footerHint()}</text>
         </box>
+      </box>
+        </box>
+
+        <Show when={sidebarVisibility().right}>
+          <InfoSidebar
+            model={state().meta.model}
+            approval={state().meta.approval}
+            cwd={state().meta.cwd}
+            branch={state().meta.branch}
+            sessionIsolation={state().meta.sessionIsolation}
+            provider={state().meta.provider}
+            sandbox={state().meta.sandbox}
+            costUsd={state().meta.costUsd}
+            tokenTotals={state().meta.tokenTotals}
+            contextTokens={state().meta.contextTokens}
+            contextWindow={state().meta.contextWindow}
+            faux={state().meta.faux}
+            todos={state().todos}
+            phase={state().phase}
+          />
+        </Show>
       </box>
     </box>
     </ToolExpandProvider>

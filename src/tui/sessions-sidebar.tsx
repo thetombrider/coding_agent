@@ -3,8 +3,9 @@ import { createTextAttributes } from "@opentui/core";
 import { For, Show } from "solid-js";
 import type { SessionSummary } from "../session/log.js";
 import { formatSessionCost } from "./views.js";
-import { theme } from "./theme.js";
+import { hiddenNativeScrollbar, theme } from "./theme.js";
 import { SESSION_SIDEBAR_WIDTH } from "./sidebar-state.js";
+import { SidebarRow, SidebarShell } from "./sidebar-chrome.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -29,23 +30,15 @@ export function SessionsSidebar(props: {
   const selected = () => props.sessions[props.index];
 
   return (
-    <box
-      flexShrink={0}
+    <SidebarShell
+      title="sessions"
       width={SESSION_SIDEBAR_WIDTH}
-      flexDirection="column"
-      marginRight={1}
-      paddingRight={1}
-      border={["right"]}
-      borderColor={props.focused ? theme.accent : theme.border}
-      backgroundColor={theme.codeBg}
+      edge="left"
+      focused={props.focused}
     >
-      <text selectable={false} fg={theme.muted} attributes={BOLD}>
-        sessions
-      </text>
-
       <Show
         when={props.sessions.length > 0}
-        fallback={<text selectable={false} fg={theme.secondary}>none yet</text>}
+        fallback={<SidebarRow tone="muted">none yet</SidebarRow>}
       >
         <Show
           when={props.menu === "list"}
@@ -56,17 +49,15 @@ export function SessionsSidebar(props: {
                 const turns = () => `${session().turns} turn${session().turns !== 1 ? "s" : ""}`;
                 const active = () => session().sessionId === props.activeSessionId;
                 return (
-                  <box flexDirection="column" marginTop={0}>
-                    <text fg={theme.toolError} attributes={BOLD}>delete</text>
-                    <text fg={theme.fg} attributes={BOLD}>
-                      {date()}  {session().sessionId}
-                    </text>
-                    <text fg={theme.secondary} wrapMode="word">
-                      {turns()}  {formatSessionCost(session().costUsd)}
-                    </text>
-                    <text fg={theme.secondary} wrapMode="word">{session().cwd}</text>
+                  <box flexDirection="column">
+                    <text fg={theme.toolError} attributes={BOLD}>delete session</text>
+                    <SidebarRow tone="fg">{date()}</SidebarRow>
+                    <SidebarRow>{session().sessionId}</SidebarRow>
+                    <SidebarRow tone="muted">
+                      {turns()} · {formatSessionCost(session().costUsd)}
+                    </SidebarRow>
                     <Show when={active()}>
-                      <text fg={theme.secondary}>active — cannot delete</text>
+                      <SidebarRow tone="muted">active — cannot delete</SidebarRow>
                     </Show>
                   </box>
                 );
@@ -80,31 +71,38 @@ export function SessionsSidebar(props: {
             minHeight={0}
             scrollY
             contentOptions={{ flexDirection: "column" }}
+            {...hiddenNativeScrollbar}
           >
             <For each={props.sessions}>
               {(session, i) => {
                 const isSelected = () => props.index === i();
                 const date = () => props.formatDate(session.lastTs || session.createdAt);
-                const turns = () => `${session.turns} turn${session.turns !== 1 ? "s" : ""}`;
+                const turns = () => `${session.turns}t`;
                 const active = () => session.sessionId === props.activeSessionId;
                 return (
-                  <box id={`session-row-${i()}`} flexDirection="column" marginTop={i() === 0 ? 0 : 1}>
+                  <box
+                    id={`session-row-${i()}`}
+                    flexDirection="column"
+                    marginTop={i() === 0 ? 0 : 1}
+                    paddingLeft={isSelected() ? 0 : 1}
+                  >
                     <text
                       fg={isSelected() ? theme.accent : theme.fg}
                       attributes={isSelected() ? BOLD : 0}
                       wrapMode="word"
                     >
-                      {isSelected() ? "▶ " : "  "}{date()}
+                      {isSelected() ? "▸ " : "  "}{date()}
                     </text>
-                    <text fg={theme.secondary} wrapMode="word">
+                    <text
+                      fg={isSelected() ? theme.secondary : theme.muted}
+                      wrapMode="word"
+                    >
                       {session.sessionId}
                     </text>
                     <text fg={theme.muted} wrapMode="word">
-                      {turns()}  {formatSessionCost(session.costUsd)}
+                      {turns()} · {formatSessionCost(session.costUsd)}
+                      {active() ? " · active" : ""}
                     </text>
-                    <Show when={active()}>
-                      <text fg={theme.muted}>active</text>
-                    </Show>
                   </box>
                 );
               }}
@@ -112,6 +110,6 @@ export function SessionsSidebar(props: {
           </scrollbox>
         </Show>
       </Show>
-    </box>
+    </SidebarShell>
   );
 }
