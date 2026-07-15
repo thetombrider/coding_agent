@@ -54,6 +54,7 @@ export interface Config {
     regolo?: { apiKey?: string };
     cerebras?: { apiKey?: string };
     opencode?: { apiKey?: string };
+    "command-code"?: { apiKey?: string };
   };
   models: {
     /** Per-provider model slot overrides — only keys the user has set. */

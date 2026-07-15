@@ -9,7 +9,7 @@ import type { ModelMetadataProvider, Provider, ProviderDefaultSlots } from "./ty
 export interface OpenAiCompatibleProviderConfig {
   id: string;
   displayName: string;
-  configSection: keyof Pick<Config["provider"], "regolo" | "openai" | "opencode" | "cerebras" | "vercel">;
+  configSection: keyof Pick<Config["provider"], "regolo" | "openai" | "opencode" | "cerebras" | "vercel" | "command-code">;
   baseURL?: string;
   /** Strip this prefix from model ids (e.g. `regolo:`). */
   idPrefix?: string;

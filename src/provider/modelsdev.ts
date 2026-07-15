@@ -58,6 +58,7 @@ export const MODELSDEV_PROVIDER_ID_MAP: Readonly<Record<string, string>> = {
   anthropic: "anthropic",
   "opencode-go": "opencode-go",
   "opencode-zen": "opencode",
+  "command-code": "command-code",
 };
 
 interface CachedCatalog {

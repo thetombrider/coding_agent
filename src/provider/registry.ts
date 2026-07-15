@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 import { loadConfig, saveConfig } from "../config/config.js";
 import { anthropicProvider } from "./providers/anthropic.js";
+import { commandCodeProvider } from "./providers/command-code.js";
 import { opencodeGoProvider, opencodeZenProvider } from "./providers/opencode.js";
 import { openRouterProvider } from "./providers/openrouter.js";
 import { openaiProvider } from "./providers/openai.js";
@@ -136,3 +137,4 @@ registerProvider(cloudflareProvider);
 registerProvider(anthropicProvider);
 registerProvider(opencodeGoProvider);
 registerProvider(opencodeZenProvider);
+registerProvider(commandCodeProvider);
