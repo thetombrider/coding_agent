@@ -353,44 +353,6 @@ export function App(props: {
 
   const copyConversation = () => performCopy(sessionToPlainText(state()));
 
-  const showHoverFooter = () =>
-    state().phase === "input"
-    && palette() === null
-    && configPrompt() === null
-    && mcpWizard() === null
-    && !e2bPrompt()
-    && !exaPrompt()
-    && !submitting()
-    && !sessionsFooterHint()
-    && state().statusHint === IDLE_STATUS_HINT;
-
-  const sessionsFooterHint = createMemo(() => {
-    if (!sidebarVisibility().left) return null;
-    if (
-      state().phase !== "input"
-      || palette() !== null
-      || configPrompt() !== null
-      || mcpWizard() !== null
-      || e2bPrompt()
-      || exaPrompt()
-      || submitting()
-    ) {
-      return null;
-    }
-    const sessions = sessionsList();
-    if (sessions.length === 0) return "No sessions found.";
-    const sb = sessionsSidebar();
-    return sessionsSidebarHint(sb.menu, isSessionsSidebarFocused());
-  });
-
-  const footerHint = createMemo(() => {
-    const sessions = sessionsFooterHint();
-    if (sessions) return sessions;
-    const hover = toolExpand.getHoverFooterHint();
-    if (hover && showHoverFooter()) return hover;
-    return state().statusHint;
-  });
-
   // Ticks every spinner frame (80ms) so the footer keeps visibly moving even
   // during long silent stretches — e.g. a model generating a large `write` tool
   // call streams no usable increment, so this is the only sign of life.
@@ -464,6 +426,44 @@ export function App(props: {
     if (palette()?.phase === "mcp") return false;
     if (isSessionsSidebarFocused()) return false;
     return true;
+  });
+
+  const showHoverFooter = () =>
+    state().phase === "input"
+    && palette() === null
+    && configPrompt() === null
+    && mcpWizard() === null
+    && !e2bPrompt()
+    && !exaPrompt()
+    && !submitting()
+    && !sessionsFooterHint()
+    && state().statusHint === IDLE_STATUS_HINT;
+
+  const sessionsFooterHint = createMemo(() => {
+    if (!sidebarVisibility().left) return null;
+    if (
+      state().phase !== "input"
+      || palette() !== null
+      || configPrompt() !== null
+      || mcpWizard() !== null
+      || e2bPrompt()
+      || exaPrompt()
+      || submitting()
+    ) {
+      return null;
+    }
+    const sessions = sessionsList();
+    if (sessions.length === 0) return "No sessions found.";
+    const sb = sessionsSidebar();
+    return sessionsSidebarHint(sb.menu, isSessionsSidebarFocused());
+  });
+
+  const footerHint = createMemo(() => {
+    const sessions = sessionsFooterHint();
+    if (sessions) return sessions;
+    const hover = toolExpand.getHoverFooterHint();
+    if (hover && showHoverFooter()) return hover;
+    return state().statusHint;
   });
 
   const swallowSidebarKey = (key: { preventDefault: () => void; stopPropagation: () => void }) => {
