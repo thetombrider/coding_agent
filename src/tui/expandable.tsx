@@ -20,13 +20,17 @@ export function ToolOutputView(props: {
   output: string;
   fg?: string;
   wrapMode?: "none" | "word" | "char";
+  backgroundColor?: string;
+  scrollbar?: { track: string; thumb: string };
 }) {
   const formatted = createMemo(() => formatToolOutputForDisplay(props.output));
   const fg = () => props.fg ?? theme.codeFg;
+  const bg = () => props.backgroundColor ?? theme.toolOutputBg;
+  const scrollbar = () => props.scrollbar ?? scrollbars.toolOutput;
   // Wrap by default so long bash lines reflow inside the (sidebar-narrowed)
   // column instead of overflowing horizontally over the scroll rail / todo list.
   const wrapMode = () => props.wrapMode ?? "word";
-  const textSelection = () => surfaceSelection(theme.toolOutputBg, fg());
+  const textSelection = () => surfaceSelection(bg(), fg());
   // Rendered rows = the visible lines plus the optional "more lines" notice.
   const rowCount = () => { const f = formatted(); return f.lines.length + (f.truncated ? 1 : 0); };
   const scrollable = () => rowCount() > MAX_EXPANDED_VIEW_ROWS;
@@ -72,7 +76,7 @@ export function ToolOutputView(props: {
           marginLeft={2}
           paddingLeft={1}
           paddingRight={1}
-          backgroundColor={theme.toolOutputBg}
+          backgroundColor={bg()}
         >
           <Lines />
         </box>
@@ -84,7 +88,7 @@ export function ToolOutputView(props: {
           flexGrow={1}
           paddingLeft={1}
           paddingRight={1}
-          backgroundColor={theme.toolOutputBg}
+          backgroundColor={bg()}
           height={MAX_EXPANDED_VIEW_ROWS}
           scrollY
           contentOptions={{ flexDirection: "column" }}
@@ -103,8 +107,8 @@ export function ToolOutputView(props: {
         <ScrollRail
           scrollRef={() => toolScrollRef}
           revision={scrollRailRevision()}
-          trackColor={scrollbars.toolOutput.track}
-          thumbColor={scrollbars.toolOutput.thumb}
+          trackColor={scrollbar().track}
+          thumbColor={scrollbar().thumb}
         />
       </box>
     </Show>
@@ -112,5 +116,14 @@ export function ToolOutputView(props: {
 }
 
 export function ReasoningOutputView(props: { text: string }) {
-  return <ToolOutputView output={props.text} fg={theme.reasoning} wrapMode="word" />;
+  // Thinking text sits on the page background — not the cool gray-green tool panel.
+  return (
+    <ToolOutputView
+      output={props.text}
+      fg={theme.reasoning}
+      wrapMode="word"
+      backgroundColor={theme.bg}
+      scrollbar={scrollbars.main}
+    />
+  );
 }

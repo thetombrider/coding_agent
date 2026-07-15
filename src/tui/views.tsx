@@ -197,6 +197,28 @@ export function activeReasoningBlockId(
   return last?.type === "reasoning" ? last.id : null;
 }
 
+/**
+ * During the live turn, collapse bodies for blocks superseded by later activity
+ * so completed tools and thinking panels don't stay open while generation continues.
+ */
+export function isInactiveLiveBlock(
+  blocks: TurnBlock[],
+  index: number,
+  opts: { live: boolean; reasoningStreaming?: boolean; assistantText?: string },
+): boolean {
+  if (!opts.live) return false;
+  if (opts.assistantText) return true;
+  if (index < blocks.length - 1) return true;
+  const last = blocks[index];
+  if (!last) return false;
+  if (last.type === "tool" && last.entry.status !== "running") return true;
+  if (last.type === "reasoning") {
+    const activeId = activeReasoningBlockId(blocks, opts);
+    return activeId !== last.id;
+  }
+  return false;
+}
+
 function resolveStreamingFlag(streaming?: boolean | (() => boolean)): boolean {
   return typeof streaming === "function" ? streaming() : !!streaming;
 }
@@ -402,11 +424,14 @@ function ReasoningBlock(props: {
   streaming?: boolean | (() => boolean);
   /** Extra gap when this block follows a tool call. */
   spacedAbove?: boolean;
+  /** Hide the body while the turn is still generating past this block. */
+  inactive?: boolean | (() => boolean);
 }) {
   const text = () => props.text;
   const toolExpand = useToolExpand();
   const hasText = () => text().length > 0;
   const streaming = () => resolveStreamingFlag(props.streaming);
+  const inactive = () => resolveStreamingFlag(props.inactive);
   const [localExpanded, setLocalExpanded] = createSignal(toolExpand?.isExpanded(props.id) ?? false);
 
   const expanded = () => localExpanded();
@@ -416,15 +441,24 @@ function ReasoningBlock(props: {
   };
 
   const toggleExpanded = () => {
-    if (!hasText()) return;
+    if (!hasText() || streaming()) return;
     setExpanded(!expanded());
   };
 
   const visible = () => hasText() || streaming();
+  const showBody = () => hasText() && !inactive() && (streaming() || expanded());
   const glyph = () => {
     if (streaming()) return spinnerFrame();
-    return expanded() ? "▾" : "▸";
+    return expanded() && !inactive() ? "▾" : "▸";
   };
+
+  createEffect(() => {
+    if (streaming() && hasText()) {
+      setExpanded(true);
+      return;
+    }
+    if (inactive()) setExpanded(false);
+  });
 
   onMount(() => {
     toolExpand?.setExpanded(props.id, expanded());
@@ -432,7 +466,7 @@ function ReasoningBlock(props: {
     toolExpand?.registerCopyTarget(props.id, {
       label: "thinking",
       getOutput: () => text(),
-      isExpanded: () => expanded(),
+      isExpanded: () => showBody(),
     });
   });
   onCleanup(() => {
@@ -442,7 +476,7 @@ function ReasoningBlock(props: {
 
   const hint = () => {
     if (streaming() && !hasText()) return "Thinking…";
-    if (!hasText() || expanded()) return "";
+    if (!hasText() || showBody()) return "";
     return outputExpandHint(text());
   };
 
@@ -464,7 +498,7 @@ function ReasoningBlock(props: {
             <text selectable={false} fg={theme.muted}>  {hint()}</text>
           </Show>
         </box>
-        <Show when={hasText() && expanded()}>
+        <Show when={showBody()}>
           <ReasoningOutputView text={text()} />
         </Show>
       </box>
@@ -472,10 +506,11 @@ function ReasoningBlock(props: {
   );
 }
 
-function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean }) {
+function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean; inactive?: boolean | (() => boolean) }) {
   const entry = () => props.entry;
   const expandKey = () => props.expandKey;
   const nested = () => props.nested ?? false;
+  const inactive = () => resolveStreamingFlag(props.inactive);
   const toolExpand = useToolExpand();
   const displayOutput = createMemo(() => toolDisplayOutput(entry()));
 
@@ -501,7 +536,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
   };
 
   const toggleExpanded = () => {
-    if (!hasPlainOutput()) return;
+    if (!hasPlainOutput() || inactive()) return;
     setExpanded(!expanded());
   };
 
@@ -511,7 +546,7 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
     toolExpand?.registerCopyTarget(expandKey(), {
       label: entry().name,
       getOutput: () => displayOutput(),
-      isExpanded: () => expanded() || showDiff(),
+      isExpanded: () => (expanded() || showDiff()) && !inactive(),
     });
   });
   onCleanup(() => {
@@ -520,6 +555,10 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
   });
 
   createEffect(() => {
+    if (inactive()) {
+      setExpanded(false);
+      return;
+    }
     if (entry().status === "error" && hasPlainOutput()) {
       setExpanded(true);
     }
@@ -571,19 +610,20 @@ function ToolLine(props: { entry: ToolEntry; expandKey: string; nested?: boolean
       <Show when={entry().status === "error" && entry().output && !expanded()}>
         <text selectable {...surfaceSelection(theme.bg)} fg={theme.toolError} wrapMode="word" flexGrow={1}>  {entry().output!.split("\n")[0]}</text>
       </Show>
-      <Show when={showDiff()}>
+      <Show when={showDiff() && !inactive()}>
         <DiffView patch={entry().output!} />
       </Show>
-      <Show when={hasPlainOutput() && expanded()}>
+      <Show when={hasPlainOutput() && expanded() && !inactive()}>
         <ToolOutputView output={displayOutput()!} />
       </Show>
     </box>
   );
 }
 
-function SubagentBlock(props: { subagent: SubagentContext; expandKeyPrefix: string }) {
+function SubagentBlock(props: { subagent: SubagentContext; expandKeyPrefix: string; inactive?: boolean | (() => boolean) }) {
   const subagent = () => props.subagent;
   const running = () => subagent().active || subagent().tools.some((t) => t.status === "running");
+  const inactive = () => resolveStreamingFlag(props.inactive);
 
   return (
     <box flexDirection="column" marginLeft={2} marginTop={0}>
@@ -599,6 +639,7 @@ function SubagentBlock(props: { subagent: SubagentContext; expandKeyPrefix: stri
             entry={child}
             expandKey={`${props.expandKeyPrefix}/sub/${child.id}`}
             nested
+            inactive={inactive}
           />
         )}
       </For>
@@ -619,10 +660,11 @@ function parseSkillFrontmatter(output: string | undefined): { version?: string; 
   };
 }
 
-function SkillBlock(props: { entry: ToolEntry; expandKey: string }) {
+function SkillBlock(props: { entry: ToolEntry; expandKey: string; inactive?: boolean | (() => boolean) }) {
   const entry = () => props.entry;
   const toolExpand = useToolExpand();
   const running = () => entry().status === "running";
+  const inactive = () => resolveStreamingFlag(props.inactive);
 
   const name = createMemo(() => {
     const args = entry().args;
@@ -642,7 +684,7 @@ function SkillBlock(props: { entry: ToolEntry; expandKey: string }) {
     toolExpand?.setExpanded(props.expandKey, value);
   };
   const toggleExpanded = () => {
-    if (!hasContent()) return;
+    if (!hasContent() || inactive()) return;
     setExpanded(!expanded());
   };
 
@@ -658,6 +700,10 @@ function SkillBlock(props: { entry: ToolEntry; expandKey: string }) {
   onCleanup(() => {
     toolExpand?.registerToggle(props.expandKey, null);
     toolExpand?.registerCopyTarget(props.expandKey, null);
+  });
+
+  createEffect(() => {
+    if (inactive()) setExpanded(false);
   });
 
   const glyph = () => (running() ? spinnerFrame() : "▸");
@@ -687,7 +733,7 @@ function SkillBlock(props: { entry: ToolEntry; expandKey: string }) {
           <text selectable={false} fg={theme.secondary}>  {desc()}</text>
         )}
       </Show>
-      <Show when={hasContent() && expanded()}>
+      <Show when={hasContent() && expanded() && !inactive()}>
         <ToolOutputView output={entry().output!} />
       </Show>
     </box>
@@ -752,8 +798,9 @@ function AskUserBlock(props: { entry: ToolEntry; expandKey: string }) {
   );
 }
 
-function ToolBlock(props: { entry: ToolEntry; expandKeyPrefix: string }) {
+function ToolBlock(props: { entry: ToolEntry; expandKeyPrefix: string; inactive?: boolean | (() => boolean) }) {
   const expandKey = () => `${props.expandKeyPrefix}/${props.entry.id}`;
+  const inactive = () => resolveStreamingFlag(props.inactive);
   return (
     <box flexDirection="column">
       <Show
@@ -761,19 +808,20 @@ function ToolBlock(props: { entry: ToolEntry; expandKeyPrefix: string }) {
         fallback={
           <Show
             when={props.entry.name === "askuser"}
-            fallback={<ToolLine entry={props.entry} expandKey={expandKey()} />}
+            fallback={<ToolLine entry={props.entry} expandKey={expandKey()} inactive={inactive} />}
           >
             <AskUserBlock entry={props.entry} expandKey={expandKey()} />
           </Show>
         }
       >
-        <SkillBlock entry={props.entry} expandKey={expandKey()} />
+        <SkillBlock entry={props.entry} expandKey={expandKey()} inactive={inactive} />
       </Show>
       <For each={props.entry.subagents ?? []}>
         {(subagent) => (
           <SubagentBlock
             subagent={subagent}
             expandKeyPrefix={`${expandKey()}/${subagent.id}`}
+            inactive={inactive}
           />
         )}
       </For>
@@ -787,6 +835,7 @@ export function TurnView(props: {
   first?: boolean;
   reasoningId?: string;
   reasoningStreaming?: boolean;
+  live?: boolean;
 }) {
   const turn = () => props.turn;
   const hasTools = () => turn().tools.length > 0;
@@ -799,6 +848,12 @@ export function TurnView(props: {
       assistantText: turn().assistantText,
     }),
   );
+  const blockInactive = (index: number) =>
+    isInactiveLiveBlock(turn().blocks, index, {
+      live: !!props.live,
+      reasoningStreaming: props.reasoningStreaming,
+      assistantText: turn().assistantText,
+    });
 
   return (
     <box flexDirection="column" marginBottom={1}>
@@ -818,6 +873,7 @@ export function TurnView(props: {
           id={props.reasoningId ?? "reasoning"}
           text={turn().reasoningText ?? ""}
           streaming={() => !!props.reasoningStreaming}
+          inactive={() => !!props.live && !!turn().assistantText}
         />
       </Show>
       <Show when={hasBlocks()}>
@@ -831,11 +887,16 @@ export function TurnView(props: {
                   text={block.text}
                   streaming={() => activeReasoningId() === block.id}
                   spacedAbove={spacedAbove}
+                  inactive={() => blockInactive(index())}
                 />
               );
             }
             return (
-              <ToolBlock entry={block.entry} expandKeyPrefix={`${props.turnKey}/${block.entry.id}`} />
+              <ToolBlock
+                entry={block.entry}
+                expandKeyPrefix={`${props.turnKey}/${block.entry.id}`}
+                inactive={() => blockInactive(index())}
+              />
             );
           }}
         </For>

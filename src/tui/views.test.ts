@@ -10,6 +10,7 @@ import {
   formatTokenCount,
   showTodoSidebar,
   shouldWrapToolSummary,
+  isInactiveLiveBlock,
   toolSummary,
   wrapLineCount,
   TOOL_SUMMARY_INLINE_MAX,
@@ -49,6 +50,42 @@ describe("activeReasoningBlockId", () => {
   it("returns null when streaming is off", () => {
     const blocks = [reasoning("a")];
     expect(activeReasoningBlockId(blocks, { reasoningStreaming: false })).toBeNull();
+  });
+});
+
+describe("isInactiveLiveBlock", () => {
+  const reasoning = (id: string, text = "thought"): TurnBlock => ({ type: "reasoning", id, text });
+  const tool = (id: string, status: "running" | "done" = "done"): TurnBlock => ({
+    type: "tool",
+    entry: { id, name: "read", args: {}, status },
+  });
+
+  it("never inactivates blocks on completed turns", () => {
+    const blocks = [reasoning("a"), tool("t1")];
+    expect(isInactiveLiveBlock(blocks, 0, { live: false, reasoningStreaming: true })).toBe(false);
+  });
+
+  it("inactivates earlier blocks while the live turn is still generating", () => {
+    const blocks = [reasoning("a"), tool("t1"), reasoning("b")];
+    expect(isInactiveLiveBlock(blocks, 0, { live: true, reasoningStreaming: true })).toBe(true);
+    expect(isInactiveLiveBlock(blocks, 1, { live: true, reasoningStreaming: true })).toBe(true);
+    expect(isInactiveLiveBlock(blocks, 2, { live: true, reasoningStreaming: true })).toBe(false);
+  });
+
+  it("inactivates a completed tail tool while waiting for the next reasoning segment", () => {
+    const blocks = [reasoning("a"), tool("t1", "done")];
+    expect(isInactiveLiveBlock(blocks, 1, { live: true, reasoningStreaming: true })).toBe(true);
+  });
+
+  it("inactivates every block once assistant text has started", () => {
+    const blocks = [reasoning("a"), tool("t1")];
+    expect(
+      isInactiveLiveBlock(blocks, 1, {
+        live: true,
+        reasoningStreaming: true,
+        assistantText: "Here is the answer.",
+      }),
+    ).toBe(true);
   });
 });
 
