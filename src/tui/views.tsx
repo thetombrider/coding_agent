@@ -16,12 +16,10 @@ import { spinnerFrame } from "./spinner.js";
 import { hiddenNativeScrollbar, scrollbars, surfaceSelection, theme } from "./theme.js";
 import { useToolExpand } from "./tool-expand.js";
 import { outputExpandHint, toolDisplayOutput } from "./tool-output.js";
-import { INFO_SIDEBAR_WIDTH } from "./sidebar-state.js";
-import { SidebarRow, SidebarShell } from "./sidebar-chrome.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
-export const TODO_SIDEBAR_WIDTH = INFO_SIDEBAR_WIDTH;
+export const TODO_SIDEBAR_WIDTH = 30;
 
 function todoCheckbox(status: TodoStatus, running: boolean): string {
   switch (status) {
@@ -56,49 +54,11 @@ export function showTodoSidebar(todos: TodoItem[], phase: SessionPhase): boolean
   return phase === "running";
 }
 
-export function TodoList(props: { todos: TodoItem[]; phase: SessionPhase }) {
-  const todos = () => props.todos;
-  const completed = () => countCompletedTodos(todos());
-  const running = () => props.phase === "running";
-
-  return (
-    <>
-      <text selectable={false} fg={theme.muted} attributes={BOLD}>
-        tasks {completed()}/{todos().length}
-      </text>
-      <For each={todos()}>
-        {(item) => {
-          const checked = () => item.status === "completed";
-          const active = () => item.status === "in_progress" && running();
-          return (
-            <box flexDirection="row" marginTop={0}>
-              <text
-                selectable={false}
-                fg={todoStatusColor(item.status)}
-                attributes={active() ? BOLD : 0}
-              >
-                [{todoCheckbox(item.status, running())}]
-              </text>
-              <text
-                selectable={false}
-                fg={checked() ? theme.muted : todoStatusColor(item.status)}
-                attributes={active() ? BOLD : 0}
-                wrapMode="word"
-                flexGrow={1}
-              >
-                {" "}{item.content}
-              </text>
-            </box>
-          );
-        }}
-      </For>
-    </>
-  );
-}
-
 export function TodoSidebar(props: { todos: TodoItem[]; phase: SessionPhase }) {
   const todos = () => props.todos;
   const visible = () => showTodoSidebar(todos(), props.phase);
+  const completed = () => countCompletedTodos(todos());
+  const running = () => props.phase === "running";
 
   return (
     <Show when={visible()}>
@@ -112,79 +72,37 @@ export function TodoSidebar(props: { todos: TodoItem[]; phase: SessionPhase }) {
         borderColor={theme.border}
         backgroundColor={theme.codeBg}
       >
-        <TodoList todos={props.todos} phase={props.phase} />
+        <text selectable={false} fg={theme.muted} attributes={BOLD}>
+          tasks {completed()}/{todos().length}
+        </text>
+        <For each={todos()}>
+          {(item) => {
+            const checked = () => item.status === "completed";
+            const active = () => item.status === "in_progress" && running();
+            return (
+              <box flexDirection="row" marginTop={0}>
+                <text
+                  selectable={false}
+                  fg={todoStatusColor(item.status)}
+                  attributes={active() ? BOLD : 0}
+                >
+                  [{todoCheckbox(item.status, running())}]
+                </text>
+                <text
+                  selectable={false}
+                  fg={checked() ? theme.muted : todoStatusColor(item.status)}
+                  attributes={active() ? BOLD : 0}
+                  wrapMode="word"
+                  flexGrow={1}
+                >
+                  {" "}{item.content}
+                </text>
+              </box>
+            );
+          }}
+        </For>
       </box>
     </Show>
-  );
-}
-
-export type InfoSidebarProps = {
-  model: string;
-  approval: string;
-  cwd: string;
-  provider?: string;
-  sandbox?: string;
-  costUsd?: number | null;
-  tokenTotals?: number;
-  contextTokens?: number;
-  contextWindow?: number;
-  branch?: string;
-  sessionIsolation?: import("../agent/session-isolation.js").SessionIsolationMode;
-  faux?: boolean;
-  todos: TodoItem[];
-  phase: SessionPhase;
-};
-
-function infoPath(props: Pick<InfoSidebarProps, "cwd" | "branch" | "sessionIsolation">): string {
-  const home = process.env.HOME;
-  const root =
-    props.sessionIsolation === "worktree" && props.branch ? props.branch : props.cwd;
-  return home && root.startsWith(home) ? `~${root.slice(home.length)}` : root;
-}
-
-export function InfoSidebar(props: InfoSidebarProps) {
-  const todos = () => props.todos;
-  const showTodos = () => showTodoSidebar(todos(), props.phase);
-  const badge = () =>
-    costBadge({ costUsd: props.costUsd, tokenTotals: props.tokenTotals, faux: props.faux });
-  const context = () =>
-    contextBadge({ contextTokens: props.contextTokens, contextWindow: props.contextWindow });
-  const sandboxLabel = () =>
-    props.sandbox && props.sandbox !== "local" ? props.sandbox : "";
-  const modelLine = () => {
-    const model = shortModel(props.model);
-    return props.provider ? `${props.provider} · ${model}` : model;
-  };
-  const metaLine = () => {
-    const parts = [props.approval];
-    const sandbox = sandboxLabel();
-    if (sandbox) parts.push(sandbox);
-    const cost = badge();
-    if (cost) parts.push(cost.replace(/^·\s*/, ""));
-    const ctx = context();
-    if (ctx) parts.push(ctx.replace(/^·\s*/, ""));
-    return parts.join(" · ");
-  };
-
-  return (
-    <SidebarShell title="session" width={INFO_SIDEBAR_WIDTH} edge="right">
-      <scrollbox
-        flexGrow={1}
-        minHeight={0}
-        scrollY
-        contentOptions={{ flexDirection: "column" }}
-        {...hiddenNativeScrollbar}
-      >
-        <SidebarRow tone="fg">{modelLine()}</SidebarRow>
-        <SidebarRow>{metaLine()}</SidebarRow>
-        <SidebarRow tone="muted">{infoPath(props)}</SidebarRow>
-        <Show when={showTodos()}>
-          <box flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
-            <TodoList todos={props.todos} phase={props.phase} />
-          </box>
-        </Show>
-      </scrollbox>
-    </SidebarShell>
   );
 }
 

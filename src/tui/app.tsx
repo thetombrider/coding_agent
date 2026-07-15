@@ -7,7 +7,7 @@ import { hiddenNativeScrollbar, scrollbars, theme } from "./theme.js";
 import { ScrollRail } from "./scroll-rail.js";
 import { spinnerFrame, useSpinnerClock } from "./spinner.js";
 import { StartupLogo } from "./logo.js";
-import { ApprovalBar, formatContextWindowLabel, formatModelPricingLabel, InfoSidebar, QuestionBar, TurnView } from "./views.js";
+import { ApprovalBar, formatContextWindowLabel, formatModelPricingLabel, formatSessionCost, Header, QuestionBar, TodoSidebar, TurnView } from "./views.js";
 import { ToolExpandProvider, createToolExpandState } from "./tool-expand.js";
 import { copyToClipboard, formatCopyStatus, formatPasteStatus, readFromClipboard } from "./clipboard.js";
 import { pickFocusedCopyText, sessionToPlainText } from "./plaintext.js";
@@ -19,7 +19,6 @@ import {
   isPlainSelectionCopyShortcut,
   isSelectionCopyShortcut,
   isSelectionHintShortcut,
-  isTogglePanelsShortcut,
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
 import { sanitizePromptInput, selectionCopyHint } from "./terminal-env.js";
@@ -48,6 +47,8 @@ import { activeProviderId, providerConfigFields, providerSummaries, type Provide
 import type { ProviderConfigField } from "../provider/types.js";
 import type { SessionSummary } from "../session/log.js";
 import type { CheckpointRecord } from "../checkpoint/manager.js";
+import type { SessionsPaletteState } from "./sessions-palette.js";
+import { selectedSession, sessionsPaletteAfterDelete, sessionsPaletteHint } from "./sessions-palette.js";
 import type { SkillsPaletteState } from "./skills-palette.js";
 import type { McpPaletteState } from "./mcp-palette.js";
 import {
@@ -80,27 +81,9 @@ import {
   skillsPaletteHint,
 } from "./skills-palette.js";
 import { discoverSkills } from "../skills/discovery.js";
-import {
-  DEFAULT_SIDEBAR_VISIBILITY,
-  hideAllSidebars,
-  showAllSidebars,
-  sidebarVisibilityHint,
-  toggleSidebar,
-  type SidebarVisibility,
-} from "./sidebar-state.js";
-import {
-  SessionsSidebar,
-  sessionsSidebarHint,
-  type SessionsSidebarMenu,
-} from "./sessions-sidebar.js";
-
-type SessionsSidebarState = {
-  index: number;
-  menu: SessionsSidebarMenu;
-  focused: boolean;
-};
 
 const BOLD = createTextAttributes({ bold: true });
+const SESSION_LIST_MAX_VISIBLE = 10;
 const MODEL_LIST_MAX_VISIBLE = 10;
 const SKILLS_LIST_MAX_VISIBLE = 10;
 const MCP_LIST_MAX_VISIBLE = 10;
@@ -111,8 +94,7 @@ const SLASH_COMMANDS = [
   { name: "providers", label: "/providers", description: "switch LLM provider" },
   { name: "settings",  label: "/settings",  description: "MCP, E2B key, isolation, telemetry, task models" },
   { name: "mcp",       label: "/mcp",       description: "browse and configure MCP servers" },
-  { name: "sessions",  label: "/sessions",  description: "focus sessions sidebar" },
-  { name: "panels",    label: "/panels",    description: "toggle sidebars" },
+  { name: "sessions",  label: "/sessions",  description: "browse sessions" },
   { name: "skills",    label: "/skills",    description: "browse available skills" },
   { name: "checkpoints", label: "/checkpoints", description: "list workspace checkpoints" },
   { name: "restore",   label: "/restore",   description: "roll back the working tree" },
@@ -135,6 +117,7 @@ type PaletteState =
   | { phase: "settings-serial-info"; index: number }
   | { phase: "settings-parallel-info"; index: number }
   | { phase: "settings-model-slot"; index: number; slot: ModelSlot }
+  | SessionsPaletteState
   | SkillsPaletteState
   | McpPaletteState;
 
@@ -251,15 +234,6 @@ export function App(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [questionIndex, setQuestionIndex] = createSignal(0);
   const [palette, setPalette] = createSignal<PaletteState | null>(null);
-  const [sidebarVisibility, setSidebarVisibility] = createSignal<SidebarVisibility>(
-    DEFAULT_SIDEBAR_VISIBILITY,
-  );
-  const [sessionsSidebar, setSessionsSidebar] = createSignal<SessionsSidebarState>({
-    index: 0,
-    menu: "list",
-    focused: false,
-  });
-  const sessionsList = createMemo(() => props.onListSessions());
   const mcpPaletteRows = createMemo(() => {
     const pal = palette();
     if (!pal || pal.phase !== "mcp" || pal.menu !== "list") return [];
@@ -353,6 +327,22 @@ export function App(props: {
 
   const copyConversation = () => performCopy(sessionToPlainText(state()));
 
+  const showHoverFooter = () =>
+    state().phase === "input"
+    && palette() === null
+    && configPrompt() === null
+    && mcpWizard() === null
+    && !e2bPrompt()
+    && !exaPrompt()
+    && !submitting()
+    && state().statusHint === IDLE_STATUS_HINT;
+
+  const footerHint = createMemo(() => {
+    const hover = toolExpand.getHoverFooterHint();
+    if (hover && showHoverFooter()) return hover;
+    return state().statusHint;
+  });
+
   // Ticks every spinner frame (80ms) so the footer keeps visibly moving even
   // during long silent stretches — e.g. a model generating a large `write` tool
   // call streams no usable increment, so this is the only sign of life.
@@ -398,9 +388,6 @@ export function App(props: {
 
   let scrollRef: ScrollBoxRenderable | undefined;
   let sessionListScrollRef: ScrollBoxRenderable | undefined;
-  /** In-memory scroll offset for the sessions list between focus/unfocus cycles. */
-  let sessionsListScrollTop = 0;
-  let lastSessionScrollIndex: number | undefined;
   let modelListScrollRef: ScrollBoxRenderable | undefined;
   let skillsListScrollRef: ScrollBoxRenderable | undefined;
   let approvalScrollRef: ScrollBoxRenderable | undefined;
@@ -409,67 +396,11 @@ export function App(props: {
   let inputRef: InputRenderable | undefined;
 
   /** /mcp is keyboard-driven — blur the prompt so hover mouse reports cannot leak in. */
-  const isSessionsSidebarFocused = createMemo(() =>
-    sidebarVisibility().left
-    && sessionsSidebar().focused
-    && palette() === null
-    && configPrompt() === null
-    && mcpWizard() === null
-    && !e2bPrompt()
-    && !exaPrompt()
-    && state().phase === "input"
-    && !submitting(),
-  );
-
   const inputFocused = createMemo(() => {
     if (state().phase === "approval") return false;
     if (palette()?.phase === "mcp") return false;
-    if (isSessionsSidebarFocused()) return false;
     return true;
   });
-
-  const showHoverFooter = () =>
-    state().phase === "input"
-    && palette() === null
-    && configPrompt() === null
-    && mcpWizard() === null
-    && !e2bPrompt()
-    && !exaPrompt()
-    && !submitting()
-    && !sessionsFooterHint()
-    && state().statusHint === IDLE_STATUS_HINT;
-
-  const sessionsFooterHint = createMemo(() => {
-    if (!sidebarVisibility().left) return null;
-    if (
-      state().phase !== "input"
-      || palette() !== null
-      || configPrompt() !== null
-      || mcpWizard() !== null
-      || e2bPrompt()
-      || exaPrompt()
-      || submitting()
-    ) {
-      return null;
-    }
-    const sessions = sessionsList();
-    if (sessions.length === 0) return "No sessions found.";
-    const sb = sessionsSidebar();
-    return sessionsSidebarHint(sb.menu, isSessionsSidebarFocused());
-  });
-
-  const footerHint = createMemo(() => {
-    const sessions = sessionsFooterHint();
-    if (sessions) return sessions;
-    const hover = toolExpand.getHoverFooterHint();
-    if (hover && showHoverFooter()) return hover;
-    return state().statusHint;
-  });
-
-  const swallowSidebarKey = (key: { preventDefault: () => void; stopPropagation: () => void }) => {
-    key.preventDefault();
-    key.stopPropagation();
-  };
 
   const scrubLeakedPromptInput = () => {
     if (!inputRef) return;
@@ -504,56 +435,8 @@ export function App(props: {
     }
   });
 
-  const saveSessionsListScroll = () => {
-    if (sessionListScrollRef) {
-      sessionsListScrollTop = sessionListScrollRef.scrollTop;
-    }
-  };
-
-  const restoreSessionsListScroll = () => {
-    queueMicrotask(() => {
-      if (sessionListScrollRef) {
-        sessionListScrollRef.scrollTo({ x: 0, y: sessionsListScrollTop });
-      }
-    });
-  };
-
   const scrollSessionIntoView = (index: number) => {
     sessionListScrollRef?.scrollChildIntoView(`session-row-${index}`);
-    saveSessionsListScroll();
-  };
-
-  const focusSessionsSidebar = () => {
-    const sessions = sessionsList();
-    const activeIdx = sessions.findIndex((s) => s.sessionId === props.activeSessionId);
-    setSidebarVisibility((v) => ({ ...v, left: true }));
-    setSessionsSidebar((s) => {
-      const index =
-        s.index >= 0 && s.index < sessions.length
-          ? s.index
-          : activeIdx >= 0
-            ? activeIdx
-            : 0;
-      return { ...s, index, menu: "list", focused: true };
-    });
-    queueMicrotask(() => inputRef?.blur());
-    restoreSessionsListScroll();
-  };
-
-  const unfocusSessionsSidebar = () => {
-    saveSessionsListScroll();
-    setSessionsSidebar((s) => ({ ...s, menu: "list", focused: false }));
-    if (state().phase !== "approval") {
-      queueMicrotask(() => inputRef?.focus());
-    }
-  };
-
-  const syncSessionsSidebarIndex = () => {
-    const sessions = sessionsList();
-    const activeIdx = sessions.findIndex((s) => s.sessionId === props.activeSessionId);
-    if (activeIdx >= 0) {
-      setSessionsSidebar((s) => ({ ...s, index: activeIdx }));
-    }
   };
 
   const scrollSkillIntoView = (index: number) => {
@@ -565,16 +448,9 @@ export function App(props: {
   };
 
   createEffect(() => {
-    props.activeSessionId;
-    syncSessionsSidebarIndex();
-  });
-
-  createEffect(() => {
-    const sb = sessionsSidebar();
-    if (!sidebarVisibility().left || sb.menu !== "list" || !sb.focused) return;
-    const index = sb.index;
-    if (lastSessionScrollIndex === index) return;
-    lastSessionScrollIndex = index;
+    const p = palette();
+    if (p?.phase !== "sessions" || p.menu !== "list") return;
+    const index = p.index;
     queueMicrotask(() => scrollSessionIntoView(index));
   });
 
@@ -960,6 +836,10 @@ export function App(props: {
     if (inputRef && state().phase !== "approval") inputRef.focus();
   };
 
+  const openSessionsPalette = (state: SessionsPaletteState) => {
+    setPalette(state);
+  };
+
   /** Open the skills browser, or report the empty state if none are discoverable. */
   const openSkillsPalette = () => {
     if (inputRef) inputRef.value = "";
@@ -984,30 +864,26 @@ export function App(props: {
   };
 
   const confirmSessionDelete = () => {
-    const sb = sessionsSidebar();
-    if (sb.menu !== "delete") return;
+    const p = palette();
+    if (p?.phase !== "sessions" || p.menu !== "delete") return;
 
-    const session = sessionsList()[sb.index];
+    const session = selectedSession(p);
     if (!session) return;
 
     const result = props.onDeleteSession(session.sessionId);
     props.controller.setStatusHint(result.message);
     if (!result.ok) {
-      setSessionsSidebar({ ...sb, menu: "list" });
+      setPalette({ ...p, menu: "list" });
       return;
     }
 
-    const sessions = props.onListSessions();
-    if (sessions.length === 0) {
-      setSessionsSidebar({ index: 0, menu: "list", focused: sb.focused });
+    const next = sessionsPaletteAfterDelete(props.onListSessions(), p.index);
+    if (!next) {
+      closePalette();
       return;
     }
 
-    setSessionsSidebar({
-      index: Math.min(sb.index, sessions.length - 1),
-      menu: "list",
-      focused: sb.focused,
-    });
+    openSessionsPalette(next);
   };
 
   /** Submit a synthesized user turn (e.g. a `/skill` invocation). No-op while busy. */
@@ -1035,21 +911,14 @@ export function App(props: {
         return;
       case "new":
         props.onNew();
-        syncSessionsSidebarIndex();
         return;
-      case "focus-sessions":
-        focusSessionsSidebar();
-        return;
-      case "toggle-panels": {
-        const next = toggleSidebar(sidebarVisibility(), result.target);
-        setSidebarVisibility(next);
-        props.controller.setStatusHint(sidebarVisibilityHint(next));
-        return;
-      }
-      case "show-panels": {
-        const next = result.visible ? showAllSidebars() : hideAllSidebars();
-        setSidebarVisibility(next);
-        props.controller.setStatusHint(sidebarVisibilityHint(next));
+      case "sessions": {
+        const sessions = props.onListSessions();
+        if (sessions.length === 0) {
+          props.controller.setStatusHint("No sessions found.");
+          return;
+        }
+        setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
         return;
       }
       case "skills": {
@@ -1197,15 +1066,15 @@ export function App(props: {
       }
 
       if (name === "sessions") {
-        focusSessionsSidebar();
-        return;
-      }
-
-      if (name === "panels") {
-        closePalette();
-        const next = toggleSidebar(sidebarVisibility(), "all");
-        setSidebarVisibility(next);
-        props.controller.setStatusHint(sidebarVisibilityHint(next));
+        const sessions = props.onListSessions();
+        if (inputRef) inputRef.value = "";
+        props.controller.clearInput();
+        if (sessions.length === 0) {
+          closePalette();
+          props.controller.setStatusHint("No sessions found.");
+          return;
+        }
+        setPalette({ phase: "sessions", index: 0, sessions, menu: "list" });
         return;
       }
 
@@ -1387,6 +1256,19 @@ export function App(props: {
         switchToProvider(provider.id);
       } else {
         setPalette(null);
+      }
+      return;
+    }
+
+    if (p.phase === "sessions") {
+      if (p.menu === "delete") {
+        confirmSessionDelete();
+        return;
+      }
+      const session = p.sessions[p.index];
+      if (session) {
+        setPalette(null);
+        props.onResume(session.sessionId);
       }
       return;
     }
@@ -1730,6 +1612,21 @@ export function App(props: {
         return;
       }
 
+      if (p.phase === "sessions") {
+        if (p.menu === "delete") {
+          if (key.name === "left" || key.name === "escape") {
+            setPalette({ ...p, menu: "list" });
+            return;
+          }
+          // Enter is handled by the input submit path (handlePaletteSelect) only.
+          // Handling it here too would delete then immediately resume on the same keypress.
+          if (key.name !== undefined) return;
+        } else if (key.name === "right") {
+          setPalette({ ...p, menu: "delete" });
+          return;
+        }
+      }
+
       if (p.phase === "skills") {
         if (p.menu === "detail") {
           if (key.name === "left" || key.name === "escape") {
@@ -1795,7 +1692,9 @@ export function App(props: {
               ? Math.max(0, pickerModels().length - 1)
               : p.phase === "providers"
                 ? Math.max(0, p.providers.length - 1)
-                : p.phase === "skills"
+                : p.phase === "sessions"
+                    ? Math.max(0, p.sessions.length - 1)
+                    : p.phase === "skills"
                     ? Math.max(0, p.skills.length - 1)
                     : p.phase === "mcp"
                       ? Math.max(0, mcpListRows(p.servers).length - 1)
@@ -1812,6 +1711,10 @@ export function App(props: {
         return;
       }
       if (key.name === "escape") {
+        if (p.phase === "sessions" && p.menu === "delete") {
+          setPalette({ ...p, menu: "list" });
+          return;
+        }
         // Settings submenus step back to the settings menu, not the command list.
         if (p.phase === "settings-isolation" || p.phase === "settings-session-isolation" || p.phase === "settings-model-slot" || p.phase === "settings-serial-info" || p.phase === "settings-parallel-info") {
           setPalette({ phase: "settings", index: 0 });
@@ -1833,102 +1736,7 @@ export function App(props: {
       if (key.name !== undefined) return;
     }
 
-    if (
-      isTogglePanelsShortcut(key)
-      && palette() === null
-      && !configPrompt()
-      && mcpWizard() === null
-      && !e2bPrompt()
-      && !exaPrompt()
-    ) {
-      const next = toggleSidebar(sidebarVisibility(), "all");
-      setSidebarVisibility(next);
-      props.controller.setStatusHint(sidebarVisibilityHint(next));
-      return;
-    }
-
-    const canToggleSessionsSidebar =
-      palette() === null
-      && !configPrompt()
-      && mcpWizard() === null
-      && !e2bPrompt()
-      && !exaPrompt()
-      && state().phase === "input"
-      && !submitting();
-
-    if (key.name === "tab" && canToggleSessionsSidebar) {
-      if (isSessionsSidebarFocused()) {
-        swallowSidebarKey(key);
-        unfocusSessionsSidebar();
-        return;
-      }
-      swallowSidebarKey(key);
-      focusSessionsSidebar();
-      return;
-    }
-
     if (!scrollRef) return;
-
-    const sb = sessionsSidebar();
-    if (isSessionsSidebarFocused()) {
-      const sessions = sessionsList();
-      if (sb.menu === "delete") {
-        if (key.name === "left" || key.name === "escape") {
-          swallowSidebarKey(key);
-          setSessionsSidebar({ ...sb, menu: "list" });
-          return;
-        }
-        if (key.name === "enter" || key.name === "return") {
-          swallowSidebarKey(key);
-          confirmSessionDelete();
-          return;
-        }
-        if (key.name !== undefined) {
-          swallowSidebarKey(key);
-          return;
-        }
-      }
-
-      if (key.name === "up") {
-        swallowSidebarKey(key);
-        setSessionsSidebar({ ...sb, index: Math.max(0, sb.index - 1) });
-        return;
-      }
-      if (key.name === "down") {
-        swallowSidebarKey(key);
-        const maxIdx = Math.max(0, sessions.length - 1);
-        setSessionsSidebar({ ...sb, index: Math.min(maxIdx, sb.index + 1) });
-        return;
-      }
-      if (key.name === "right" && sessions.length > 0) {
-        swallowSidebarKey(key);
-        setSessionsSidebar({ ...sb, menu: "delete" });
-        return;
-      }
-      if (key.name === "enter" || key.name === "return") {
-        swallowSidebarKey(key);
-        const session = sessions[sb.index];
-        if (session) {
-          unfocusSessionsSidebar();
-          props.onResume(session.sessionId);
-        }
-        return;
-      }
-      if (key.name === "escape") {
-        swallowSidebarKey(key);
-        unfocusSessionsSidebar();
-        return;
-      }
-      if (
-        key.name === "pageup"
-        || key.name === "pagedown"
-        || key.name === "home"
-        || key.name === "end"
-      ) {
-        swallowSidebarKey(key);
-        return;
-      }
-    }
 
     if (key.name === "escape" && renderer.hasSelection) {
       renderer.clearSelection();
@@ -1962,57 +1770,55 @@ export function App(props: {
         }
       }
     }
-    if (!isSessionsSidebarFocused()) {
-      const page = Math.max(3, Math.floor(scrollRef.viewport.height / 2));
-      switch (key.name) {
-        case "up":
-          scrollRef.scrollBy({ x: 0, y: -2 });
-          return;
-        case "down":
-          scrollRef.scrollBy({ x: 0, y: 2 });
-          return;
-        case "pageup":
-          scrollRef.scrollBy({ x: 0, y: -page });
-          return;
-        case "pagedown":
-          scrollRef.scrollBy({ x: 0, y: page });
-          return;
-        case "end":
-          scrollRef.scrollTo({ x: 0, y: scrollRef.scrollHeight });
-          return;
-      }
+    const page = Math.max(3, Math.floor(scrollRef.viewport.height / 2));
+    switch (key.name) {
+      case "up":
+        scrollRef.scrollBy({ x: 0, y: -2 });
+        return;
+      case "down":
+        scrollRef.scrollBy({ x: 0, y: 2 });
+        return;
+      case "pageup":
+        scrollRef.scrollBy({ x: 0, y: -page });
+        return;
+      case "pagedown":
+        scrollRef.scrollBy({ x: 0, y: page });
+        return;
+      case "end":
+        scrollRef.scrollTo({ x: 0, y: scrollRef.scrollHeight });
+        return;
     }
   });
 
   return (
     <ToolExpandProvider value={toolExpand}>
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.bg} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+      <box flexShrink={0}>
+        <Header
+          model={state().meta.model}
+          approval={state().meta.approval}
+          cwd={state().meta.cwd}
+          branch={state().meta.branch}
+          sessionIsolation={state().meta.sessionIsolation}
+          provider={state().meta.provider}
+          sandbox={state().meta.sandbox}
+          costUsd={state().meta.costUsd}
+          tokenTotals={state().meta.tokenTotals}
+          contextTokens={state().meta.contextTokens}
+          contextWindow={state().meta.contextWindow}
+          faux={state().meta.faux}
+        />
+      </box>
+
       {/*
-        Sidebars flank the full center column (conversation + prompts + input) so
-        panel backgrounds run flush to the footer. The inner conversation row clips
-        overflow so the scroll rail and long todo lists cannot paint over the
-        approval bar.
+        Clip the scroll row to its own bounds. When the approval bar appears the
+        row shrinks (flexGrow/flexShrink), but the ScrollRail (stale metrics) and
+        the TodoSidebar (long todo lists) have flexShrink=0 children that would
+        otherwise overflow downward; the approval bar, a later sibling, then
+        paints over that overflow — the "approval bar overlapping the rail /
+        sidebar" bug. overflow:hidden + minHeight:0 keeps everything inside the row.
       */}
       <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
-        <Show
-          when={sidebarVisibility().left}
-          fallback={<box flexShrink={0} width={0} />}
-        >
-          <SessionsSidebar
-            sessions={sessionsList()}
-            index={sessionsSidebar().index}
-            menu={sessionsSidebar().menu}
-            activeSessionId={props.activeSessionId}
-            focused={sessionsSidebar().focused}
-            formatDate={formatSessionDate}
-            scrollRef={(r) => {
-              sessionListScrollRef = r;
-            }}
-          />
-        </Show>
-
-        <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
-          <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         <scrollbox
           ref={scrollRef}
           flexGrow={1}
@@ -2070,7 +1876,9 @@ export function App(props: {
           trackColor={scrollbars.main.track}
           thumbColor={scrollbars.main.thumb}
         />
-          </box>
+
+        <TodoSidebar todos={state().todos} phase={state().phase} />
+      </box>
 
       <Show when={state().pendingApproval}>
         {(pending) => (
@@ -2101,7 +1909,7 @@ export function App(props: {
         )}
       </Show>
 
-      <box flexShrink={0} flexDirection="column" paddingTop={1} border={["top"]} borderColor={theme.border}>
+      <box flexShrink={0} flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
         <Show when={configPrompt()}>
           {(prompt) => (
             <box
@@ -2502,6 +2310,64 @@ export function App(props: {
                 </scrollbox>
               </Show>
 
+              <Show when={p().phase === "sessions"}>
+                <Show
+                  when={(p() as SessionsPaletteState).menu === "list"}
+                  fallback={
+                    <Show when={selectedSession(p() as SessionsPaletteState)}>
+                      {(session) => {
+                        const date = formatSessionDate(session().lastTs || session().createdAt);
+                        const turns = `${session().turns} turn${session().turns !== 1 ? "s" : ""}`;
+                        const active = () => session().sessionId === props.activeSessionId;
+                        return (
+                          <box flexDirection="column">
+                            <text fg={theme.toolError} attributes={BOLD}>delete</text>
+                            <text fg={theme.fg} attributes={BOLD}>
+                              {date}  {session().sessionId}
+                            </text>
+                            <text fg={theme.secondary}>  {turns}  {formatSessionCost(session().costUsd)}  {session().cwd}</text>
+                            <Show when={active()}>
+                              <text fg={theme.secondary}>  active session — cannot delete</text>
+                            </Show>
+                          </box>
+                        );
+                      }}
+                    </Show>
+                  }
+                >
+                  <scrollbox
+                    ref={sessionListScrollRef}
+                    height={Math.min(
+                      (p() as SessionsPaletteState).sessions.length,
+                      SESSION_LIST_MAX_VISIBLE,
+                    )}
+                    scrollY
+                    contentOptions={{ flexDirection: "column" }}
+                  >
+                    <For each={(p() as SessionsPaletteState).sessions}>
+                      {(session, i) => {
+                        const sp = () => p() as SessionsPaletteState;
+                        const selected = () => sp().index === i();
+                        const date = formatSessionDate(session.lastTs || session.createdAt);
+                        const turns = `${session.turns} turn${session.turns !== 1 ? "s" : ""}`;
+                        const active = () => session.sessionId === props.activeSessionId;
+                        return (
+                          <box id={`session-row-${i()}`} flexDirection="row">
+                            <text fg={selected() ? theme.accent : theme.fg} attributes={selected() ? BOLD : 0}>
+                              {selected() ? "▶ " : "  "}{date}  {session.sessionId}
+                            </text>
+                            <text fg={theme.secondary}>  {turns}  {formatSessionCost(session.costUsd)}  {session.cwd}</text>
+                            <Show when={active()}>
+                              <text fg={theme.muted}>  (active)</text>
+                            </Show>
+                          </box>
+                        );
+                      }}
+                    </For>
+                  </scrollbox>
+                </Show>
+              </Show>
+
               <Show when={p().phase === "mcp"}>
                 <Show
                   when={(p() as McpPaletteState).menu === "list"}
@@ -2621,7 +2487,9 @@ export function App(props: {
                 <text fg={theme.secondary}>
                   {p().phase === "commands"
                     ? "↑↓ navigate · Enter select · Esc close"
-                    : p().phase === "skills"
+                    : p().phase === "sessions"
+                      ? sessionsPaletteHint((p() as SessionsPaletteState).menu)
+                      : p().phase === "skills"
                         ? skillsPaletteHint((p() as SkillsPaletteState).menu)
                         : p().phase === "mcp"
                           ? mcpPaletteHint(
@@ -2662,30 +2530,6 @@ export function App(props: {
           </Show>
           <text fg={theme.muted}>{footerHint()}</text>
         </box>
-      </box>
-        </box>
-
-        <Show
-          when={sidebarVisibility().right}
-          fallback={<box flexShrink={0} width={0} />}
-        >
-          <InfoSidebar
-            model={state().meta.model}
-            approval={state().meta.approval}
-            cwd={state().meta.cwd}
-            branch={state().meta.branch}
-            sessionIsolation={state().meta.sessionIsolation}
-            provider={state().meta.provider}
-            sandbox={state().meta.sandbox}
-            costUsd={state().meta.costUsd}
-            tokenTotals={state().meta.tokenTotals}
-            contextTokens={state().meta.contextTokens}
-            contextWindow={state().meta.contextWindow}
-            faux={state().meta.faux}
-            todos={state().todos}
-            phase={state().phase}
-          />
-        </Show>
       </box>
     </box>
     </ToolExpandProvider>
