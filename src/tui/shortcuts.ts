@@ -42,11 +42,6 @@ export function isSelectionHintShortcut(key: ShortcutKey): boolean {
   return key.name === "v" && !key.ctrl && !key.meta && !key.shift;
 }
 
-/** Toggle sidebars (Ctrl+\\). */
-export function isTogglePanelsShortcut(key: ShortcutKey): boolean {
-  return key.name === "\\" && key.ctrl && !key.meta && !key.shift;
-}
-
 export function clipboardHintText(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,

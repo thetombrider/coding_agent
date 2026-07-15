@@ -60,6 +60,7 @@ export type CommandResult =
   | { type: "exit" }
   | { type: "clear" }
   | { type: "new" }
+  | { type: "sessions" }
   | { type: "skills"; name?: string }
   | { type: "skill"; name: string; task?: string }
   | { type: "checkpoints" }
@@ -81,15 +82,11 @@ export type CommandResult =
   | { type: "configure-exa"; message: string }
   | { type: "open-mcp" }
   | { type: "open-settings" }
-  | { type: "toggle-panels"; target: PanelTarget }
-  | { type: "show-panels"; visible: boolean }
-  | { type: "focus-sessions" }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
 import { clipboardHintText } from "./shortcuts.js";
 import { formatModelPricingLabel } from "./views.js";
-import type { PanelTarget } from "./sidebar-state.js";
 
 /** List of `/commands` shown by `/help`. */
 export const KEYBOARD_HINTS = clipboardHintText();
@@ -107,8 +104,7 @@ const HELP_LINES = [
   "/settings e2b                 configure E2B API key (for sandbox isolation)",
   "/settings exa                 configure Exa API key (for web_search tool)",
   "/mcp                          browse and configure MCP servers",
-  "/sessions                     focus the sessions sidebar",
-  "/panels [left|right|all|on|off]  toggle sidebars (Ctrl+\\ toggles both)",
+  "/sessions                     browse and resume saved sessions",
   "/skills [name]                browse skills, or show one skill's metadata",
   "/skill <name> [task]          ask the agent to use a skill",
   "/checkpoints                  list workspace checkpoints for this session",
@@ -137,22 +133,6 @@ function modelInfo(ctx: CommandContext): string {
     return `${i + 1}. ${m}  ${price}${marker}`;
   });
   return `model: ${ctx.currentModel}\n${lines.join("\n")}\n/model <number|id> to switch`;
-}
-
-function handlePanels(arg: string): CommandResult {
-  const target = arg.trim().toLowerCase();
-  if (!target) return { type: "toggle-panels", target: "all" };
-  if (target === "left" || target === "sessions") return { type: "toggle-panels", target: "left" };
-  if (target === "right" || target === "info") return { type: "toggle-panels", target: "right" };
-  if (target === "all" || target === "toggle") return { type: "toggle-panels", target: "all" };
-  if (target === "on" || target === "show") return { type: "show-panels", visible: true };
-  if (target === "off" || target === "hide" || target === "none") {
-    return { type: "show-panels", visible: false };
-  }
-  return {
-    type: "error",
-    message: "usage: /panels [left|right|all|on|off] — Ctrl+\\ toggles both sidebars",
-  };
 }
 
 function handleMode(arg: string, ctx: CommandContext): CommandResult {
@@ -584,7 +564,7 @@ export function isActionableCommandResult(result: CommandResult): boolean {
     case "exit":
     case "clear":
     case "new":
-    case "focus-sessions":
+    case "sessions":
     case "skills":
     case "skill":
     case "checkpoints":
@@ -603,8 +583,6 @@ export function isActionableCommandResult(result: CommandResult): boolean {
       return true;
     case "open-settings":
     case "open-mcp":
-    case "toggle-panels":
-    case "show-panels":
       return true;
     default:
       return false;
@@ -632,7 +610,7 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
     case "/new":
       return { type: "new" };
     case "/sessions":
-      return { type: "focus-sessions" };
+      return { type: "sessions" };
     case "/skills":
       return handleSkills(arg);
     case "/skill":
@@ -657,9 +635,6 @@ export function processCommand(raw: string, ctx: CommandContext): CommandResult 
       return handleSettings(arg, ctx);
     case "/mcp":
       return { type: "open-mcp" };
-    case "/panels":
-    case "/panel":
-      return handlePanels(arg);
     default:
       return { type: "error", message: `unknown command ${name} — try /help` };
   }
