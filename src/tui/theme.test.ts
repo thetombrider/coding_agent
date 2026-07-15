@@ -13,6 +13,11 @@ describe("surfaceSelection", () => {
       selectionBg: theme.reasoning,
       selectionFg: theme.toolOutputBg,
     });
+    expect(surfaceSelection(theme.bg, theme.reasoning)).toEqual({
+      bg: theme.bg,
+      selectionBg: theme.reasoning,
+      selectionFg: theme.bg,
+    });
   });
 });
 

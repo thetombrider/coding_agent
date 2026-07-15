@@ -2045,6 +2045,7 @@ export function App(props: {
                   first={completed().length === 0}
                   reasoningId="reasoning-live"
                   reasoningStreaming={state().phase === "running" && !turn().assistantText}
+                  live
                 />
               )}
             </Show>
