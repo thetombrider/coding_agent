@@ -1833,14 +1833,41 @@ export function App(props: {
       if (key.name !== undefined) return;
     }
 
-    if (!scrollRef) return;
-
-    if (isTogglePanelsShortcut(key) && palette() === null && !configPrompt() && mcpWizard() === null && !e2bPrompt() && !exaPrompt()) {
+    if (
+      isTogglePanelsShortcut(key)
+      && palette() === null
+      && !configPrompt()
+      && mcpWizard() === null
+      && !e2bPrompt()
+      && !exaPrompt()
+    ) {
       const next = toggleSidebar(sidebarVisibility(), "all");
       setSidebarVisibility(next);
       props.controller.setStatusHint(sidebarVisibilityHint(next));
       return;
     }
+
+    const canToggleSessionsSidebar =
+      palette() === null
+      && !configPrompt()
+      && mcpWizard() === null
+      && !e2bPrompt()
+      && !exaPrompt()
+      && state().phase === "input"
+      && !submitting();
+
+    if (key.name === "tab" && canToggleSessionsSidebar) {
+      if (isSessionsSidebarFocused()) {
+        swallowSidebarKey(key);
+        unfocusSessionsSidebar();
+        return;
+      }
+      swallowSidebarKey(key);
+      focusSessionsSidebar();
+      return;
+    }
+
+    if (!scrollRef) return;
 
     const sb = sessionsSidebar();
     if (isSessionsSidebarFocused()) {
@@ -1892,11 +1919,6 @@ export function App(props: {
         unfocusSessionsSidebar();
         return;
       }
-      if (key.name === "tab") {
-        swallowSidebarKey(key);
-        unfocusSessionsSidebar();
-        return;
-      }
       if (
         key.name === "pageup"
         || key.name === "pagedown"
@@ -1906,19 +1928,6 @@ export function App(props: {
         swallowSidebarKey(key);
         return;
       }
-    } else if (
-      key.name === "tab"
-      && sidebarVisibility().left
-      && palette() === null
-      && !configPrompt()
-      && mcpWizard() === null
-      && !e2bPrompt()
-      && !exaPrompt()
-      && state().phase === "input"
-      && !submitting()
-    ) {
-      focusSessionsSidebar();
-      return;
     }
 
     if (key.name === "escape" && renderer.hasSelection) {
