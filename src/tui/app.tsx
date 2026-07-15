@@ -361,9 +361,31 @@ export function App(props: {
     && !e2bPrompt()
     && !exaPrompt()
     && !submitting()
+    && !sessionsFooterHint()
     && state().statusHint === IDLE_STATUS_HINT;
 
+  const sessionsFooterHint = createMemo(() => {
+    if (!sidebarVisibility().left) return null;
+    if (
+      state().phase !== "input"
+      || palette() !== null
+      || configPrompt() !== null
+      || mcpWizard() !== null
+      || e2bPrompt()
+      || exaPrompt()
+      || submitting()
+    ) {
+      return null;
+    }
+    const sessions = sessionsList();
+    if (sessions.length === 0) return "No sessions found.";
+    const sb = sessionsSidebar();
+    return sessionsSidebarHint(sb.menu, isSessionsSidebarFocused());
+  });
+
   const footerHint = createMemo(() => {
+    const sessions = sessionsFooterHint();
+    if (sessions) return sessions;
     const hover = toolExpand.getHoverFooterHint();
     if (hover && showHoverFooter()) return hover;
     return state().statusHint;
@@ -493,11 +515,6 @@ export function App(props: {
       focused: true,
     });
     queueMicrotask(() => inputRef?.blur());
-    if (sessions.length === 0) {
-      props.controller.setStatusHint("No sessions found.");
-    } else {
-      props.controller.setStatusHint(sessionsSidebarHint("list", true));
-    }
   };
 
   const unfocusSessionsSidebar = () => {
@@ -1806,7 +1823,6 @@ export function App(props: {
         if (key.name === "left" || key.name === "escape") {
           swallowSidebarKey(key);
           setSessionsSidebar({ ...sb, menu: "list" });
-          props.controller.setStatusHint(sessionsSidebarHint("list", true));
           return;
         }
         if (key.name === "enter" || key.name === "return") {
@@ -1823,20 +1839,17 @@ export function App(props: {
       if (key.name === "up") {
         swallowSidebarKey(key);
         setSessionsSidebar({ ...sb, index: Math.max(0, sb.index - 1) });
-        props.controller.setStatusHint(sessionsSidebarHint("list", true));
         return;
       }
       if (key.name === "down") {
         swallowSidebarKey(key);
         const maxIdx = Math.max(0, sessions.length - 1);
         setSessionsSidebar({ ...sb, index: Math.min(maxIdx, sb.index + 1) });
-        props.controller.setStatusHint(sessionsSidebarHint("list", true));
         return;
       }
       if (key.name === "right" && sessions.length > 0) {
         swallowSidebarKey(key);
         setSessionsSidebar({ ...sb, menu: "delete" });
-        props.controller.setStatusHint(sessionsSidebarHint("delete", true));
         return;
       }
       if (key.name === "enter" || key.name === "return") {
@@ -1851,7 +1864,6 @@ export function App(props: {
       if (key.name === "escape") {
         swallowSidebarKey(key);
         unfocusSessionsSidebar();
-        props.controller.setStatusHint(IDLE_STATUS_HINT);
         return;
       }
       if (key.name === "tab") {

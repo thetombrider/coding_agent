@@ -12,7 +12,7 @@ const BOLD = createTextAttributes({ bold: true });
 export type SessionsSidebarMenu = "list" | "delete";
 
 export function sessionsSidebarHint(menu: SessionsSidebarMenu, focused: boolean): string {
-  if (!focused) return "Tab sessions · ↑↓ scroll";
+  if (!focused) return "Tab or /sessions · browse sessions";
   return menu === "delete"
     ? "Enter delete · ← or Esc cancel"
     : "↑↓ navigate · → delete · Enter resume · Esc unfocus";
