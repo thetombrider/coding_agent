@@ -1994,7 +1994,10 @@ export function App(props: {
         approval bar.
       */}
       <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
-        <Show when={sidebarVisibility().left}>
+        <Show
+          when={sidebarVisibility().left}
+          fallback={<box flexShrink={0} width={0} />}
+        >
           <SessionsSidebar
             sessions={sessionsList()}
             index={sessionsSidebar().index}
@@ -2662,7 +2665,10 @@ export function App(props: {
       </box>
         </box>
 
-        <Show when={sidebarVisibility().right}>
+        <Show
+          when={sidebarVisibility().right}
+          fallback={<box flexShrink={0} width={0} />}
+        >
           <InfoSidebar
             model={state().meta.model}
             approval={state().meta.approval}
