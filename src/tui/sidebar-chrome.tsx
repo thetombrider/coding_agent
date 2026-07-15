@@ -29,9 +29,7 @@ export function SidebarShell(props: {
           {props.title}
         </text>
       </box>
-      <box flexDirection="column" flexGrow={1} minHeight={0}>
-        {props.children}
-      </box>
+      {props.children}
     </box>
   );
 }

@@ -83,7 +83,7 @@ export function SessionsSidebar(props: {
                   <box
                     id={`session-row-${i()}`}
                     flexDirection="column"
-                    marginTop={i() === 0 ? 0 : 1}
+                    marginTop={1}
                     paddingLeft={isSelected() ? 0 : 1}
                   >
                     <text
