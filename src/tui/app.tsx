@@ -361,9 +361,31 @@ export function App(props: {
     && !e2bPrompt()
     && !exaPrompt()
     && !submitting()
+    && !sessionsFooterHint()
     && state().statusHint === IDLE_STATUS_HINT;
 
+  const sessionsFooterHint = createMemo(() => {
+    if (!sidebarVisibility().left) return null;
+    if (
+      state().phase !== "input"
+      || palette() !== null
+      || configPrompt() !== null
+      || mcpWizard() !== null
+      || e2bPrompt()
+      || exaPrompt()
+      || submitting()
+    ) {
+      return null;
+    }
+    const sessions = sessionsList();
+    if (sessions.length === 0) return "No sessions found.";
+    const sb = sessionsSidebar();
+    return sessionsSidebarHint(sb.menu, isSessionsSidebarFocused());
+  });
+
   const footerHint = createMemo(() => {
+    const sessions = sessionsFooterHint();
+    if (sessions) return sessions;
     const hover = toolExpand.getHoverFooterHint();
     if (hover && showHoverFooter()) return hover;
     return state().statusHint;
@@ -516,11 +538,6 @@ export function App(props: {
     });
     queueMicrotask(() => inputRef?.blur());
     restoreSessionsListScroll();
-    if (sessions.length === 0) {
-      props.controller.setStatusHint("No sessions found.");
-    } else {
-      props.controller.setStatusHint(sessionsSidebarHint("list", true));
-    }
   };
 
   const unfocusSessionsSidebar = () => {
@@ -1832,7 +1849,6 @@ export function App(props: {
         if (key.name === "left" || key.name === "escape") {
           swallowSidebarKey(key);
           setSessionsSidebar({ ...sb, menu: "list" });
-          props.controller.setStatusHint(sessionsSidebarHint("list", true));
           return;
         }
         if (key.name === "enter" || key.name === "return") {
@@ -1849,20 +1865,17 @@ export function App(props: {
       if (key.name === "up") {
         swallowSidebarKey(key);
         setSessionsSidebar({ ...sb, index: Math.max(0, sb.index - 1) });
-        props.controller.setStatusHint(sessionsSidebarHint("list", true));
         return;
       }
       if (key.name === "down") {
         swallowSidebarKey(key);
         const maxIdx = Math.max(0, sessions.length - 1);
         setSessionsSidebar({ ...sb, index: Math.min(maxIdx, sb.index + 1) });
-        props.controller.setStatusHint(sessionsSidebarHint("list", true));
         return;
       }
       if (key.name === "right" && sessions.length > 0) {
         swallowSidebarKey(key);
         setSessionsSidebar({ ...sb, menu: "delete" });
-        props.controller.setStatusHint(sessionsSidebarHint("delete", true));
         return;
       }
       if (key.name === "enter" || key.name === "return") {
@@ -1877,7 +1890,6 @@ export function App(props: {
       if (key.name === "escape") {
         swallowSidebarKey(key);
         unfocusSessionsSidebar();
-        props.controller.setStatusHint(IDLE_STATUS_HINT);
         return;
       }
       if (key.name === "tab") {
@@ -1967,12 +1979,10 @@ export function App(props: {
     <ToolExpandProvider value={toolExpand}>
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.bg} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       {/*
-        Clip the scroll row to its own bounds. When the approval bar appears the
-        row shrinks (flexGrow/flexShrink), but the ScrollRail (stale metrics) and
-        the sidebars (long todo lists) have flexShrink=0 children that would
-        otherwise overflow downward; the approval bar, a later sibling, then
-        paints over that overflow — the "approval bar overlapping the rail /
-        sidebar" bug. overflow:hidden + minHeight:0 keeps everything inside the row.
+        Sidebars flank the full center column (conversation + prompts + input) so
+        panel backgrounds run flush to the footer. The inner conversation row clips
+        overflow so the scroll rail and long todo lists cannot paint over the
+        approval bar.
       */}
       <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         <Show when={sidebarVisibility().left}>
@@ -1989,6 +1999,8 @@ export function App(props: {
           />
         </Show>
 
+        <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
+          <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         <scrollbox
           ref={scrollRef}
           flexGrow={1}
@@ -2045,26 +2057,7 @@ export function App(props: {
           trackColor={scrollbars.main.track}
           thumbColor={scrollbars.main.thumb}
         />
-
-        <Show when={sidebarVisibility().right}>
-          <InfoSidebar
-            model={state().meta.model}
-            approval={state().meta.approval}
-            cwd={state().meta.cwd}
-            branch={state().meta.branch}
-            sessionIsolation={state().meta.sessionIsolation}
-            provider={state().meta.provider}
-            sandbox={state().meta.sandbox}
-            costUsd={state().meta.costUsd}
-            tokenTotals={state().meta.tokenTotals}
-            contextTokens={state().meta.contextTokens}
-            contextWindow={state().meta.contextWindow}
-            faux={state().meta.faux}
-            todos={state().todos}
-            phase={state().phase}
-          />
-        </Show>
-      </box>
+          </box>
 
       <Show when={state().pendingApproval}>
         {(pending) => (
@@ -2095,7 +2088,7 @@ export function App(props: {
         )}
       </Show>
 
-      <box flexShrink={0} flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
+      <box flexShrink={0} flexDirection="column" paddingTop={1} border={["top"]} borderColor={theme.border}>
         <Show when={configPrompt()}>
           {(prompt) => (
             <box
@@ -2656,6 +2649,27 @@ export function App(props: {
           </Show>
           <text fg={theme.muted}>{footerHint()}</text>
         </box>
+      </box>
+        </box>
+
+        <Show when={sidebarVisibility().right}>
+          <InfoSidebar
+            model={state().meta.model}
+            approval={state().meta.approval}
+            cwd={state().meta.cwd}
+            branch={state().meta.branch}
+            sessionIsolation={state().meta.sessionIsolation}
+            provider={state().meta.provider}
+            sandbox={state().meta.sandbox}
+            costUsd={state().meta.costUsd}
+            tokenTotals={state().meta.tokenTotals}
+            contextTokens={state().meta.contextTokens}
+            contextWindow={state().meta.contextWindow}
+            faux={state().meta.faux}
+            todos={state().todos}
+            phase={state().phase}
+          />
+        </Show>
       </box>
     </box>
     </ToolExpandProvider>

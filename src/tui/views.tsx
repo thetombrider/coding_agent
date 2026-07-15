@@ -17,6 +17,7 @@ import { hiddenNativeScrollbar, scrollbars, surfaceSelection, theme } from "./th
 import { useToolExpand } from "./tool-expand.js";
 import { outputExpandHint, toolDisplayOutput } from "./tool-output.js";
 import { INFO_SIDEBAR_WIDTH } from "./sidebar-state.js";
+import { SidebarRow, SidebarShell } from "./sidebar-chrome.js";
 
 const BOLD = createTextAttributes({ bold: true });
 
@@ -150,40 +151,40 @@ export function InfoSidebar(props: InfoSidebarProps) {
     contextBadge({ contextTokens: props.contextTokens, contextWindow: props.contextWindow });
   const sandboxLabel = () =>
     props.sandbox && props.sandbox !== "local" ? props.sandbox : "";
+  const modelLine = () => {
+    const model = shortModel(props.model);
+    return props.provider ? `${props.provider} · ${model}` : model;
+  };
+  const metaLine = () => {
+    const parts = [props.approval];
+    const sandbox = sandboxLabel();
+    if (sandbox) parts.push(sandbox);
+    const cost = badge();
+    if (cost) parts.push(cost.replace(/^·\s*/, ""));
+    const ctx = context();
+    if (ctx) parts.push(ctx.replace(/^·\s*/, ""));
+    return parts.join(" · ");
+  };
 
   return (
-    <box
-      flexShrink={0}
-      width={INFO_SIDEBAR_WIDTH}
-      flexDirection="column"
-      marginLeft={1}
-      paddingLeft={1}
-      border={["left"]}
-      borderColor={theme.border}
-      backgroundColor={theme.codeBg}
-    >
-      <text selectable={false} fg={theme.muted} attributes={BOLD}>Orin</text>
-      <Show when={props.provider}>
-        <text selectable={false} fg={theme.secondary} wrapMode="word">{props.provider}</text>
-      </Show>
-      <text selectable={false} fg={theme.fg} wrapMode="word">{shortModel(props.model)}</text>
-      <text selectable={false} fg={theme.secondary} wrapMode="word">{props.approval}</text>
-      <Show when={sandboxLabel()}>
-        <text selectable={false} fg={theme.secondary} wrapMode="word">{sandboxLabel()}</text>
-      </Show>
-      <text selectable={false} fg={theme.secondary} wrapMode="word">{infoPath(props)}</text>
-      <Show when={badge()}>
-        <text selectable={false} fg={theme.muted} wrapMode="word">{badge()}</text>
-      </Show>
-      <Show when={context()}>
-        <text selectable={false} fg={theme.muted} wrapMode="word">{context()}</text>
-      </Show>
-      <Show when={showTodos()}>
-        <box flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
-          <TodoList todos={props.todos} phase={props.phase} />
-        </box>
-      </Show>
-    </box>
+    <SidebarShell title="session" width={INFO_SIDEBAR_WIDTH} edge="right">
+      <scrollbox
+        flexGrow={1}
+        minHeight={0}
+        scrollY
+        contentOptions={{ flexDirection: "column" }}
+        {...hiddenNativeScrollbar}
+      >
+        <SidebarRow tone="fg">{modelLine()}</SidebarRow>
+        <SidebarRow>{metaLine()}</SidebarRow>
+        <SidebarRow tone="muted">{infoPath(props)}</SidebarRow>
+        <Show when={showTodos()}>
+          <box flexDirection="column" marginTop={1} paddingTop={1} border={["top"]} borderColor={theme.border}>
+            <TodoList todos={props.todos} phase={props.phase} />
+          </box>
+        </Show>
+      </scrollbox>
+    </SidebarShell>
   );
 }
 
