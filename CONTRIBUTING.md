@@ -37,7 +37,7 @@ environment caveats.
 
    ```bash
    bun run typecheck   # tsc --noEmit (strict mode, no unused locals/params)
-   bun run test        # vitest run
+   bun run test        # vitest unit suite + Bun OpenTUI renderer tests
    bun run build       # confirm src/ still compiles to dist/
    ```
 
@@ -71,11 +71,13 @@ environment caveats.
 
 ## Testing
 
-Tests use [Vitest](https://vitest.dev) and live next to the code they cover as
-`*.test.ts` / `*.test.tsx`.
+Most tests use [Vitest](https://vitest.dev) and live next to the code they cover
+as `*.test.ts` / `*.test.tsx`. Native OpenTUI renderer tests run separately
+under Bun because the development Node runtime cannot load OpenTUI's native FFI.
 
 ```bash
 bun run test         # run the suite once
+bun run test:tui     # run only native OpenTUI renderer tests
 bun run test:watch   # watch mode
 ```
 
@@ -94,8 +96,8 @@ A couple of caveats worth knowing:
   "OpenRouter is not configured", seed `provider.openrouter.apiKey` in that
   test's config rather than using environment variables.
 
-- `tui/approval-bar.test.tsx` is excluded from the default Vitest run (see
-  `vitest.config.ts`).
+- `tui/approval-bar.test.tsx` is excluded from Vitest and run by `test:tui`;
+  the top-level `test` script runs both suites.
 
 ## Common recipes
 

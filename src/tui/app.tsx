@@ -22,7 +22,6 @@ import {
 } from "./shortcuts.js";
 import { readRendererSelection } from "./selection.js";
 import { sanitizePromptInput, selectionCopyHint } from "./terminal-env.js";
-import { forceFullRepaint } from "./terminal.js";
 import { KEYBOARD_HINTS, processCommand, isActionableCommandResult, type CommandResult } from "./commands.js";
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, coerceApprovalMode, type ApprovalMode } from "../approval/policy.js";
 import { ISOLATION_MODES, ISOLATION_LABELS, type IsolationMode } from "../agent/isolation.js";
@@ -409,7 +408,7 @@ export function App(props: {
     if (cleaned !== raw) {
       inputRef.value = cleaned;
       props.controller.setInput(cleaned);
-      forceFullRepaint(renderer);
+      renderer.requestRender();
     }
   };
 
@@ -609,7 +608,7 @@ export function App(props: {
 
     scrubLeakedPromptInput();
     props.controller.clearInput();
-    forceFullRepaint(renderer);
+    renderer.requestRender();
 
     if (previous) {
       setPalette(mcpPaletteAfterReload(result.servers, previous));
@@ -1783,6 +1782,9 @@ export function App(props: {
         return;
       case "pagedown":
         scrollRef.scrollBy({ x: 0, y: page });
+        return;
+      case "home":
+        scrollRef.scrollTo({ x: 0, y: 0 });
         return;
       case "end":
         scrollRef.scrollTo({ x: 0, y: scrollRef.scrollHeight });
