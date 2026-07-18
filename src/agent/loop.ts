@@ -29,12 +29,29 @@ const CONTEXT_FULL_MESSAGE =
   "The conversation context is full and automatic compaction could not reduce it further. "
   + "Start a new session (/sessions) or send a shorter message to continue.";
 
+import {
+  EMPTY_RESPONSE_MESSAGE,
+  EMPTY_RESPONSE_NUDGE,
+} from "./empty-response.js";
+
 function loopLimitMessage(kind: "turns" | "tools", limit: number): string {
   const what = kind === "turns" ? "assistant round" : "tool call";
   return (
     `Reached the per-turn ${what} limit (${limit}). `
     + "Send another message to continue, or adjust limits with /settings loop."
   );
+}
+
+function assistantMessageText(message: AssistantMessage): string {
+  return message.content
+    .filter((c): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text)
+    .join("")
+    .trim();
+}
+
+function isEmptyAssistantResponse(message: AssistantMessage, toolCalls: ToolCallBlock[]): boolean {
+  return toolCalls.length === 0 && assistantMessageText(message) === "";
 }
 
 function pushAssistantNotice(
@@ -52,6 +69,7 @@ function pushAssistantNotice(
   };
   ctx.messages.push(message);
   options.onEvent?.({ type: "assistant_chunk", ts: ts(), content });
+  hooks.emit({ type: "text_delta", text });
   hooks.emit({ type: "assistant_message", id: randomUUID(), message });
 }
 
@@ -283,6 +301,7 @@ export async function runLoop(
 ): Promise<AgentContext> {
   const registry = toolMap(options.tools);
   let parseCorrectionRetries = 0;
+  let emptyResponseRetries = 0;
   let assistantTurns = 0;
   let totalToolCalls = 0;
   let lastKnownInputTokens = 0;
@@ -454,6 +473,21 @@ export async function runLoop(
     }
 
     parseCorrectionRetries = 0;
+
+    if (toolCalls.length === 0 && isEmptyAssistantResponse(message, toolCalls)) {
+      if (emptyResponseRetries < 1) {
+        emptyResponseRetries += 1;
+        const nudge = [{ type: "text" as const, text: EMPTY_RESPONSE_NUDGE }];
+        ctx.messages.push({ role: "user", content: nudge });
+        options.onEvent?.({ type: "user_message", ts: ts(), content: nudge });
+        continue;
+      }
+      pushAssistantNotice(ctx, hooks, options, EMPTY_RESPONSE_MESSAGE);
+      hooks.emit({ type: "loop_end", reason: "complete" });
+      break;
+    }
+
+    emptyResponseRetries = 0;
     assistantTurns += 1;
     ctx.messages.push(message);
     options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
