@@ -122,6 +122,10 @@ export interface Config {
     exa?: { apiKey?: string };
     /** When true, fetch may reach loopback hosts on the local workspace only. */
     fetch?: { allowLocalhost?: boolean };
+    edit?: {
+      /** Block edit/write until the file is re-read after external changes. */
+      requireFreshRead?: boolean;
+    };
   };
 }
 

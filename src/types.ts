@@ -4,6 +4,7 @@ import type { HookRegistryImpl } from "./hooks/registry.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { LlmCallRecorder, MetricEvent } from "./telemetry/events.js";
 import type { TodoItem } from "./todos/types.js";
+import type { ReadTracker } from "./filetracker/read-tracker.js";
 import type { SymbolService } from "./symbols/service.js";
 import type { Workspace } from "./workspace/types.js";
 
@@ -60,6 +61,8 @@ export interface AgentContext {
   askUser?: AskUserFn;
   /** Tree-sitter symbol index for structured codebase lookup. */
   symbols?: SymbolService;
+  /** Per-session read/mtime tracker for edit staleness warnings. */
+  readTracker?: ReadTracker;
   /** Set while invoke_tool runs so inner tools inherit the outer call id. */
   invokeToolCallId?: string;
   /** Set while an inner tool runs through invoke_tool (skips duplicate approval). */

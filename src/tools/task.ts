@@ -10,6 +10,7 @@ import { hasE2BApiKey, loadConfig } from "../config/config.js";
 import { resolvePresetModel } from "../config/models.js";
 import { createHookRegistry } from "../hooks/registry.js";
 import { installCoreHooks } from "../hooks/install.js";
+import { attachReadTracker } from "../hooks/read-staleness.js";
 import { loadToolDescription } from "../util/load-txt.js";
 import { isAbortError } from "../util/abort.js";
 import { createE2BWorkspace } from "../workspace/e2b.js";
@@ -231,6 +232,7 @@ export async function runSubagentTask(
       loopHost: host,
       messages: [{ role: "user", content: [{ type: "text", text: args.prompt }] }],
     };
+    attachReadTracker(childCtx);
 
     const childSkillCwd = isolationResult.mode === "sandbox" ? ctx.cwd : childCwd;
     const childRatel = buildChildRatelBundle(preset.tools, childSkillCwd);
