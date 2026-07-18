@@ -445,24 +445,21 @@ export async function runLoop(
     const toolCalls = message.content.filter((c): c is ToolCallBlock => c.type === "toolCall");
     const fromText = message.toolCallsFromText ?? usedFallback;
 
-    if (
-      fromText &&
-      toolCalls.length > 0 &&
-      parseCorrectionRetries < 2
-    ) {
+    if (toolCalls.length > 0 && parseCorrectionRetries < 2) {
       const validationErrors = validateToolCalls(toolCalls, registry);
       if (validationErrors.length > 0) {
+        const correction = formatToolValidationErrors(validationErrors, fromText);
         ctx.messages.push(message);
         options.onEvent?.({ type: "assistant_chunk", ts: ts(), content: message.content });
         hooks.emit({ type: "assistant_message", id: llmCallId, message });
         ctx.messages.push({
           role: "user",
-          content: [{ type: "text", text: formatToolValidationErrors(validationErrors) }],
+          content: [{ type: "text", text: correction }],
         });
         options.onEvent?.({
           type: "user_message",
           ts: ts(),
-          content: [{ type: "text", text: formatToolValidationErrors(validationErrors) }],
+          content: [{ type: "text", text: correction }],
         });
         parseCorrectionRetries += 1;
         continue;
