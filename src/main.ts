@@ -21,6 +21,7 @@ import { runTuiSession } from "./tui/session.js";
 import type { StreamAssistantFn } from "./provider/types.js";
 import type { AgentContext } from "./types.js";
 import { createSymbolService } from "./symbols/service.js";
+import { attachReadTracker } from "./hooks/read-staleness.js";
 import { attachSymbolService } from "./symbols/hook.js";
 import { createLocalWorkspace } from "./workspace/local.js";
 import { hasE2BApiKey } from "./config/config.js";
@@ -162,6 +163,7 @@ async function runInteractive(opts: {
   const workspace = createLocalWorkspace({ sessionId });
   const ctx: AgentContext = { cwd: hostCwd, messages, workspace, todos: rebuildTodosFromMessages(messages) };
   attachSymbolService(ctx, createSymbolService());
+  attachReadTracker(ctx);
   const hooks = createSessionHooks();
   // For resumed worktree sessions the stored cwd is the worktree path; use it
   // so skill discovery runs against the right workspace, not the host repo.
@@ -281,6 +283,7 @@ async function runHeadless(opts: {
     workspace: createLocalWorkspace(),
   };
   attachSymbolService(ctx, createSymbolService({ logWarmStats: true }));
+  attachReadTracker(ctx);
   const { provider, model } = resolveProvider(opts.useFaux);
   const { runLoop } = await import("./agent/loop.js");
   const sessionId = opts.useFaux ? undefined : generateSessionId();

@@ -63,7 +63,7 @@ export async function executeHookedTool(
     let output = result.output;
     const afterResult = await hooks.fireHook(
       "after_tool",
-      { name: call.name, args: effectiveArgs, output },
+      { name: call.name, args: effectiveArgs, output, isError: result.isError },
       ctx,
       signal,
     );
