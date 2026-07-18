@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MutationQueue, isWriteToolName, mutationLock } from "./mutation-queue.js";
+import { MutationQueue, isWriteToolName, mutationLock, mutationLocks } from "./mutation-queue.js";
 
 describe("MutationQueue", () => {
   it("serializes exclusive operations on the same key", async () => {
@@ -107,6 +107,7 @@ describe("mutation helpers", () => {
   it("identifies write tools", () => {
     expect(isWriteToolName("write")).toBe(true);
     expect(isWriteToolName("edit")).toBe(true);
+    expect(isWriteToolName("file_op")).toBe(true);
     expect(isWriteToolName("read")).toBe(false);
   });
 
@@ -130,9 +131,57 @@ describe("mutation helpers", () => {
     expect(lock).toEqual({ key: "/proj/src/foo.ts", mode: "shared" });
   });
 
-  it("returns null for tools without a single path", () => {
-    expect(mutationLock("grep", { pattern: "x" }, (cwd, p) => `${cwd}/${p}`, "/proj")).toBeNull();
+  it("returns empty for tools without a single path", () => {
+    expect(mutationLocks("grep", { pattern: "x" }, (cwd, p) => `${cwd}/${p}`, "/proj")).toEqual([
+      { key: "/proj/.", mode: "shared" },
+    ]);
     expect(mutationLock("read", {}, (cwd, p) => `${cwd}/${p}`, "/proj")).toBeNull();
+  });
+
+  it("classifies grep with an explicit path as a shared lock", () => {
+    const lock = mutationLock(
+      "grep",
+      { pattern: "x", path: "src/foo.ts" },
+      (cwd, p) => `${cwd}/${p}`,
+      "/proj",
+    );
+    expect(lock).toEqual({ key: "/proj/src/foo.ts", mode: "shared" });
+  });
+
+  it("classifies file_op delete as exclusive on source", () => {
+    expect(
+      mutationLocks(
+        "file_op",
+        { operation: "delete", source: "src/foo.ts" },
+        (cwd, p) => `${cwd}/${p}`,
+        "/proj",
+      ),
+    ).toEqual([{ key: "/proj/src/foo.ts", mode: "exclusive" }]);
+  });
+
+  it("classifies file_op move as exclusive on source and destination", () => {
+    expect(
+      mutationLocks(
+        "file_op",
+        { operation: "move", source: "a.ts", destination: "b.ts" },
+        (cwd, p) => `${cwd}/${p}`,
+        "/proj",
+      ),
+    ).toEqual([
+      { key: "/proj/a.ts", mode: "exclusive" },
+      { key: "/proj/b.ts", mode: "exclusive" },
+    ]);
+  });
+
+  it("classifies bash writes through path detection", () => {
+    expect(
+      mutationLocks(
+        "bash",
+        { command: "echo hi > out.txt" },
+        (cwd, p) => `${cwd}/${p}`,
+        "/proj",
+      ),
+    ).toEqual([{ key: "/proj/out.txt", mode: "exclusive" }]);
   });
 
   it("classifies invoke_tool read/write through to the inner tool", () => {
