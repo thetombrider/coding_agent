@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentEvent } from "../agent/events.js";
+import { EMPTY_RESPONSE_MESSAGE } from "../agent/empty-response.js";
 import type { SessionCostSnapshot } from "../telemetry/events.js";
 import type { SandboxKind } from "../workspace/types.js";
 import type { TodoItem } from "../todos/types.js";
@@ -791,6 +792,13 @@ export function createSessionController(meta: SessionMeta): SessionController {
           });
           break;
         case "loop_end":
+          if (
+            event.reason === "complete"
+            && !state.streamingText
+            && state.currentTools.length === 0
+          ) {
+            updateStreaming({ streamingText: EMPTY_RESPONSE_MESSAGE });
+          }
           break;
       }
     },

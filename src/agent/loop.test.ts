@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { runLoop, lastAssistantText } from "../agent/loop.js";
+import { EMPTY_RESPONSE_MESSAGE } from "../agent/empty-response.js";
 import * as compaction from "./compaction.js";
 import * as contextWindow from "../provider/context-window.js";
 import { createHookRegistry } from "../hooks/registry.js";
@@ -142,6 +143,50 @@ describe("runLoop", () => {
       workspace: createLocalWorkspace(),
     };
     await expect(runLoop(ctx, hooks(), { provider, tools: [], model: "faux:test" })).resolves.toBeDefined();
+  });
+
+  it("re-prompts once on an empty assistant response, then surfaces a notice", async () => {
+    const provider = createStatefulFauxProvider([{}, { text: ["recovered"] }]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks();
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [], model: "faux:test" });
+
+    expect(lastAssistantText(ctx)).toBe("recovered");
+    expect(ctx.messages.filter((m) => m.role === "user")).toHaveLength(2);
+    expect(observed.some((e) => e.type === "text_delta" && e.text === "recovered")).toBe(true);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "complete")).toBe(true);
+  });
+
+  it("emits a synthetic assistant notice when the model stays empty after retry", async () => {
+    const provider = createStatefulFauxProvider([{}, {}]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks();
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [], model: "faux:test" });
+
+    expect(lastAssistantText(ctx)).toBe(EMPTY_RESPONSE_MESSAGE);
+    expect(observed.some((e) => e.type === "text_delta" && e.text === EMPTY_RESPONSE_MESSAGE)).toBe(
+      true,
+    );
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "complete")).toBe(true);
+    expect(ctx.messages.at(-1)?.role).toBe("assistant");
   });
 
   it("runs independent tool calls in parallel", async () => {

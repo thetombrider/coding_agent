@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EMPTY_RESPONSE_MESSAGE } from "../agent/empty-response.js";
 import { createSessionController } from "./controller.js";
 
 describe("createSessionController", () => {
@@ -16,6 +17,16 @@ describe("createSessionController", () => {
     const turn = controller.getState().completedTurns[0];
     expect(turn?.reasoningText).toBe("Step 1. Step 2.");
     expect(turn?.assistantText).toBe("Answer.");
+  });
+
+  it("surfaces an empty-response notice on loop_end when no assistant text streamed", () => {
+    const controller = createSessionController(meta);
+    controller.beginTurn("hello");
+    controller.handleEvent({ type: "loop_end", reason: "complete" });
+    controller.finalizeTurn();
+
+    const turn = controller.getState().completedTurns[0];
+    expect(turn?.assistantText).toBe(EMPTY_RESPONSE_MESSAGE);
   });
 
   it("inserts a newline between assistant text streams across LLM calls", () => {
