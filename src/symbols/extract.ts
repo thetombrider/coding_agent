@@ -62,6 +62,7 @@ function mapDefinitionKind(raw: string): SymbolKind {
 
 function nameFromEnclosing(node: Node): string | null {
   for (const child of node.children) {
+    if (!child) continue;
     if (child.type === "identifier" || child.type === "type_identifier" || child.type === "property_identifier") {
       return child.text;
     }

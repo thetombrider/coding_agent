@@ -41,9 +41,8 @@ import { App } from "./app.js";
 import { installCrashDiagnostics } from "./crash.js";
 import { createSessionController, type SessionMeta } from "./controller.js";
 import { messagesToTurns } from "./messages-to-turns.js";
-import { forceFullRepaint, restoreTerminal } from "./terminal.js";
+import { restoreTerminal } from "./terminal.js";
 import {
-  blocksNativeCopyShortcut,
   consumeMouseReports,
   consumeTerminalCapabilityLeak,
   terminalStartupCopyHint,
@@ -719,15 +718,15 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   let renderer: Awaited<ReturnType<typeof createCliRenderer>> | undefined;
   try {
     renderer = await createCliRenderer({
+      // This renderer owns the process terminal. Explicit local mode preserves
+      // OpenTUI's complete default environment forwarding (TERM, COLORTERM,
+      // TERM_PROGRAM, TMUX, OPENTUI_GRAPHICS, and capability overrides).
+      remote: false,
       exitOnCtrlC: false,
       backgroundColor: theme.bg,
-      // Forward OPENTUI_GRAPHICS to the *native* renderer so it actually honors
-      // the disable. OpenTUI only forwards env vars to native when asked
-      // (otherwise none are), which is why setting OPENTUI_GRAPHICS=0 alone never
-      // stopped the native Kitty graphics probe — native never saw it. The
-      // forward loop skips undefined vars, so this is a no-op on terminals where
-      // we don't set it (i.e. everything except Terminal.app).
-      forwardEnvKeys: ["OPENTUI_GRAPHICS"],
+      // OpenTUI destroys itself for external exit signals. Resolve Orin's own
+      // lifecycle too so MCP, workspaces, logs, and hooks are also cleaned up.
+      onDestroy: requestExit,
       // Belt-and-suspenders: if a terminal ever feeds OpenTUI's leaked Kitty
       // graphics probe back on stdin, drop it before it reaches the prompt.
       prependInputHandlers: [consumeTerminalCapabilityLeak, consumeMouseReports],
@@ -794,18 +793,6 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
       }, 50);
     }
 
-    // Terminal.app paints OpenTUI's native Kitty graphics probe as literal text
-    // in the prompt (it can't parse the APC wrapper, and native writes it past
-    // any JS output hook). Force a couple of full repaints once startup settles
-    // so OpenTUI overwrites those stray cells. No-op everywhere else.
-    if (blocksNativeCopyShortcut() && renderer) {
-      const r = renderer;
-      for (const delay of [150, 600]) {
-        const t = setTimeout(() => forceFullRepaint(r), delay);
-        t.unref?.();
-      }
-    }
-
     // Reclaim old shadow-git checkpoint repos under ~/.orin/checkpoints (gc the
     // survivors, delete dirs past the age/count caps). Non-blocking and deferred
     // well clear of the terminal capability handshake so it can never perturb it.
@@ -819,25 +806,33 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
 
     await exitPromise;
   } finally {
-    process.removeListener("exit", onProcessExit);
     stopTurn();
-    const pendingTurn = activeTurn.promise;
-    if (pendingTurn) {
-      await Promise.race([
-        pendingTurn.then(() => undefined, () => undefined),
-        new Promise((resolve) => setTimeout(resolve, TURN_STOP_TIMEOUT_MS)),
-      ]);
+    try {
+      const pendingTurn = activeTurn.promise;
+      if (pendingTurn) {
+        await Promise.race([
+          pendingTurn.then(() => undefined, () => undefined),
+          new Promise((resolve) => setTimeout(resolve, TURN_STOP_TIMEOUT_MS)),
+        ]);
+      }
+      disposeRatelTelemetry();
+      await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
+      await currentMcpDispose?.();
+      disposeTelemetry();
+      await config.ctx.workspace.dispose();
+      await log.close();
+    } finally {
+      // OpenTUI owns raw mode, signal listeners, renderables, and native
+      // resources. Nothing in application cleanup may prevent its teardown.
+      try {
+        renderer?.destroy();
+      } finally {
+        restoreTerminal();
+        process.removeListener("exit", onProcessExit);
+        crash.markCleanExit();
+        crash.dispose();
+      }
     }
-    disposeRatelTelemetry();
-    await config.hooks.fireHook("session_end", { reason: "exit" }, config.ctx);
-    await currentMcpDispose?.();
-    disposeTelemetry();
-    await config.ctx.workspace.dispose();
-    await log.close();
-    renderer?.destroy();
-    restoreTerminal();
-    crash.markCleanExit();
-    crash.dispose();
   }
 
   return config.ctx;

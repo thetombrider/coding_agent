@@ -1,5 +1,5 @@
-// Compiles src/ -> dist/ with babel (TypeScript + babel-preset-solid universal),
-// so @opentui/solid JSX runs on Node. Mirrors scripts/solid-node-loader.mjs.
+// Compiles src/ -> dist/ for the Bun CLI with Babel (TypeScript plus
+// babel-preset-solid's universal renderer targeting @opentui/solid).
 import { chmod, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
