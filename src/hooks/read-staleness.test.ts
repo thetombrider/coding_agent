@@ -81,6 +81,30 @@ describe("installReadStalenessHooks", () => {
     expect(result.output).not.toContain("[staleness:");
   });
 
+  it("does not clear staleness state when edit fails with isError", async () => {
+    const filePath = join(cwd, "mismatch.ts");
+    await writeFile(filePath, "const x = 1;\n");
+
+    await runTool("read", { path: "mismatch.ts" });
+
+    await new Promise((r) => setTimeout(r, 50));
+    await writeFile(filePath, "const x = 1;\n// external change\n");
+
+    const failed = await runTool("edit", {
+      path: "mismatch.ts",
+      edits: [{ oldText: "missing text", newText: "nope" }],
+    });
+    expect(failed.isError).toBe(true);
+    expect(failed.output).toContain("The edit could not be applied");
+
+    const retry = await runTool("edit", {
+      path: "mismatch.ts",
+      edits: [{ oldText: "// external change", newText: "// edited" }],
+    });
+    expect(retry.isError).toBeFalsy();
+    expect(retry.output).toContain("changed on disk since last read");
+  });
+
   it("blocks edit in strict mode until re-read", async () => {
     saveConfig({ tools: { edit: { requireFreshRead: true } } });
 

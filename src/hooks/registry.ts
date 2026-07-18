@@ -134,7 +134,7 @@ export function createHookRegistry(options: HookRegistryOptions = {}): HookRegis
       let result: HookMap["after_tool"]["out"] | void;
       try {
         result = await handler(
-          { name: input.name, args: input.args, output: currentOutput },
+          { name: input.name, args: input.args, output: currentOutput, isError: input.isError },
           ctx,
           signal,
         );

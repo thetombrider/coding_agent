@@ -7,7 +7,7 @@ export interface HookMap {
     out: void | { block: true; reason: string } | { args: unknown };
   };
   after_tool: {
-    in: { name: string; args: unknown; output: string };
+    in: { name: string; args: unknown; output: string; isError?: boolean };
     out: void | { output: string };
   };
   before_prompt: {

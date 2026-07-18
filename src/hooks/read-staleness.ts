@@ -58,11 +58,12 @@ export function installReadStalenessHooks(hooks: HookRegistryImpl): void {
     tracker.setPendingWarning(absPath, warning);
   });
 
-  hooks.on("after_tool", async ({ name, args, output }, ctx) => {
+  hooks.on("after_tool", async ({ name, args, output, isError }, ctx) => {
     const tracker = ctx.readTracker;
     if (!tracker) return;
 
     if (name === "read") {
+      if (isError) return;
       const path = pathFromArgs(args);
       if (!path) return;
       const mtime = await getFileMtimeMs(ctx, path);
@@ -72,6 +73,7 @@ export function installReadStalenessHooks(hooks: HookRegistryImpl): void {
     }
 
     if (name === "grep") {
+      if (isError) return;
       for (const absPath of pathsFromGrepOutput(ctx.cwd, output)) {
         const mtime = await getFileMtimeMs(ctx, absPath);
         if (mtime !== null) tracker.recordRead(absPath, mtime);
@@ -80,7 +82,7 @@ export function installReadStalenessHooks(hooks: HookRegistryImpl): void {
     }
 
     if (name !== "edit" && name !== "write") return;
-    if (output.startsWith("Error") || output.startsWith("[Blocked:")) return;
+    if (isError) return;
 
     const path = pathFromArgs(args);
     if (!path) return;
