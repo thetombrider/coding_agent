@@ -318,6 +318,42 @@ describe("runLoop", () => {
     expect(output).toContain("orin");
   });
 
+  it("re-prompts when structured tool args are invalid", async () => {
+    let providerCalls = 0;
+    const baseProvider = createStatefulFauxProvider([
+      {
+        toolCalls: [{ id: "tc1", name: "read", arguments: { wrong: "package.json" } }],
+      },
+      {
+        toolCalls: [{ id: "tc2", name: "read", arguments: { path: "package.json" } }],
+      },
+      { text: ["done"] },
+    ]);
+
+    const provider: typeof baseProvider = (messages, options, emit) => {
+      providerCalls += 1;
+      return baseProvider(messages, options, emit);
+    };
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "read file" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const readTools = getCoreTools().filter((t) => t.name === "read");
+    await runLoop(ctx, hooks(readTools), {
+      provider,
+      tools: readTools,
+      model: "faux:test",
+    });
+
+    expect(providerCalls).toBeGreaterThanOrEqual(2);
+    expect(ctx.messages.some((m) => m.role === "user" && m.content[0]?.type === "text" &&
+      (m.content[0] as { text: string }).text.includes("invalid"))).toBe(true);
+    expect(ctx.messages.some((m) => m.role === "tool")).toBe(true);
+  });
+
   it("re-prompts when fallback-parsed tool args are invalid", async () => {
     let providerCalls = 0;
     const baseProvider = createStatefulFauxProvider([

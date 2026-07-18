@@ -200,13 +200,17 @@ export function enrichAssistantMessage(
 
 export function formatToolValidationErrors(
   errors: Array<{ name: string; message: string }>,
+  fromText = false,
 ): string {
   const details = errors.map((e) => `- ${e.name}: ${e.message}`).join("\n");
+  const hint = fromText
+    ? "Please fix the arguments and try again using valid XML or JSON tool call format."
+    : "Please fix the arguments and try again.";
   return [
     "Your tool call arguments were invalid:",
     details,
     "",
-    "Please fix the arguments and try again using valid XML or JSON tool call format.",
+    hint,
   ].join("\n");
 }
 
