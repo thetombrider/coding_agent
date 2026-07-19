@@ -1043,6 +1043,78 @@ describe("runLoop", () => {
     expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
   });
 
+  it("aborts sibling tools when one parallel tool returns terminate: true (#391)", async () => {
+    let slowFinished = false;
+    const slowTool: Tool<{ n: number }> = {
+      name: "slow",
+      description: "slow noop",
+      schema: z.object({ n: z.number() }),
+      async execute(_args, _ctx, signal) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            slowFinished = true;
+            resolve();
+          }, 2000);
+          signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        });
+        return { output: "slow done" };
+      },
+    };
+
+    const terminatingTool: Tool<Record<string, never>> = {
+      name: "finish",
+      description: "ends the loop",
+      schema: z.object({}),
+      async execute() {
+        return { output: "stopping", terminate: true };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      {
+        toolCalls: [
+          { id: "tc1", name: "finish", arguments: {} },
+          { id: "tc2", name: "slow", arguments: { n: 1 } },
+        ],
+      },
+      { text: ["this should never be reached"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const tools = [terminatingTool, slowTool];
+    const registry = hooks(tools);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    const start = Date.now();
+    await runLoop(ctx, registry, {
+      provider,
+      tools,
+      model: "faux:test",
+    });
+    const elapsed = Date.now() - start;
+
+    expect(elapsed).toBeLessThan(500);
+    expect(slowFinished).toBe(false);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "terminate")).toBe(true);
+    expect(ctx.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(lastAssistantText(ctx)).not.toContain("never be reached");
+    const toolResults = ctx.messages.filter((m) => m.role === "tool");
+    expect(toolResults).toHaveLength(2);
+  });
+
   it("exits immediately when a tool returns terminate: true", async () => {
     const terminatingTool: Tool<Record<string, never>> = {
       name: "finish",
