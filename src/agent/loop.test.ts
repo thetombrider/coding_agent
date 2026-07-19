@@ -863,6 +863,87 @@ describe("runLoop", () => {
     expect(output).toContain("Critical system error");
   });
 
+  it("terminates the loop on auth failure instead of retrying", async () => {
+    let calls = 0;
+    const authFailTool: Tool<{ path: string }> = {
+      name: "fetch",
+      description: "fetch a url",
+      schema: z.object({ path: z.string() }),
+      async execute() {
+        calls += 1;
+        throw Object.assign(new Error("HTTP 401 — invalid API key"), { statusCode: 401 });
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "fetch", arguments: { path: "https://api.example.com" } }] },
+      { toolCalls: [{ id: "tc2", name: "fetch", arguments: { path: "https://api.example.com" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "fetch" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([authFailTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    await runLoop(ctx, registry, { provider, tools: [authFailTool], model: "faux:test" });
+
+    expect(calls).toBe(1);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "error")).toBe(true);
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
+    expect(output).toContain("Critical system error");
+  });
+
+  it("retries rate-limited tool calls with backoff before returning to the model", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const rateLimitedTool: Tool<{ path: string }> = {
+      name: "fetch",
+      description: "fetch a url",
+      schema: z.object({ path: z.string() }),
+      async execute() {
+        calls += 1;
+        if (calls < 3) {
+          throw Object.assign(new Error("HTTP 429 — rate limit exceeded"), { statusCode: 429 });
+        }
+        return { output: "ok" };
+      },
+    };
+
+    const provider = createStatefulFauxProvider([
+      { toolCalls: [{ id: "tc1", name: "fetch", arguments: { path: "https://api.example.com" } }] },
+      { text: ["done"] },
+    ]);
+
+    const ctx: AgentContext = {
+      cwd: process.cwd(),
+      messages: [{ role: "user", content: [{ type: "text", text: "fetch" }] }],
+      workspace: createLocalWorkspace(),
+    };
+
+    const registry = hooks([rateLimitedTool]);
+    const observed: AgentEvent[] = [];
+    registry.observe((e) => observed.push(e));
+
+    const loopPromise = runLoop(ctx, registry, { provider, tools: [rateLimitedTool], model: "faux:test" });
+    await vi.runAllTimersAsync();
+    await loopPromise;
+
+    expect(calls).toBe(3);
+    expect(observed.some((e) => e.type === "loop_end" && e.reason === "complete")).toBe(true);
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    const output = toolMsg?.content[0]?.type === "toolResult" ? toolMsg.content[0].output : "";
+    expect(output).toBe("ok");
+
+    vi.useRealTimers();
+  });
+
   it("returns recoverable tool errors to the model without terminating", async () => {
     let calls = 0;
     const flakyTool: Tool<{ path: string }> = {
