@@ -22,7 +22,14 @@ import {
 import { getContextWindow } from "../provider/context-window.js";
 import { MutationQueue, mutationLocks, runWithMutationLocks } from "./mutation-queue.js";
 import { isAbortError } from "../util/abort.js";
-import { isCriticalSystemError } from "../util/system-error.js";
+import { isCriticalSystemError, isRateLimitError } from "../util/system-error.js";
+
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_BASE_DELAY_MS = 1_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 import { executeHookedTool } from "./tool-execution.js";
 
 const CONTEXT_FULL_MESSAGE =
@@ -189,29 +196,40 @@ async function executeSingleTool(
   if (call.name === INVOKE_TOOL_ID) ctx.invokeToolCallId = call.id;
 
   try {
-    const result = await executeHookedTool({
-      call: { id: call.id, name: call.name, args },
-      tool,
-      ctx,
-      hooks,
-      signal: options.signal ?? new AbortController().signal,
-    });
+    for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt += 1) {
+      try {
+        const result = await executeHookedTool({
+          call: { id: call.id, name: call.name, args },
+          tool,
+          ctx,
+          hooks,
+          signal: options.signal ?? new AbortController().signal,
+        });
 
-    const msg = toolResultMessage(call.id, call.name, result.output, result.isError);
-    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-    return { message: msg, terminate: result.terminate };
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    const critical = isCriticalSystemError(err);
-    // A critical system error (disk full, read-only FS, fd exhaustion, OOM…)
-    // is environmental: retrying the same — or any — call is futile. Surface it
-    // distinctly and terminate the loop instead of letting the model retry it
-    // indefinitely. Recoverable tool errors are still returned for the model.
-    const output = critical ? `Critical system error — aborting agent loop: ${detail}` : detail;
-    const msg = toolResultMessage(call.id, call.name, output, true);
-    options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
-    hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
-    return critical ? { message: msg, terminate: true, systemError: true } : { message: msg };
+        const msg = toolResultMessage(call.id, call.name, result.output, result.isError);
+        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+        return { message: msg, terminate: result.terminate };
+      } catch (err) {
+        if (isRateLimitError(err) && attempt < RATE_LIMIT_MAX_RETRIES) {
+          await sleep(RATE_LIMIT_BASE_DELAY_MS * 2 ** attempt);
+          continue;
+        }
+
+        const detail = err instanceof Error ? err.message : String(err);
+        const critical = isCriticalSystemError(err);
+        // A critical system error (disk full, read-only FS, fd exhaustion, OOM,
+        // auth failure, network partition…) is environmental: retrying the same —
+        // or any — call is futile. Surface it distinctly and terminate the loop
+        // instead of letting the model retry it indefinitely. Recoverable tool
+        // errors (including exhausted rate limits) are returned for the model.
+        const output = critical ? `Critical system error — aborting agent loop: ${detail}` : detail;
+        const msg = toolResultMessage(call.id, call.name, output, true);
+        options.onEvent?.({ type: "tool_result", ts: ts(), toolUseId: call.id, content: msg.content });
+        hooks.emit({ type: "tool_end", id: call.id, name: call.name, output, isError: true });
+        return critical ? { message: msg, terminate: true, systemError: true } : { message: msg };
+      }
+    }
+    throw new Error("rate limit retries exhausted");
   } finally {
     if (call.name === INVOKE_TOOL_ID) {
       ctx.invokeToolCallId = prevInvokeCallId;
