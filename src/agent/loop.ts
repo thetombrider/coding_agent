@@ -228,14 +228,31 @@ async function executeToolsParallel(
   ts: () => string,
 ): Promise<ExecutedTool[]> {
   const mutationQueue = new MutationQueue();
+  const batchAbort = new AbortController();
+  const parentSignal = options.signal;
+  const onParentAbort = () => batchAbort.abort(parentSignal?.reason);
+  if (parentSignal?.aborted) {
+    batchAbort.abort(parentSignal.reason);
+  } else {
+    parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+  }
 
-  return Promise.all(
-    calls.map((call) => {
-      const locks = mutationLocks(call.name, call.arguments, resolvePath, ctx.cwd);
-      const run = () => executeSingleTool(call, registry, ctx, hooks, options, ts);
-      return runWithMutationLocks(mutationQueue, locks, run);
-    }),
-  );
+  const batchOptions: RunLoopOptions = { ...options, signal: batchAbort.signal };
+
+  try {
+    return await Promise.all(
+      calls.map((call) => {
+        const locks = mutationLocks(call.name, call.arguments, resolvePath, ctx.cwd);
+        const run = () => executeSingleTool(call, registry, ctx, hooks, batchOptions, ts);
+        return runWithMutationLocks(mutationQueue, locks, run).then((result) => {
+          if (result.terminate) batchAbort.abort();
+          return result;
+        });
+      }),
+    );
+  } finally {
+    parentSignal?.removeEventListener("abort", onParentAbort);
+  }
 }
 
 /**
