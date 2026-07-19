@@ -16,7 +16,7 @@ import { resolveModelOnProviderSwitch } from "../provider/picker-models.js";
 import { createCheckpointManager } from "../checkpoint/manager.js";
 import { isMutatingTool } from "../checkpoint/tracker.js";
 import { removeCheckpointRepo, scheduleCheckpointCleanup } from "../checkpoint/retention.js";
-import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayCheckpoints, replayLog, replaySessionMeta, sessionPath, deleteSession } from "../session/log.js";
+import { generateSessionId, listSessions, openLog, rebuildSessionCost, replayCheckpoints, replayLog, replaySessionMeta, sessionPath, deleteSession, formatReplayRepairSummary } from "../session/log.js";
 import type { SessionMetaRecord } from "../session/log.js";
 import { rebuildTodosFromMessages } from "../todos/store.js";
 import { SessionCostAccumulator } from "../telemetry/accumulator.js";
@@ -271,7 +271,7 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
   const onResume = (resumeSessionId: string) => {
     void log.close();
     const path = sessionPath(resumeSessionId);
-    const messages = replayLog(path);
+    const { messages, repairs } = replayLog(path);
     const meta = replaySessionMeta(path);
     config.ctx.messages = messages;
     config.ctx.todos = rebuildTodosFromMessages(messages);
@@ -294,9 +294,9 @@ export async function runTuiSession(config: TuiSessionConfig): Promise<AgentCont
     const turns = messagesToTurns(messages);
     controller.loadHistory(turns);
     controller.setTodos(config.ctx.todos);
-    controller.setStatusHint(
-      `Resumed session ${resumeSessionId} — ${turns.length} turn${turns.length !== 1 ? "s" : ""}`,
-    );
+    const repairNote = formatReplayRepairSummary(repairs);
+    const resumeHint = `Resumed session ${resumeSessionId} — ${turns.length} turn${turns.length !== 1 ? "s" : ""}`;
+    controller.setStatusHint(repairNote ? `${resumeHint} (${repairNote})` : resumeHint);
   };
 
   const onDeleteSession = (sessionId: string): { ok: boolean; message: string } => {

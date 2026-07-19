@@ -10,7 +10,7 @@ import { resolveProviderSlot } from "./config/models.js";
 import { createStatefulFauxProvider, fauxOneShot, runOneShot } from "./provider/faux.js";
 import { resolveActiveProvider, repairActiveProviderIfNeeded, activeProviderId } from "./provider/registry.js";
 import { streamAssistant } from "./provider/stream.js";
-import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, replaySessionMeta, resolveStartupSessionId, sessionPath } from "./session/log.js";
+import { generateSessionId, getLastEventTimestamp, listSessions, replayLog, replaySessionMeta, resolveStartupSessionId, sessionPath, formatReplayRepairSummary } from "./session/log.js";
 import { resolveSessionIsolation } from "./workspace/session-worktree.js";
 import type { SessionIsolationMode } from "./agent/session-isolation.js";
 import { rebuildTodosFromMessages } from "./todos/store.js";
@@ -140,7 +140,8 @@ async function runInteractive(opts: {
 
   if (opts.resumeId) {
     const path = sessionPath(opts.resumeId);
-    messages = replayLog(path);
+    const { messages: resumed, repairs } = replayLog(path);
+    messages = resumed;
     sessionMeta = replaySessionMeta(path);
     const turns = messages.filter((m) => m.role === "user").length;
     const lastTs = getLastEventTimestamp(path);
@@ -148,6 +149,8 @@ async function runInteractive(opts: {
     process.stderr.write(
       `Resuming session ${opts.resumeId} — ${turns} turn${turns !== 1 ? "s" : ""}, last active ${ago}\n`,
     );
+    const repairNote = formatReplayRepairSummary(repairs);
+    if (repairNote) process.stderr.write(`${repairNote}\n`);
     sessionId = opts.resumeId;
   } else {
     sessionId = resolveStartupSessionId(hostCwd, { isolation: sessionIsolation });

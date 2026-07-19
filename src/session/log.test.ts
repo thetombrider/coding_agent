@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   deleteSession,
+  formatReplayRepairSummary,
   generateSessionId,
   getLastEventTimestamp,
   listSessions,
@@ -12,7 +13,14 @@ import {
   replayCheckpoints,
   replayLog,
   resolveStartupSessionId,
+  validateTranscriptShape,
 } from "./log.js";
+import { createHookRegistry } from "../hooks/registry.js";
+import { installCoreHooks } from "../hooks/install.js";
+import { runLoop, lastAssistantText } from "../agent/loop.js";
+import { createStatefulFauxProvider } from "../provider/faux.js";
+import { createLocalWorkspace } from "../workspace/local.js";
+import { toAiMessages } from "../provider/stream.js";
 import type { MetricEvent } from "../telemetry/events.js";
 
 /** Build a `turn` metric line as the sessionLogSink (1/8) persists it. */
@@ -93,7 +101,7 @@ describe("openLog / replayLog round-trip", () => {
     });
     await log.close();
 
-    const messages = replayLog(path);
+    const { messages } = replayLog(path);
     expect(messages).toHaveLength(3);
     expect(messages[0]).toEqual({
       role: "user",
@@ -118,7 +126,7 @@ describe("openLog / replayLog round-trip", () => {
     log.write({ type: "user_message", ts: "t4", content: [{ type: "text", text: "after" }] });
     await log.close();
 
-    const messages = replayLog(path);
+    const { messages } = replayLog(path);
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ role: "user" });
     expect(messages[0]?.content[0]).toMatchObject({ text: "after" });
@@ -138,7 +146,7 @@ describe("openLog / replayLog round-trip", () => {
       { id: "bbb222", label: "after edit", ts: "t3", tool: "edit" },
     ]);
     // checkpoint events are not part of the message transcript.
-    expect(replayLog(path)).toHaveLength(1);
+    expect(replayLog(path).messages).toHaveLength(1);
   });
 
   it("replayCheckpoints resets on session_clear", async () => {
@@ -159,7 +167,7 @@ describe("openLog / replayLog round-trip", () => {
     log.write({ type: "user_message", ts: "t2", content: [{ type: "text", text: "hi" }] });
     await log.close();
 
-    expect(replayLog(path)).toHaveLength(1);
+    expect(replayLog(path).messages).toHaveLength(1);
   });
 
   it("ignores unknown future event types gracefully", () => {
@@ -169,7 +177,7 @@ describe("openLog / replayLog round-trip", () => {
       '{"type":"unknown_future_event","ts":"t1"}\n' +
         '{"type":"user_message","ts":"t2","content":[{"type":"text","text":"ok"}]}\n',
     );
-    expect(replayLog(path)).toHaveLength(1);
+    expect(replayLog(path).messages).toHaveLength(1);
   });
 
   it("synthesizes results for tool calls left dangling by a killed session", () => {
@@ -188,7 +196,7 @@ describe("openLog / replayLog round-trip", () => {
       ],
     });
 
-    const messages = replayLog(path);
+    const { messages } = replayLog(path);
     // user, assistant, and a synthetic tool message filling both calls.
     expect(messages).toHaveLength(3);
     expect(messages[2]).toEqual({
@@ -217,7 +225,7 @@ describe("openLog / replayLog round-trip", () => {
     });
     await log.close();
 
-    const messages = replayLog(path);
+    const { messages } = replayLog(path);
     expect(messages).toHaveLength(3);
     expect(messages[2]).toEqual({
       role: "tool",
@@ -225,10 +233,9 @@ describe("openLog / replayLog round-trip", () => {
     });
   });
 
-  it("skips repairDanglingToolCalls when session was cleanly closed", async () => {
-    // A cleanly closed session ends with session_completed — the repair pass
-    // must be skipped even if there are tool calls, because they already have
-    // matching tool_result entries.
+  it("does not synthesize tool results when session_completed is present and results exist", async () => {
+    // A cleanly closed session ends with session_completed. Repair still runs,
+    // but no synthetic fillers are added when every tool call has a result.
     const path = join(tmpDir, "session.jsonl");
     const log = openLog(path);
     log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
@@ -245,13 +252,37 @@ describe("openLog / replayLog round-trip", () => {
     });
     await log.close(); // writes session_completed
 
-    const messages = replayLog(path);
-    // No synthetic filler messages — the real tool result is already there.
+    const { messages, repairs } = replayLog(path);
     expect(messages).toHaveLength(3);
     expect(messages[2]).toEqual({
       role: "tool",
       content: [{ type: "toolResult", toolCallId: "tc1", toolName: "bash", output: "ok", isError: false }],
     });
+    expect(repairs.synthesizedToolResults).toBe(0);
+    expect(validateTranscriptShape(messages)).toEqual([]);
+  });
+
+  it("repairs dangling tool calls even when session_completed is present", async () => {
+    // session_completed only means the log handle closed — a kill between
+    // assistant_chunk and tool_result can still leave dangling calls.
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
+    log.write({
+      type: "assistant_chunk",
+      ts: "t2",
+      content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }],
+    });
+    await log.close();
+
+    const { messages, repairs } = replayLog(path);
+    expect(messages).toHaveLength(3);
+    expect(repairs.synthesizedToolResults).toBe(1);
+    expect(messages[2]).toMatchObject({
+      role: "tool",
+      content: [expect.objectContaining({ toolCallId: "tc1", isError: true })],
+    });
+    expect(validateTranscriptShape(messages)).toEqual([]);
   });
 
   it("runs repair pass when session_completed is absent (interrupted session)", () => {
@@ -266,7 +297,7 @@ describe("openLog / replayLog round-trip", () => {
     });
     // No log.close() — simulates hard kill.
 
-    const messages = replayLog(path);
+    const { messages } = replayLog(path);
     expect(messages).toHaveLength(3); // user + assistant + synthetic filler
     expect(messages[2]).toMatchObject({
       role: "tool",
@@ -282,7 +313,7 @@ describe("openLog / replayLog round-trip", () => {
     log.write({ type: "assistant_chunk", ts: "t2", content: [{ type: "text", text: "yo" }] });
     await log.close();
 
-    const messages = replayLog(path);
+    const { messages } = replayLog(path);
     expect(messages).toHaveLength(2);
     expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
   });
@@ -294,11 +325,62 @@ describe("openLog / replayLog round-trip", () => {
       'NOT JSON\n' +
         '{"type":"user_message","ts":"t1","content":[{"type":"text","text":"ok"}]}\n',
     );
-    expect(replayLog(path)).toHaveLength(1);
+    const { messages, repairs } = replayLog(path);
+    expect(messages).toHaveLength(1);
+    expect(repairs.skippedMalformedLines).toBe(1);
+    expect(formatReplayRepairSummary(repairs)).toBe("Session log repaired: 1 corrupt log line skipped");
+  });
+
+  it("reports synthesized tool results in the repair summary", () => {
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "go" }] });
+    log.write({
+      type: "assistant_chunk",
+      ts: "t2",
+      content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }],
+    });
+
+    const { repairs } = replayLog(path);
+    expect(repairs.synthesizedToolResults).toBe(1);
+    expect(formatReplayRepairSummary(repairs)).toBe(
+      "Session log repaired: 1 interrupted tool result synthesized",
+    );
+  });
+
+  it("resumed interrupted session produces a provider-safe transcript and can complete a turn", async () => {
+    const path = join(tmpDir, "session.jsonl");
+    const log = openLog(path);
+    log.write({ type: "user_message", ts: "t1", content: [{ type: "text", text: "list files" }] });
+    log.write({
+      type: "assistant_chunk",
+      ts: "t2",
+      content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }],
+    });
+    // Simulate kill mid-tool — no tool_result and no session_completed.
+
+    const { messages, repairs } = replayLog(path);
+    expect(repairs.synthesizedToolResults).toBe(1);
+    expect(validateTranscriptShape(messages)).toEqual([]);
+    expect(() => toAiMessages(messages)).not.toThrow();
+
+    const provider = createStatefulFauxProvider([{ text: ["Done after resume."] }]);
+    const registry = createHookRegistry();
+    installCoreHooks(registry, { mode: "auto-accept", autoAcceptCli: true, tools: [] });
+    const ctx = {
+      cwd: process.cwd(),
+      messages,
+      workspace: createLocalWorkspace(),
+    };
+    const result = await runLoop(ctx, registry, { provider, tools: [], model: "faux:test" });
+    expect(lastAssistantText(result)).toBe("Done after resume.");
   });
 
   it("returns an empty array for a missing file", () => {
-    expect(replayLog(join(tmpDir, "nonexistent.jsonl"))).toEqual([]);
+    expect(replayLog(join(tmpDir, "nonexistent.jsonl"))).toEqual({
+      messages: [],
+      repairs: { skippedMalformedLines: 0, synthesizedToolResults: 0 },
+    });
   });
 
   it("creates intermediate directories that do not exist", async () => {
@@ -306,7 +388,7 @@ describe("openLog / replayLog round-trip", () => {
     const log = openLog(path);
     log.write({ type: "user_message", ts: "t1", content: [] });
     await log.close();
-    expect(replayLog(path)).toHaveLength(1);
+    expect(replayLog(path).messages).toHaveLength(1);
   });
 
   it("appends to an existing log file", async () => {
@@ -319,7 +401,7 @@ describe("openLog / replayLog round-trip", () => {
     log2.write({ type: "user_message", ts: "t2", content: [{ type: "text", text: "second" }] });
     await log2.close();
 
-    expect(replayLog(path)).toHaveLength(2);
+    expect(replayLog(path).messages).toHaveLength(2);
   });
 });
 

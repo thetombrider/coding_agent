@@ -197,7 +197,7 @@ describe("messagesToTurns", () => {
         ].join("\n") + "\n",
       );
 
-      const turns = messagesToTurns(replayLog(path));
+      const turns = messagesToTurns(replayLog(path).messages);
       expect(turns).toHaveLength(1);
       expect(turns[0]?.tools[0]).toMatchObject({
         name: "grep",

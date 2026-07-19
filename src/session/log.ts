@@ -47,40 +47,72 @@ export function openLog(path: string): LogHandle {
   };
 }
 
-export function replayLog(path: string): Message[] {
-  if (!existsSync(path)) return [];
+export interface ReplayRepairSummary {
+  /** JSONL lines that could not be parsed and were dropped. */
+  skippedMalformedLines: number;
+  /** Tool results synthesized for calls left dangling by an interrupted session. */
+  synthesizedToolResults: number;
+}
+
+export interface ReplayResult {
+  messages: Message[];
+  repairs: ReplayRepairSummary;
+}
+
+const EMPTY_REPLAY: ReplayResult = {
+  messages: [],
+  repairs: { skippedMalformedLines: 0, synthesizedToolResults: 0 },
+};
+
+/** Format repair actions for stderr / status hints on resume. */
+export function formatReplayRepairSummary(repairs: ReplayRepairSummary): string | undefined {
+  const parts: string[] = [];
+  if (repairs.skippedMalformedLines > 0) {
+    const n = repairs.skippedMalformedLines;
+    parts.push(`${n} corrupt log line${n === 1 ? "" : "s"} skipped`);
+  }
+  if (repairs.synthesizedToolResults > 0) {
+    const n = repairs.synthesizedToolResults;
+    parts.push(`${n} interrupted tool result${n === 1 ? "" : "s"} synthesized`);
+  }
+  return parts.length ? `Session log repaired: ${parts.join("; ")}` : undefined;
+}
+
+export function replayLog(path: string): ReplayResult {
+  if (!existsSync(path)) return EMPTY_REPLAY;
   const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
 
-  // If the last line is a clean-close marker the session ended normally — skip
-  // the O(n) repair pass that is only needed for interrupted sessions.
-  let cleanClose = false;
-  const lastLine = lines[lines.length - 1];
-  if (lastLine) {
-    try {
-      cleanClose = (JSON.parse(lastLine) as SessionEvent).type === "session_completed";
-    } catch { /* ignore malformed */ }
-  }
-
+  let skippedMalformedLines = 0;
   const messages: Message[] = [];
   for (const line of lines) {
+    let ev: SessionEvent;
     try {
-      const ev = JSON.parse(line) as SessionEvent;
-      if (ev.type === "user_message") {
-        messages.push({ role: "user", content: ev.content });
-      } else if (ev.type === "assistant_chunk") {
-        messages.push({ role: "assistant", content: ev.content });
-      } else if (ev.type === "tool_result") {
-        messages.push({ role: "tool", content: ev.content });
-      } else if (ev.type === "session_clear") {
-        messages.length = 0;
-      }
-      // session_meta, session_completed, metric, and unknown types: skip (not
-      // part of the message transcript).
+      ev = JSON.parse(line) as SessionEvent;
     } catch {
-      // ignore malformed lines
+      skippedMalformedLines++;
+      continue;
     }
+    if (ev.type === "user_message") {
+      messages.push({ role: "user", content: ev.content });
+    } else if (ev.type === "assistant_chunk") {
+      messages.push({ role: "assistant", content: ev.content });
+    } else if (ev.type === "tool_result") {
+      messages.push({ role: "tool", content: ev.content });
+    } else if (ev.type === "session_clear") {
+      messages.length = 0;
+    }
+    // session_meta, session_completed, metric, and unknown types: skip (not
+    // part of the message transcript).
   }
-  return cleanClose ? messages : repairDanglingToolCalls(messages);
+
+  // Always repair dangling tool calls. A trailing session_completed only means
+  // the log handle was closed — it does not guarantee every in-flight tool call
+  // was persisted (e.g. kill between assistant_chunk and tool_result).
+  const { messages: repaired, synthesized } = repairDanglingToolCalls(messages);
+  return {
+    messages: repaired,
+    repairs: { skippedMalformedLines, synthesizedToolResults: synthesized },
+  };
 }
 
 /**
@@ -90,7 +122,10 @@ export function replayLog(path: string): Message[] {
  * provider call then fails with "Tool results are missing for tool calls …".
  * Filling the gaps keeps a resumed session well-formed and visible.
  */
-export function repairDanglingToolCalls(messages: Message[]): Message[] {
+export function repairDanglingToolCalls(messages: Message[]): {
+  messages: Message[];
+  synthesized: number;
+} {
   const resolved = new Set<string>();
   for (const msg of messages) {
     if (msg.role !== "tool") continue;
@@ -99,6 +134,7 @@ export function repairDanglingToolCalls(messages: Message[]): Message[] {
     }
   }
 
+  let synthesized = 0;
   const repaired: Message[] = [];
   for (const msg of messages) {
     repaired.push(msg);
@@ -107,6 +143,7 @@ export function repairDanglingToolCalls(messages: Message[]): Message[] {
     for (const block of msg.content) {
       if (block.type !== "toolCall" || resolved.has(block.id)) continue;
       resolved.add(block.id);
+      synthesized++;
       fillers.push({
         type: "toolResult",
         toolCallId: block.id,
@@ -117,7 +154,43 @@ export function repairDanglingToolCalls(messages: Message[]): Message[] {
     }
     if (fillers.length) repaired.push({ role: "tool", content: fillers });
   }
-  return repaired;
+  return { messages: repaired, synthesized };
+}
+
+/**
+ * Verify that every assistant tool call has a matching tool result and that
+ * tool-call turns are followed by a tool message. Used after replay repair.
+ */
+export function validateTranscriptShape(messages: Message[]): string[] {
+  const resolved = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "tool") continue;
+    for (const block of msg.content) {
+      if (block.type === "toolResult") resolved.add(block.toolCallId);
+    }
+  }
+
+  const issues: string[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+    const toolCalls = msg.content.filter(
+      (c): c is Extract<ContentBlock, { type: "toolCall" }> => c.type === "toolCall",
+    );
+    if (toolCalls.length === 0) continue;
+
+    const next = messages[i + 1];
+    if (!next || next.role !== "tool") {
+      issues.push(`assistant message at index ${i} has tool calls but is not followed by a tool message`);
+    }
+    for (const call of toolCalls) {
+      if (!resolved.has(call.id)) {
+        issues.push(`unresolved tool call ${call.id}`);
+      }
+    }
+  }
+
+  return issues;
 }
 
 /** Replay a session log's persisted checkpoints so /restore works after resume. */
